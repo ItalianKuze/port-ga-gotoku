@@ -637,7 +637,45 @@ static ABI int32_t playgo_locus(int32_t handle,const uint16_t *ids,uint32_t coun
     }
     return 0;
 }
-static ABI int32_t playgo_speed(int32_t handle,int32_t speed) { (void)speed; return handle==playgo_handle && handle ? 0 : PLAYGO_BAD_HANDLE; }
+/* Install speed as shadPS4 keeps it: TRICKLE (1) until the game sets another; SUSPENDED (0)
+ * goes back to TRICKLE after 30 s. Nothing is downloading, so the value is only reported back. */
+static int32_t playgo_install_speed=1;
+static uint64_t playgo_suspended_at;
+static uint64_t playgo_now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000+(uint64_t)t.tv_nsec/1000000; }
+static ABI int32_t playgo_speed(int32_t handle,int32_t speed) {
+    if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
+    if (!playgo_initialized) return PLAYGO_NOT_INITIALIZED;
+    if (speed<0 || speed>2) return PLAYGO_INVALID_ARGUMENT;
+    playgo_install_speed=speed;
+    if (speed==0) playgo_suspended_at=playgo_now_ms();
+    return 0;
+}
+static ABI int32_t playgo_get_speed(int32_t handle,int32_t *speed) {
+    if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
+    if (!speed) return PLAYGO_BAD_POINTER;
+    if (!playgo_initialized) return PLAYGO_NOT_INITIALIZED;
+    if (playgo_install_speed==0 && playgo_now_ms()-playgo_suspended_at>30000) playgo_install_speed=1;
+    *speed=playgo_install_speed;
+    return 0;
+}
+/* Every chunk is local, so nothing is left to install: ETA 0, as shadPS4. */
+static ABI int32_t playgo_get_eta(int32_t handle,const uint16_t *ids,uint32_t count,int64_t *eta) {
+    if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
+    if (!ids || !eta) return PLAYGO_BAD_POINTER;
+    if (!count) return PLAYGO_BAD_SIZE;
+    *eta=0;
+    return 0;
+}
+static ABI int32_t playgo_close(int32_t handle) {
+    if (handle!=playgo_handle || !handle) return PLAYGO_BAD_HANDLE;
+    if (!playgo_initialized) return PLAYGO_NOT_INITIALIZED;
+    return 0;
+}
+static ABI int32_t playgo_terminate(void) {
+    if (!playgo_initialized) return PLAYGO_NOT_INITIALIZED;
+    playgo_initialized=0; playgo_handle=0;
+    return 0;
+}
 
 /* ---- DiscMap: the game is fully installed, no disc bitmap exists ---- */
 #define DISC_MAP_NO_BITMAP ((int32_t)0x81100004)
@@ -794,6 +832,8 @@ static const RuntimeExport exports[]={
     {"scePlayGoInitialize",playgo_init}, {"scePlayGoOpen",playgo_open}, {"scePlayGoGetChunkId",playgo_chunk_ids},
     {"scePlayGoGetToDoList",playgo_todo},
     {"scePlayGoGetLocus",playgo_locus}, {"scePlayGoSetInstallSpeed",playgo_speed},
+    {"scePlayGoGetInstallSpeed",playgo_get_speed}, {"scePlayGoGetEta",playgo_get_eta},
+    {"scePlayGoClose",playgo_close}, {"scePlayGoTerminate",playgo_terminate},
     {"sceMouseInit",ok_void}, {"sceMouseOpen",mouse_open}, {"sceMouseRead",mouse_read}, {"sceMouseClose",mouse_close},
     {"sceAudioInOpen",audio_in_open},
     {"sceDiscMapIsRequestOnHDD",discmap_on_hdd}, {"sceDiscMap_8A828CAEE7EDD5E9",discmap_8a82},

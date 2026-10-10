@@ -1076,3 +1076,7 @@
 {"3k6kx-zOOSQ#G#E","sceKernelMlock"},
 {"NhpspxdjEKU#G#E","nanosleep"},
 {"How7B8Oet6k#G#E","scePthreadGetname"},
+{"Uco1I0dlDi8#d#b","scePlayGoClose"},
+{"v6EZ-YWRdMs#d#b","scePlayGoGetEta"},
+{"rvBSfTimejE#d#b","scePlayGoGetInstallSpeed"},
+{"MPe0EeBGM-E#d#b","scePlayGoTerminate"},
