@@ -108,6 +108,11 @@ static int host_flags(int flags) {
     if (flags&0x400) r|=O_TRUNC;
     if (flags&0x800) r|=O_EXCL;
     if (flags&0x20000) r|=O_DIRECTORY;
+#ifdef O_BINARY
+    /* Windows CRT: without O_BINARY a file opens in text mode, where reads turn CRLF into LF and
+     * stop at the first 0x1A byte -- Hokuto's data/shader/sh_devil_ps4.par has one at 82317. */
+    r|=O_BINARY;
+#endif
     return r|O_CLOEXEC;
 }
 static void free_listing(Listing *l) { if (l) { free(l->names); free(l->offsets); free(l->types); free(l); } }
@@ -220,8 +225,10 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     }
     return fd;
 }
+static int64_t traced_fd(const char *op,int fd,uint64_t size,int64_t offset,int64_t result);
 static int64_t do_close(int fd) {
     if (fd>=0 && fd<3) return 0;
+    traced_fd("close",fd,0,0,0);
     pthread_mutex_lock(&lock);
     File *f=get(fd);
     if (!f) { pthread_mutex_unlock(&lock); return -EBADF; }
@@ -234,6 +241,14 @@ static int host_fd(int fd) {
     if (fd>=0 && fd<3) return fd;
     File *f=get(fd);
     return f ? f->host : -1;
+}
+/* BB_FILE_TRACE: an operation on an open descriptor, named by the guest path it was opened as. */
+static int64_t traced_fd(const char *op,int fd,uint64_t size,int64_t offset,int64_t result) {
+    if (!file_trace()) return result;
+    File *f=fd>=3 ? get(fd) : NULL;
+    printf("FileTrace: %s fd %d (%s) size %llu off %lld = %lld\n",op,fd,f ? f->path : "?",
+           (unsigned long long)size,(long long)offset,(long long)result);
+    return result;
 }
 /* The GPU side is told of the write first (runtime_memory_note_write: its tracking unprotects the
  * range). Pages protected again meanwhile would make the kernel's copy fail with EFAULT instead
@@ -252,6 +267,7 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     runtime_memory_note_write((uintptr_t)buffer,size);
     touch_for_write(buffer,size);
     ssize_t n=read(h,buffer,size);
+    traced_fd("read",fd,size,-1,n<0 ? -errno : n);
     if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,errno); return -errno; }
     if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n); /* and once the data is there */
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
@@ -263,6 +279,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     runtime_memory_note_write((uintptr_t)buffer,size);
     touch_for_write(buffer,size);
     ssize_t n=pread(h,buffer,size,offset);
+    traced_fd("pread",fd,size,offset,n<0 ? -errno : n);
     if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,errno); return -errno; }
     if (n>0) runtime_memory_note_write((uintptr_t)buffer,(uint64_t)n); /* and once the data is there */
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
@@ -292,7 +309,7 @@ static int64_t do_lseek(int fd,int64_t offset,int whence) {
         return -EINVAL;
     }
     off_t r=lseek(f->host,offset,whence);
-    return r<0 ? -errno : r;
+    return traced_fd(whence==0 ? "lseek_set" : whence==1 ? "lseek_cur" : "lseek_end",fd,0,offset,r<0 ? -errno : r);
 }
 static int64_t do_fstat(int fd,GuestStat *out) {
     int h=host_fd(fd);
