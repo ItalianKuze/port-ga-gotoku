@@ -48,6 +48,7 @@ static HANDLE watchdog_thread;
 static DWORD WINAPI watchdog_proc(LPVOID seconds);
 #endif
 
+uintptr_t import_trace_wrap(const char *nid, uintptr_t target);
 static void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message); exit(1); }
 
 /* The game's code was compiled for the PS4's CPU (AMD Jaguar) and runs as it is: AVX, BMI1
@@ -953,6 +954,8 @@ int main(int argc, char **argv) {
                         : (uintptr_t)image + relocs[i].value;
         if (relocs[i].kind) {
             uintptr_t resolved = runtime_resolve(names[relocs[i].value], relocs[i].kind == 2);
+            /* BB_IMPORT_TRACE: function imports go through a logging stub (import_trace.c). */
+            if (resolved && relocs[i].kind == 1 && !relocs[i].addend) resolved = import_trace_wrap(names[relocs[i].value], resolved);
             if (resolved) value = resolved + relocs[i].addend;
             else if (native_libc && bindings[relocs[i].value]) {
                 uint64_t address=bindings[relocs[i].value];

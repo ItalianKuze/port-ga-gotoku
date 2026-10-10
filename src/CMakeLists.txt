@@ -49,6 +49,7 @@ set(RUNTIME_SOURCES
     "${BBPORT_SRC}/runtime_rtc.c"
     "${BBPORT_SRC}/runtime_savedata.c"
     "${BBPORT_SRC}/runtime_file.c"
+    "${BBPORT_SRC}/import_trace.c"
     "${BBPORT_SRC}/vulkan_smoke.c")
 
 add_library(bbport_runtime SHARED ${RUNTIME_SOURCES} ${ATRAC9_SOURCES})
