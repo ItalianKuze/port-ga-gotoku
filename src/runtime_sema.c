@@ -203,7 +203,7 @@ uintptr_t runtime_sema_resolve(const char *name) {
     if (!strcmp(name,"4czppHBiriw#p#J") || !strcmp(name,"4czppHBiriw#G#E")) return (uintptr_t)sem_signal;
     if (!strcmp(name,"12wOHk8ywb0#p#J") || !strcmp(name,"12wOHk8ywb0#G#E")) return (uintptr_t)sem_poll;
     if (!strcmp(name,"4DM06U2BNEY#p#J")) return (uintptr_t)sem_cancel;
-    if (!strcmp(name,"R1Jvn8bSCW8#p#J")) return (uintptr_t)sem_delete;
+    if (!strcmp(name,"R1Jvn8bSCW8#p#J") || !strcmp(name,"R1Jvn8bSCW8#G#E")) return (uintptr_t)sem_delete;
     return 0;
 }
 void runtime_sema_report(void) {

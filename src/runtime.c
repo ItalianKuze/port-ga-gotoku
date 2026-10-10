@@ -217,13 +217,13 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "3GPpjQdAMTw#q#q")) return (uintptr_t)guard_acquire;
     if (!strcmp(name, "9rAeANT2tyE#q#q")) return (uintptr_t)guard_release;
     if (!strcmp(name, "2emaaluWzUw#q#q")) return (uintptr_t)guard_abort;
-    if (!strcmp(name, "Ou3iL1abvng#p#J")) return (uintptr_t)stack_fail;
+    if (!strcmp(name, "Ou3iL1abvng#p#J") || !strcmp(name,"Ou3iL1abvng#G#E")) return (uintptr_t)stack_fail;
     if (!strcmp(name, "8zTFvBIAIN8#q#q")) return (uintptr_t)guest_memset;
     if (!strcmp(name, "Q3VBxCXhUHs#q#q")) return (uintptr_t)guest_memcpy;
     if (!strcmp(name, "+P6FRGH4LfA#q#q")) return (uintptr_t)guest_memmove;
     if (!strcmp(name, "DfivPArhucg#q#q")) return (uintptr_t)guest_memcmp;
     if (!strcmp(name, "j4ViWNHEgww#q#q")) return (uintptr_t)guest_strlen;
-    if (!strcmp(name, "vNe1w4diLCs#p#J")) return (uintptr_t)guest_tls_get_addr;
+    if (!strcmp(name, "vNe1w4diLCs#p#J") || !strcmp(name,"vNe1w4diLCs#G#E")) return (uintptr_t)guest_tls_get_addr;
     if (!strcmp(name, "959qrazPIrg#p#J") || !strcmp(name, "959qrazPIrg#G#E"))
         return (uintptr_t)guest_procparam;
     if (!strcmp(name, "p5EcQeEeJAE#p#J") || !strcmp(name, "p5EcQeEeJAE#G#E"))

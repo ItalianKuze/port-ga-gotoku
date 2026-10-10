@@ -143,13 +143,13 @@ static ABI int32_t rw_destroy(Rwlock **handle) {
     pthread_mutex_unlock(&registry_lock); return error(e);
 }
 uintptr_t runtime_rwlock_resolve(const char *name) {
-    if (!strcmp(name,"6ULAa0fq4jA#p#J")) return (uintptr_t)rw_init;
-    if (!strcmp(name,"BB+kb08Tl9A#p#J")) return (uintptr_t)rw_destroy;
-    if (!strcmp(name,"Ox9i0c7L5w0#p#J")) return (uintptr_t)rw_read;
-    if (!strcmp(name,"mqdNorrB+gI#p#J")) return (uintptr_t)rw_write;
-    if (!strcmp(name,"XD3mDeybCnk#p#J")) return (uintptr_t)rw_tryread;
-    if (!strcmp(name,"bIHoZCTomsI#p#J")) return (uintptr_t)rw_trywrite;
-    if (!strcmp(name,"+L98PIbGttk#p#J")) return (uintptr_t)rw_unlock;
+    if (!strcmp(name,"6ULAa0fq4jA#p#J") || !strcmp(name,"6ULAa0fq4jA#G#E")) return (uintptr_t)rw_init;
+    if (!strcmp(name,"BB+kb08Tl9A#p#J") || !strcmp(name,"BB+kb08Tl9A#G#E")) return (uintptr_t)rw_destroy;
+    if (!strcmp(name,"Ox9i0c7L5w0#p#J") || !strcmp(name,"Ox9i0c7L5w0#G#E")) return (uintptr_t)rw_read;
+    if (!strcmp(name,"mqdNorrB+gI#p#J") || !strcmp(name,"mqdNorrB+gI#G#E")) return (uintptr_t)rw_write;
+    if (!strcmp(name,"XD3mDeybCnk#p#J") || !strcmp(name,"XD3mDeybCnk#G#E")) return (uintptr_t)rw_tryread;
+    if (!strcmp(name,"bIHoZCTomsI#p#J") || !strcmp(name,"bIHoZCTomsI#G#E")) return (uintptr_t)rw_trywrite;
+    if (!strcmp(name,"+L98PIbGttk#p#J") || !strcmp(name,"+L98PIbGttk#G#E")) return (uintptr_t)rw_unlock;
     if (!strcmp(name,"iPtZRWICjrM#p#J")) return (uintptr_t)rw_timedread;
     if (!strcmp(name,"adh--6nIqTk#p#J")) return (uintptr_t)rw_timedwrite;
     return 0;

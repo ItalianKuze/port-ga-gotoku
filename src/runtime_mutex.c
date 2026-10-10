@@ -263,10 +263,10 @@ uintptr_t runtime_mutex_resolve(const char *name) {
     if (!strcmp(name,"2MOy+rUfuhQ#I#J")) return (uintptr_t)posix_cond_signal;
     if (!strcmp(name,"mkx2fVhNMsg#I#J")) return (uintptr_t)posix_cond_broadcast;
     if (!strcmp(name,"2Tb92quprl0#p#J") || !strcmp(name,"2Tb92quprl0#G#E")) return (uintptr_t)cond_init;
-    if (!strcmp(name,"g+PZd2hiacg#p#J")) return (uintptr_t)cond_destroy;
+    if (!strcmp(name,"g+PZd2hiacg#p#J") || !strcmp(name,"g+PZd2hiacg#G#E")) return (uintptr_t)cond_destroy;
     if (!strcmp(name,"WKAXJ4XBPQ4#p#J") || !strcmp(name,"WKAXJ4XBPQ4#G#E")) return (uintptr_t)cond_wait;
-    if (!strcmp(name,"BmMjYxmew1w#p#J")) return (uintptr_t)cond_timedwait;
-    if (!strcmp(name,"kDh-NfxgMtE#p#J")) return (uintptr_t)cond_signal;
+    if (!strcmp(name,"BmMjYxmew1w#p#J") || !strcmp(name,"BmMjYxmew1w#G#E")) return (uintptr_t)cond_timedwait;
+    if (!strcmp(name,"kDh-NfxgMtE#p#J") || !strcmp(name,"kDh-NfxgMtE#G#E")) return (uintptr_t)cond_signal;
     if (!strcmp(name,"JGgj7Uvrl+A#p#J") || !strcmp(name,"JGgj7Uvrl+A#G#E")) return (uintptr_t)cond_broadcast;
     if (!strcmp(name,"IafI2PxcPnQ#p#J")) return (uintptr_t)mutex_timedlock;
     if (!strcmp(name,"dQHWEsJtoE4#I#J")) return (uintptr_t)posix_attr_init;
@@ -283,7 +283,7 @@ uintptr_t runtime_mutex_resolve(const char *name) {
     if (!strcmp(name, "1FGvU0i9saQ#p#J") || !strcmp(name, "1FGvU0i9saQ#G#E")) return (uintptr_t)attr_protocol;
     if (!strcmp(name, "cmo1RIYva9o#p#J") || !strcmp(name, "cmo1RIYva9o#G#E")) return (uintptr_t)mutex_init;
     if (!strcmp(name, "9UK1vLZQft4#p#J") || !strcmp(name, "9UK1vLZQft4#G#E")) return (uintptr_t)mutex_lock;
-    if (!strcmp(name, "upoVrzMHFeE#p#J")) return (uintptr_t)mutex_trylock;
+    if (!strcmp(name, "upoVrzMHFeE#p#J") || !strcmp(name,"upoVrzMHFeE#G#E")) return (uintptr_t)mutex_trylock;
     if (!strcmp(name, "tn3VlD0hG60#p#J") || !strcmp(name, "tn3VlD0hG60#G#E")) return (uintptr_t)mutex_unlock;
     if (!strcmp(name, "2Of0f+3mhhE#p#J") || !strcmp(name, "2Of0f+3mhhE#G#E")) return (uintptr_t)mutex_destroy;
     return 0;
