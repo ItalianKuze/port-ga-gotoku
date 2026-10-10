@@ -25,8 +25,26 @@ export XDG_DATA_HOME="$data"
 cd "$run" || exit 1
 echo "== launching (game=$game) =="
 # shellcheck disable=SC2086
-timeout "$(( timeout_s ? timeout_s + 60 : 0 ))" ./bb-probe.exe "$out/boot-linked.bin" \
+./bb-probe.exe "$out/boot-linked.bin" \
     --content-profile "$out/content.bin" \
     --app0 "$game" --user "$data/user" \
-    --timeout "$timeout_s" ${BB_ARGS:-} 2>&1
+    --timeout "$timeout_s" ${BB_ARGS:-} 2>&1 &
+probe=$!
+# Last-resort net if the watchdog itself hangs: MSYS `timeout` does not stop a native process, so
+# kill it (and any child process) by its Windows PID once BB_TIMEOUT+60 s have passed.
+if (( timeout_s )); then
+    winpid=$(cat "/proc/$probe/winpid" 2>/dev/null)
+    for ((waited = 0; waited < timeout_s + 60; waited++)); do
+        kill -0 "$probe" 2>/dev/null || break
+        sleep 1
+    done
+    if kill -0 "$probe" 2>/dev/null && [[ -n $winpid ]]; then
+        echo "== external timeout after $((timeout_s + 60)) s: taskkill //PID $winpid //T //F =="
+        taskkill //PID "$winpid" //T //F
+        sleep 1
+        tasklist //FI "PID eq $winpid" | grep -q bb-probe && echo "== bb-probe $winpid STILL RUNNING ==" \
+                                                      || echo "== bb-probe $winpid gone =="
+    fi
+fi
+wait "$probe"
 echo "== exit: $? =="
