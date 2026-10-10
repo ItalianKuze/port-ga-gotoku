@@ -168,6 +168,13 @@ static File *get(int fd) {
 }
 /* BB_AUDIO_TRACE=1: sound file opens and failed reads (missing game sounds). */
 static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("BB_AUDIO_TRACE"); v=e && e[0]=='1'; } return v; }
+/* BB_FILE_TRACE=1: every open/stat/access with its guest path, host path and result
+ * (fd or -errno), to compare file access between builds. */
+static int file_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("BB_FILE_TRACE"); v=e && e[0]=='1'; } return v; }
+static int64_t traced(const char *op,const char *guest,const char *host,int64_t result) {
+    if (file_trace()) printf("FileTrace: %s %s -> %s = %lld\n",op,guest ? guest : "(null)",host ? host : "-",(long long)result);
+    return result;
+}
 /* Game mounts (including linked mod overlays) are read-only. Saves use other mounts. */
 static int game_path(const char *p) {
     if (!p || !*p) return 0;
@@ -177,16 +184,17 @@ static int game_path(const char *p) {
 }
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
 static int64_t do_open(const char *guest,int flags,int mode) {
-    if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
+    if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return traced("open",guest,NULL,-EROFS);
     char path[1024];
     int e=translate(guest,path,sizeof(path));
-    if (e) return -e;
+    if (e) return traced("open",guest,NULL,-e);
     int host=open(path,host_flags(flags),mode ? mode : 0644);
     if (host<0) {
         e=errno;
         if (e==ENOENT) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
-        return -e;
+        return traced("open",guest,path,-e);
     }
+    traced("open",guest,path,host);
     struct stat s;
     Listing *dir=NULL;
     if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path);
@@ -297,10 +305,10 @@ static int64_t do_fstat(int fd,GuestStat *out) {
 static int64_t do_stat(const char *guest,GuestStat *out) {
     char path[1024]; struct stat s;
     int e=translate(guest,path,sizeof(path));
-    if (e) return -e;
+    if (e) return traced("stat",guest,NULL,-e);
     if (!out) return -EFAULT;
-    if (stat(path,&s)) return -errno;
-    convert_stat(&s,out); return 0;
+    if (stat(path,&s)) return traced("stat",guest,path,-errno);
+    convert_stat(&s,out); return traced("stat",guest,path,0);
 }
 static int64_t do_getdents(int fd,char *buffer,uint64_t size,int64_t *basep) {
     pthread_mutex_lock(&lock);
@@ -363,8 +371,8 @@ static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; ret
 static int64_t do_access(const char *guest,int mode) {
     char path[1024];
     int e=translate(guest,path,sizeof(path));
-    if (e) return -e;
-    return access(path,mode&7) ? -errno : 0;
+    if (e) return traced("access",guest,NULL,-e);
+    return traced("access",guest,path,access(path,mode&7) ? -errno : 0);
 }
 
 /* Convention adapters: sceKernel* -> Orbis error codes, POSIX -> -1 + errno. */

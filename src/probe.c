@@ -34,6 +34,7 @@ typedef struct { uint64_t target, kind, value, addend; } Reloc;
 static char (*names)[128];
 static uint64_t import_count;
 static unsigned char *image;
+static uint64_t image_span; /* mapped bytes of the guest image, for the watchdog */
 static size_t page_size;
 typedef struct { uint64_t base, size, init, tls_address, tls_memsz, tls_filesz, tls_module; } LinkedModule;
 static LinkedModule modules[16];
@@ -416,49 +417,128 @@ static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
  * signals each thread into its own stack dumper; here the threads are suspended and their
  * contexts read directly, which gives the same information for a hang. */
 static DWORD WINAPI watchdog_proc(LPVOID seconds) {
-    Sleep((DWORD)(uintptr_t)seconds * 1000u);
+    Sleep(*(const unsigned *)seconds * 1000u); /* seconds points at timeout_seconds */
     const char head[] = "STOP: watchdog timeout; thread stacks:\n";
     DWORD written;
     HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
     WriteFile(err, head, (DWORD)(sizeof(head) - 1), &written, NULL);
 
+    /* Every thread of this process, like the Linux dumper: CPU used in the last second (busy loop
+     * or wait), the first argument registers (rdi for guest System V code, rcx for host Win64 code:
+     * the object a waiting thread blocks on), RIP and the rbp chain (guest code keeps frames), then
+     * return addresses found on the stack for host code that does not. */
+    enum { MAX_THREADS = 512, WORDS = 2048, FRAMES = 24 };
+    static DWORD tids[MAX_THREADS];
+    static uint64_t cpu_before[MAX_THREADS];
+    size_t thread_count = 0;
+    const DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (snapshot != INVALID_HANDLE_VALUE) {
         THREADENTRY32 te;
-        DWORD self = GetCurrentThreadId();
         te.dwSize = sizeof(te);
         if (Thread32First(snapshot, &te)) {
             do {
-                if (te.th32ThreadID == self) continue;
-                HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
-                                      FALSE, te.th32ThreadID);
-                if (!t) continue;
-                char line[160];
-                if (SuspendThread(t) != (DWORD)-1) {
-                    CONTEXT ctx;
-                    memset(&ctx, 0, sizeof(ctx));
-                    ctx.ContextFlags = CONTEXT_CONTROL;
-                    if (GetThreadContext(t, &ctx)) {
-                        uintptr_t rip = (uintptr_t)ctx.Rip;
-                        if (image && rip - (uintptr_t)image < 0x10000000)
-                            snprintf(line, sizeof(line), "  tid %lu: guest +0x%llx\n",
-                                     (unsigned long)te.th32ThreadID,
-                                     (unsigned long long)(rip - (uintptr_t)image));
-                        else
-                            snprintf(line, sizeof(line), "  tid %lu: host RIP %p\n",
-                                     (unsigned long)te.th32ThreadID, (void *)rip);
-                        WriteFile(err, line, (DWORD)strlen(line), &written, NULL);
-                    }
-                    ResumeThread(t);
-                }
-                CloseHandle(t);
+                if (te.th32OwnerProcessID == pid && te.th32ThreadID != self && thread_count < MAX_THREADS)
+                    tids[thread_count++] = te.th32ThreadID;
             } while (Thread32Next(snapshot, &te));
         }
         CloseHandle(snapshot);
     }
+    for (size_t k = 0; k < thread_count; ++k) {
+        FILETIME c, e, kt, ut;
+        HANDLE t = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tids[k]);
+        cpu_before[k] = t && GetThreadTimes(t, &c, &e, &kt, &ut)
+            ? (((uint64_t)kt.dwHighDateTime << 32 | kt.dwLowDateTime) + ((uint64_t)ut.dwHighDateTime << 32 | ut.dwLowDateTime))
+            : 0;
+        if (t) CloseHandle(t);
+    }
+    Sleep(1000);
+    typedef HRESULT (WINAPI *GetThreadDescriptionFn)(HANDLE, PWSTR *);
+    GetThreadDescriptionFn describe = (GetThreadDescriptionFn)(void *)GetProcAddress(
+        GetModuleHandleW(L"kernelbase.dll"), "GetThreadDescription");
+    for (size_t k = 0; k < thread_count; ++k) {
+        HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+                              FALSE, tids[k]);
+        if (!t) continue;
+        /* Copy everything while suspended, resolve modules after resuming: a suspended thread
+         * may hold the loader lock that GetModuleHandleEx takes. */
+        static uint64_t words[WORDS];
+        uintptr_t chain[FRAMES];
+        size_t chain_count = 0;
+        SIZE_T got = 0;
+        CONTEXT ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+        int have = 0;
+        uint64_t cpu_after = 0;
+        if (SuspendThread(t) != (DWORD)-1) {
+            if (GetThreadContext(t, &ctx)) {
+                have = 1;
+                ReadProcessMemory(GetCurrentProcess(), (void *)(uintptr_t)ctx.Rsp, words, sizeof(words), &got);
+                uintptr_t rbp = (uintptr_t)ctx.Rbp;
+                while (chain_count < FRAMES && rbp) {
+                    uintptr_t frame[2];
+                    SIZE_T n = 0;
+                    if (!ReadProcessMemory(GetCurrentProcess(), (void *)rbp, frame, sizeof(frame), &n) ||
+                        n != sizeof(frame) || frame[0] <= rbp)
+                        break;
+                    chain[chain_count++] = frame[1];
+                    rbp = frame[0];
+                }
+            }
+            FILETIME c, e, kt, ut;
+            if (GetThreadTimes(t, &c, &e, &kt, &ut))
+                cpu_after = ((uint64_t)kt.dwHighDateTime << 32 | kt.dwLowDateTime) + ((uint64_t)ut.dwHighDateTime << 32 | ut.dwLowDateTime);
+            ResumeThread(t);
+        }
+        char name[64] = "";
+        PWSTR wide = NULL;
+        if (describe && SUCCEEDED(describe(t, &wide)) && wide) {
+            WideCharToMultiByte(CP_UTF8, 0, wide, -1, name, sizeof(name), NULL, NULL);
+            LocalFree(wide);
+        }
+        CloseHandle(t);
+        if (!have) continue;
+        char line[400];
+        snprintf(line, sizeof(line), "  tid %lu '%s' cpu=%llums/1s rdi=%#llx rcx=%#llx rdx=%#llx\n",
+                 (unsigned long)tids[k], name,
+                 (unsigned long long)(cpu_after > cpu_before[k] ? (cpu_after - cpu_before[k]) / 10000 : 0),
+                 (unsigned long long)ctx.Rdi, (unsigned long long)ctx.Rcx, (unsigned long long)ctx.Rdx);
+        WriteFile(err, line, (DWORD)strlen(line), &written, NULL);
+        /* rip, the rbp chain, then up to 12 code addresses found on the stack. */
+        int scanned = 0;
+        for (size_t i = 0; i < 1 + chain_count + got / 8 && scanned < 20; ++i) {
+            const int in_chain = i <= chain_count;
+            const uintptr_t a = i == 0 ? (uintptr_t)ctx.Rip : in_chain ? chain[i - 1] : (uintptr_t)words[i - 1 - chain_count];
+            const char *what = i == 0 ? "rip  " : in_chain ? "frame" : "stack";
+            HMODULE module = NULL;
+            char mod[MAX_PATH];
+            MEMORY_BASIC_INFORMATION info;
+            const int code = a > 0x10000 && VirtualQuery((void *)a, &info, sizeof(info)) && info.State == MEM_COMMIT &&
+                             (info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+            if (!in_chain && !code) continue; /* stack words that are not code addresses */
+            if (image && a - (uintptr_t)image < image_span) {
+                snprintf(line, sizeof(line), "     %s guest+0x%llx\n", what, (unsigned long long)(a - (uintptr_t)image));
+            } else if (a > 0x10000 && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                                         (LPCSTR)a, &module) && module &&
+                       GetModuleFileNameA(module, mod, sizeof(mod))) {
+                const char *base = strrchr(mod, '\\');
+                snprintf(line, sizeof(line), "     %s %s+0x%llx\n", what, base ? base + 1 : mod,
+                         (unsigned long long)(a - (uintptr_t)module));
+            } else if (in_chain) {
+                snprintf(line, sizeof(line), "     %s %p\n", what, (void *)a);
+            } else {
+                continue;
+            }
+            if (!in_chain) ++scanned;
+            WriteFile(err, line, (DWORD)strlen(line), &written, NULL);
+        }
+    }
     WriteFile(err, "none reported\n", 14, &written, NULL);
-    fflush(NULL);
-    _exit(128 + 14); /* SIGALRM */
+    /* Not fflush/_exit: ExitProcess runs DLL detach under the loader lock and stdio takes stream
+     * locks, either of which a hung thread may hold. The streams are unbuffered (bbport_main). */
+    TerminateProcess(GetCurrentProcess(), 128 + 14); /* SIGALRM */
     return 0;
 }
 #endif
@@ -849,6 +929,7 @@ int main(int argc, char **argv) {
             executable_entry = 1;
     }
     if (!executable_entry) fail("entry is not executable");
+    image_span = round_page(size);
     fprintf(stderr, "Probe regions: image [%p,%p), trampolines [%p,%p), data traps [%p,%p) PROT_NONE\n",
             image, image + round_page(size), traps,
             traps + round_page((import_count + 1) * 32), data_traps,
