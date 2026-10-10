@@ -486,11 +486,28 @@ static ABI int32_t pad_close(int32_t handle) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     opened=0; return 0;
 }
+/* BB_PAD_TRACE=1: what the game receives, printed whenever buttons, sticks, triggers, connection
+ * or the overlay's input capture change. */
+static void pad_trace(const PadData *d) {
+    static int enabled=-1, last_capture=-1; static PadData last;
+    if (enabled<0) enabled=getenv("BB_PAD_TRACE")!=NULL;
+    if (!enabled) return;
+    const int capture=bbgpu_overlay_captures_input();
+    if (capture==last_capture && d->buttons==last.buttons && d->left_x==last.left_x && d->left_y==last.left_y &&
+        d->right_x==last.right_x && d->right_y==last.right_y && d->l2==last.l2 && d->r2==last.r2 &&
+        d->connected==last.connected)
+        return;
+    printf("Pad trace: read %zu buttons 0x%08x L(%u,%u) R(%u,%u) L2 %u R2 %u connected %u overlay %s\n",
+           reads,(unsigned)d->buttons,d->left_x,d->left_y,d->right_x,d->right_y,d->l2,d->r2,d->connected,
+           capture ? "captures input" : "no");
+    last=*d; last_capture=capture;
+}
 static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     if (!data) return ERR_INVALID_ARG;
     pthread_mutex_lock(&lock);
     sample(data); ++reads;
+    pad_trace(data);
     pthread_mutex_unlock(&lock);
     return 0;
 }
