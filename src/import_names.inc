@@ -1082,3 +1082,7 @@
 {"MPe0EeBGM-E#d#b","scePlayGoTerminate"},
 {"E1Wrwd07Lr8#U#S","sceNpTrophyDestroyContext"},
 {"GNcF4oidY0Y#U#S","sceNpTrophyDestroyHandle"},
+{"I88KChlynSs#f#d","sceErrorDialogInitialize"},
+{"M2ZF-ClLhgY#f#d","sceErrorDialogOpen"},
+{"WWiGuh9XfgQ#f#d","sceErrorDialogUpdateStatus"},
+{"9XAxK2PMwk8#f#d","sceErrorDialogTerminate"},

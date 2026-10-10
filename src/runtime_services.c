@@ -358,6 +358,32 @@ static void msg_finish(uint32_t result, uint32_t button_id, const char *why) {
     MSG_DIALOG->status=3;
     printf("Runtime: MsgDialog answered: %s (result %u, buttonId %u)\n",why,result,button_id);
 }
+/* ErrorDialog, as shadPS4 (libraries/ime/error_dialog.cpp) without UI: Open logs the system error
+ * code and the dialog is dismissed at once (FINISHED), as if the user pressed OK.
+ * Param: s32 size, s32 errorCode, s32 userId, s32 reserved. */
+typedef struct { int32_t size, error_code, user_id, reserved; } ErrorDialogParam;
+static int32_t error_dialog_status; /* NONE 0, INITIALIZED 1, RUNNING 2, FINISHED 3 */
+static ABI int32_t error_dialog_init(void) {
+    if (error_dialog_status!=0) return (int32_t)0x80B80004;                          /* ALREADY_INITIALIZED */
+    error_dialog_status=1; return 0;
+}
+static ABI int32_t error_dialog_open(const ErrorDialogParam *p) {
+    if (error_dialog_status!=1 && error_dialog_status!=3) return (int32_t)0x80B80006; /* INVALID_STATE */
+    if (!p) return (int32_t)0x80B8000D;                                               /* ARG_NULL */
+    printf("Runtime: ErrorDialog opened: error code 0x%08X (user %d); dismissed (no dialog UI)\n",
+           (uint32_t)p->error_code,p->user_id);
+    error_dialog_status=3; return 0;
+}
+static ABI int32_t error_dialog_status_get(void) { return error_dialog_status; }
+static ABI int32_t error_dialog_close(void) {
+    if (error_dialog_status!=2) return (int32_t)0x80B8000B;                           /* NOT_RUNNING */
+    error_dialog_status=3; return 0;
+}
+static ABI int32_t error_dialog_term(void) {
+    if (error_dialog_status==2) error_dialog_close();
+    if (error_dialog_status==0) return (int32_t)0x80B80003;                           /* NOT_INITIALIZED */
+    error_dialog_status=0; return 0;
+}
 static ABI int32_t msg_init(void) { return dialog_init(1); }
 static ABI int32_t msg_open(const MsgDialogParam *p) {
     if (MSG_DIALOG->status!=1 && MSG_DIALOG->status!=3) return (int32_t)0x80B80006; /* INVALID_STATE */
@@ -832,6 +858,9 @@ static const RuntimeExport exports[]={
     {"sceMsgDialogInitialize",msg_init}, {"sceMsgDialogOpen",msg_open},
     {"sceMsgDialogUpdateStatus",msg_status}, {"sceMsgDialogTerminate",msg_term},
     {"sceMsgDialogGetStatus",msg_status}, {"sceMsgDialogGetResult",msg_get_result},
+    {"sceErrorDialogInitialize",error_dialog_init}, {"sceErrorDialogOpen",error_dialog_open},
+    {"sceErrorDialogUpdateStatus",error_dialog_status_get}, {"sceErrorDialogGetStatus",error_dialog_status_get},
+    {"sceErrorDialogClose",error_dialog_close}, {"sceErrorDialogTerminate",error_dialog_term},
     {"sceMsgDialogClose",msg_close}, {"sceMsgDialogProgressBarInc",msg_progress_inc},
     {"sceMsgDialogProgressBarSetValue",msg_progress_value}, {"sceMsgDialogProgressBarSetMsg",msg_progress_msg},
     {"sceSaveDataDialogInitialize",save_init}, {"sceSaveDataDialogOpen",save_open},
