@@ -317,7 +317,117 @@ static int32_t dialog_term(int i) {
     static ABI int32_t tag##_open(const void *p) { (void)p; return dialog_open(i); } \
     static ABI int32_t tag##_status(void) { return dialog_status(i); } \
     static ABI int32_t tag##_term(void) { return dialog_term(i); }
-DIALOG(msg,1) DIALOG(profile,3) DIALOG(commerce,4)
+DIALOG(profile,3) DIALOG(commerce,4)
+
+/* MsgDialog, as in shadPS4 (libraries/system/msgdialog.cpp) but without UI: a dialog with buttons
+ * is answered at once -- OK or YES, buttonId 1 (NO and the second button would be 2) -- and every
+ * dialog, its text and the answer given are logged. Dialogs without buttons (NONE, WAIT,
+ * WAIT_CANCEL) and progress bars stay RUNNING until the game closes them, as on the PS4.
+ * OrbisMsgDialogParam: BaseParam(48), size_t size, u32 mode, pad, then three pointers. */
+enum { MSG_USER=1, MSG_PROGRESS=2, MSG_SYSTEM=3 };
+enum { BTN_OK=0, BTN_YESNO=1, BTN_NONE=2, BTN_OK_CANCEL=3, BTN_WAIT=5, BTN_WAIT_CANCEL=6,
+       BTN_YESNO_FOCUS_NO=7, BTN_OK_CANCEL_FOCUS_CANCEL=8, BTN_TWO_BUTTONS=9 };
+typedef struct { const char *msg1, *msg2; char reserved[32]; } MsgButtonsParam;
+typedef struct { uint32_t button_type; int32_t pad; const char *msg; MsgButtonsParam *buttons; char reserved[24]; } MsgUserParam;
+typedef struct { uint32_t bar_type; int32_t pad; const char *msg; char reserved[64]; } MsgProgressParam;
+typedef struct { uint32_t type; char reserved[32]; } MsgSystemParam;
+typedef struct {
+    uint64_t base_size; uint8_t base_reserved[36]; uint32_t base_magic;
+    uint64_t size; uint32_t mode; int32_t pad;
+    MsgUserParam *user; MsgProgressParam *progress; MsgSystemParam *system;
+    int32_t user_id; char reserved[40]; int32_t pad2;
+} MsgDialogParam;
+typedef struct { uint32_t mode, result, button_id; char reserved[32]; } MsgDialogResult;
+_Static_assert(sizeof(MsgDialogParam)==136,"OrbisMsgDialogParam layout");
+_Static_assert(sizeof(MsgDialogResult)==44,"MsgDialog DialogResult layout");
+#define MSG_DIALOG (&dialogs[1])
+static MsgDialogResult msg_result;
+static const char *button_type_name(uint32_t t) {
+    static const char *names[]={"OK","YESNO","NONE","OK_CANCEL","?4","WAIT","WAIT_CANCEL",
+                                "YESNO_FOCUS_NO","OK_CANCEL_FOCUS_CANCEL","TWO_BUTTONS"};
+    return t<sizeof(names)/sizeof(*names) ? names[t] : "?";
+}
+/* The dialog text on one line, at most 200 characters. */
+static void msg_text(const char *text, char *out, size_t size) {
+    size_t n=0;
+    for (const char *p=text; p && *p && n+1<size && n<200; ++p) out[n++]=(*p=='\n' || *p=='\r') ? ' ' : *p;
+    out[n]=0;
+}
+static void msg_finish(uint32_t result, uint32_t button_id, const char *why) {
+    msg_result=(MsgDialogResult){.mode=0,.result=result,.button_id=button_id};
+    MSG_DIALOG->status=3;
+    printf("Runtime: MsgDialog answered: %s (result %u, buttonId %u)\n",why,result,button_id);
+}
+static ABI int32_t msg_init(void) { return dialog_init(1); }
+static ABI int32_t msg_open(const MsgDialogParam *p) {
+    if (MSG_DIALOG->status!=1 && MSG_DIALOG->status!=3) return (int32_t)0x80B80006; /* INVALID_STATE */
+    if (!p) return (int32_t)0x80B8000D;                                              /* ARG_NULL */
+    msg_result=(MsgDialogResult){0};
+    MSG_DIALOG->mode=p->mode; MSG_DIALOG->progress=0; MSG_DIALOG->status=2;         /* RUNNING */
+    char text[256]="";
+    if (p->mode==MSG_USER && p->user) {
+        const uint32_t type=p->user->button_type;
+        msg_text(p->user->msg,text,sizeof(text));
+        printf("Runtime: MsgDialog opened: USER_MSG, buttons %s, text \"%s\"\n",button_type_name(type),text);
+        if (type==BTN_TWO_BUTTONS && p->user->buttons) {
+            char b1[64], b2[64];
+            msg_text(p->user->buttons->msg1,b1,sizeof(b1)); msg_text(p->user->buttons->msg2,b2,sizeof(b2));
+            printf("Runtime: MsgDialog buttons: 1 \"%s\", 2 \"%s\"\n",b1,b2);
+        }
+        if (type==BTN_YESNO_FOCUS_NO || type==BTN_OK_CANCEL_FOCUS_CANCEL)
+            printf("Runtime: MsgDialog NOTE: the default focus is on %s; answering %s anyway\n",
+                   type==BTN_YESNO_FOCUS_NO ? "NO" : "CANCEL", type==BTN_YESNO_FOCUS_NO ? "YES" : "OK");
+        switch (type) {
+        case BTN_NONE: case BTN_WAIT: case BTN_WAIT_CANCEL:
+            puts("Runtime: MsgDialog has no buttons: stays open until the game closes it"); break;
+        case BTN_YESNO: case BTN_YESNO_FOCUS_NO: msg_finish(0,1,"YES"); break;
+        case BTN_TWO_BUTTONS: msg_finish(0,1,"button 1"); break;
+        default: msg_finish(0,1,"OK"); break;
+        }
+    } else if (p->mode==MSG_PROGRESS && p->progress) {
+        msg_text(p->progress->msg,text,sizeof(text));
+        printf("Runtime: MsgDialog opened: PROGRESS_BAR (type %u), text \"%s\"; open until closed\n",p->progress->bar_type,text);
+    } else if (p->mode==MSG_SYSTEM && p->system) {
+        printf("Runtime: MsgDialog opened: SYSTEM_MSG type %u\n",p->system->type);
+        msg_finish(0,1,"OK");
+    } else {
+        printf("Runtime: MsgDialog opened: mode %u without its parameters\n",p->mode);
+        msg_finish(0,1,"OK");
+    }
+    return 0;
+}
+static ABI int32_t msg_status(void) { return MSG_DIALOG->status; }
+static ABI int32_t msg_get_result(MsgDialogResult *result) {
+    if (MSG_DIALOG->status!=3) return (int32_t)0x80B80005;                           /* NOT_FINISHED */
+    if (!result) return (int32_t)0x80B8000D;                                         /* ARG_NULL */
+    *result=msg_result; return 0;
+}
+static ABI int32_t msg_close(void) {
+    if (MSG_DIALOG->status!=2) return (int32_t)0x80B8000B;                           /* NOT_RUNNING */
+    msg_finish(0,0,"closed by the game");
+    return 0;
+}
+static int32_t msg_progress_check(uint32_t target) {
+    if (MSG_DIALOG->status!=2) return (int32_t)0x80B8000B;                           /* NOT_RUNNING */
+    if (MSG_DIALOG->mode!=MSG_PROGRESS) return (int32_t)0x80B8000F;                  /* NOT_SUPPORTED */
+    if (target!=0) return (int32_t)0x80B8000A;                                       /* PARAM_INVALID */
+    return 0;
+}
+static ABI int32_t msg_progress_inc(uint32_t target, uint32_t delta) {
+    int32_t e=msg_progress_check(target); if (!e) MSG_DIALOG->progress+=delta; return e;
+}
+static ABI int32_t msg_progress_value(uint32_t target, uint32_t value) {
+    int32_t e=msg_progress_check(target); if (!e) MSG_DIALOG->progress=value; return e;
+}
+static ABI int32_t msg_progress_msg(uint32_t target, const char *text) {
+    int32_t e=msg_progress_check(target);
+    if (!e) { char t[256]; msg_text(text,t,sizeof(t)); printf("Runtime: MsgDialog progress text \"%s\"\n",t); }
+    return e;
+}
+static ABI int32_t msg_term(void) {
+    if (MSG_DIALOG->status==2) msg_close();
+    return dialog_term(1);
+}
 typedef struct { char data[32]; } SaveDialogDirName;
 typedef struct {
     uint32_t mode, result, button, pad;
@@ -660,6 +770,9 @@ static const RuntimeExport exports[]={
     {"sceCommonDialogInitialize",common_init},
     {"sceMsgDialogInitialize",msg_init}, {"sceMsgDialogOpen",msg_open},
     {"sceMsgDialogUpdateStatus",msg_status}, {"sceMsgDialogTerminate",msg_term},
+    {"sceMsgDialogGetStatus",msg_status}, {"sceMsgDialogGetResult",msg_get_result},
+    {"sceMsgDialogClose",msg_close}, {"sceMsgDialogProgressBarInc",msg_progress_inc},
+    {"sceMsgDialogProgressBarSetValue",msg_progress_value}, {"sceMsgDialogProgressBarSetMsg",msg_progress_msg},
     {"sceSaveDataDialogInitialize",save_init}, {"sceSaveDataDialogOpen",save_open},
     {"sceSaveDataDialogGetResult",save_result},
     {"sceSaveDataDialogIsReadyToDisplay",save_dialog_ready},
