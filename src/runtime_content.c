@@ -86,8 +86,8 @@ static ABI int32_t temporary_data_mount2(uint32_t option,AppContentMountPoint *m
 }
 uintptr_t runtime_content_resolve(const char *name) {
     if (!strcmp(name,"g8cM39EUZ6o#M#N") || !strcmp(name,"g8cM39EUZ6o#n#F")) return (uintptr_t)module_load;
-    if (!strcmp(name,"fMP5NHUOaMk#M#N")) return (uintptr_t)module_loaded;
-    if (!strcmp(name,"eR2bZFAAU0Q#M#N")) return (uintptr_t)module_unload;
+    if (!strcmp(name,"fMP5NHUOaMk#M#N") || !strcmp(name,"fMP5NHUOaMk#n#F")) return (uintptr_t)module_loaded;
+    if (!strcmp(name,"eR2bZFAAU0Q#M#N") || !strcmp(name,"eR2bZFAAU0Q#n#F")) return (uintptr_t)module_unload;
     if (!strcmp(name,"R9lA82OraNs#c#d") || !strcmp(name,"R9lA82OraNs#c#a"))
         return (uintptr_t)content_init;
     if (!strcmp(name,"99b82IKXpH4#c#d") || !strcmp(name,"99b82IKXpH4#c#a"))
