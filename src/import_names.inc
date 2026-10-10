@@ -1064,6 +1064,7 @@
 {"4J2sUJmuHZQ#G#E","sceKernelGetProcessTime"},
 {"lLMT9vJAck0#G#E","clock_gettime"},
 {"6xVpy0Fdq+I#G#E","_sigprocmask"},
+{"6XG4B33N09g#G#E","sched_yield"},
 {"aPcyptbOiZs#G#E","sigprocmask"},
 {"k+AXqu2-eBc#G#E","getpagesize"},
 {"BPE9s9vQQXo#G#E","mmap"},
