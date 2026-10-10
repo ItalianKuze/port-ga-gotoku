@@ -416,20 +416,97 @@ static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
 /* Watchdog thread: on timeout, report where every other thread is and exit. The Linux build
  * signals each thread into its own stack dumper; here the threads are suspended and their
  * contexts read directly, which gives the same information for a hang. */
+/* Everything below runs while other threads may be stopped holding the loader lock, the heap
+ * lock or a stdio lock, so it takes none: output is formatted by hand into a static buffer and
+ * written with WriteFile, memory is read with ReadProcessMemory (no fault on bad pointers),
+ * modules come from the PEB loader list read the same way, thread names from
+ * NtQueryInformationThread into a static buffer. */
+static HANDLE wd_err;
+static char wd_line[512];
+static size_t wd_len;
+static void wd_str(const char *s) { while (*s && wd_len < sizeof(wd_line) - 1) wd_line[wd_len++] = *s++; }
+static void wd_hex(uint64_t v) {
+    char b[19]; int n = 0;
+    do { b[n++] = "0123456789abcdef"[v & 15]; v >>= 4; } while (v);
+    wd_str("0x");
+    while (n && wd_len < sizeof(wd_line) - 1) wd_line[wd_len++] = b[--n];
+}
+static void wd_dec(uint64_t v) {
+    char b[21]; int n = 0;
+    do { b[n++] = (char)('0' + v % 10); v /= 10; } while (v);
+    while (n && wd_len < sizeof(wd_line) - 1) wd_line[wd_len++] = b[--n];
+}
+static void wd_flush(void) { DWORD w; wd_line[wd_len++] = '\n'; WriteFile(wd_err, wd_line, (DWORD)wd_len, &w, NULL); wd_len = 0; }
+static int wd_read(uintptr_t address, void *out, size_t size) {
+    SIZE_T got = 0;
+    return ReadProcessMemory(GetCurrentProcess(), (const void *)address, out, size, &got) && got == size;
+}
+typedef struct { uintptr_t base, size; char name[48]; } WdModule;
+static WdModule wd_modules[256];
+static size_t wd_module_count;
+/* Walks PEB->Ldr->InLoadOrderModuleList (x64 layout) and prints modules not seen before. */
+static void wd_scan_modules(void) {
+    uintptr_t peb = 0, ldr = 0, head, link;
+    if (!wd_read((uintptr_t)NtCurrentTeb() + 0x60, &peb, 8) || !wd_read(peb + 0x18, &ldr, 8)) return;
+    head = ldr + 0x10;
+    if (!wd_read(head, &link, 8)) return;
+    for (int guard = 0; link != head && guard < 1024 && wd_module_count < 256; ++guard) {
+        uintptr_t base = 0, next = 0, buffer = 0; uint32_t size = 0; uint16_t length = 0;
+        if (!wd_read(link, &next, 8) || !wd_read(link + 0x30, &base, 8) || !wd_read(link + 0x40, &size, 4) ||
+            !wd_read(link + 0x58, &length, 2) || !wd_read(link + 0x60, &buffer, 8))
+            break;
+        int known = 0;
+        for (size_t i = 0; i < wd_module_count; ++i) if (wd_modules[i].base == base) known = 1;
+        if (!known) {
+            WdModule *m = &wd_modules[wd_module_count++];
+            uint16_t wide[47] = {0};
+            size_t chars = length / 2 < 47 ? length / 2 : 47;
+            wd_read(buffer, wide, chars * 2);
+            for (size_t i = 0; i < chars; ++i) m->name[i] = wide[i] < 128 ? (char)wide[i] : '?';
+            m->name[chars] = 0; m->base = base; m->size = size;
+            wd_str("  module "); wd_hex(base); wd_str(" +"); wd_hex(size); wd_str(" "); wd_str(m->name); wd_flush();
+        }
+        link = next;
+    }
+}
+/* guest+offset, module+offset or the bare address. */
+static void wd_where(uintptr_t a) {
+    if (image && a - (uintptr_t)image < image_span) { wd_str("guest+"); wd_hex(a - (uintptr_t)image); return; }
+    for (size_t i = 0; i < wd_module_count; ++i)
+        if (a - wd_modules[i].base < wd_modules[i].size) { wd_str(wd_modules[i].name); wd_str("+"); wd_hex(a - wd_modules[i].base); return; }
+    wd_hex(a);
+}
+static int wd_is_code(uintptr_t a) {
+    MEMORY_BASIC_INFORMATION info;
+    return a > 0x10000 && VirtualQuery((void *)a, &info, sizeof(info)) && info.State == MEM_COMMIT &&
+           (info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+}
+static uint64_t wd_cpu(HANDLE t) {
+    FILETIME c, e, k, u;
+    if (!GetThreadTimes(t, &c, &e, &k, &u)) return 0;
+    return ((uint64_t)k.dwHighDateTime << 32 | k.dwLowDateTime) + ((uint64_t)u.dwHighDateTime << 32 | u.dwLowDateTime);
+}
 static DWORD WINAPI watchdog_proc(LPVOID seconds) {
+    wd_err = GetStdHandle(STD_ERROR_HANDLE);
+    typedef LONG (NTAPI *NtQueryInformationThreadFn)(HANDLE, int, PVOID, ULONG, PULONG);
+    NtQueryInformationThreadFn query_thread = (NtQueryInformationThreadFn)(void *)GetProcAddress(
+        GetModuleHandleW(L"ntdll.dll"), "NtQueryInformationThread");
+    wd_str("Watchdog: armed for "); wd_dec(*(const unsigned *)seconds); wd_str(" s; modules now:"); wd_flush();
+    wd_scan_modules();
     Sleep(*(const unsigned *)seconds * 1000u); /* seconds points at timeout_seconds */
-    const char head[] = "STOP: watchdog timeout; thread stacks:\n";
-    DWORD written;
-    HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
-    WriteFile(err, head, (DWORD)(sizeof(head) - 1), &written, NULL);
+    wd_str("STOP: watchdog timeout; thread stacks:"); wd_flush();
+    wd_str("  modules loaded since:"); wd_flush();
+    wd_scan_modules();
 
-    /* Every thread of this process, like the Linux dumper: CPU used in the last second (busy loop
-     * or wait), the first argument registers (rdi for guest System V code, rcx for host Win64 code:
-     * the object a waiting thread blocks on), RIP and the rbp chain (guest code keeps frames), then
-     * return addresses found on the stack for host code that does not. */
+    /* Every thread of this process: CPU used over 1 s (busy loop or wait), RIP/RSP/RBP, the first
+     * argument registers (rdi: guest System V; rcx/rdx: host Win64 -- the object a thread waits
+     * on), the rbp chain (guest code keeps frames), then code addresses found on the stack. */
     enum { MAX_THREADS = 512, WORDS = 2048, FRAMES = 24 };
     static DWORD tids[MAX_THREADS];
     static uint64_t cpu_before[MAX_THREADS];
+    static uint64_t words[WORDS];
+    static CONTEXT ctx __attribute__((aligned(16)));
+    static unsigned char name_buffer[256] __attribute__((aligned(8)));
     size_t thread_count = 0;
     const DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -445,28 +522,18 @@ static DWORD WINAPI watchdog_proc(LPVOID seconds) {
         CloseHandle(snapshot);
     }
     for (size_t k = 0; k < thread_count; ++k) {
-        FILETIME c, e, kt, ut;
         HANDLE t = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tids[k]);
-        cpu_before[k] = t && GetThreadTimes(t, &c, &e, &kt, &ut)
-            ? (((uint64_t)kt.dwHighDateTime << 32 | kt.dwLowDateTime) + ((uint64_t)ut.dwHighDateTime << 32 | ut.dwLowDateTime))
-            : 0;
+        cpu_before[k] = t ? wd_cpu(t) : 0;
         if (t) CloseHandle(t);
     }
     Sleep(1000);
-    typedef HRESULT (WINAPI *GetThreadDescriptionFn)(HANDLE, PWSTR *);
-    GetThreadDescriptionFn describe = (GetThreadDescriptionFn)(void *)GetProcAddress(
-        GetModuleHandleW(L"kernelbase.dll"), "GetThreadDescription");
     for (size_t k = 0; k < thread_count; ++k) {
         HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                               FALSE, tids[k]);
         if (!t) continue;
-        /* Copy everything while suspended, resolve modules after resuming: a suspended thread
-         * may hold the loader lock that GetModuleHandleEx takes. */
-        static uint64_t words[WORDS];
         uintptr_t chain[FRAMES];
         size_t chain_count = 0;
         SIZE_T got = 0;
-        CONTEXT ctx;
         memset(&ctx, 0, sizeof(ctx));
         ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
         int have = 0;
@@ -475,67 +542,44 @@ static DWORD WINAPI watchdog_proc(LPVOID seconds) {
             if (GetThreadContext(t, &ctx)) {
                 have = 1;
                 ReadProcessMemory(GetCurrentProcess(), (void *)(uintptr_t)ctx.Rsp, words, sizeof(words), &got);
-                uintptr_t rbp = (uintptr_t)ctx.Rbp;
-                while (chain_count < FRAMES && rbp) {
-                    uintptr_t frame[2];
-                    SIZE_T n = 0;
-                    if (!ReadProcessMemory(GetCurrentProcess(), (void *)rbp, frame, sizeof(frame), &n) ||
-                        n != sizeof(frame) || frame[0] <= rbp)
-                        break;
+                uintptr_t rbp = (uintptr_t)ctx.Rbp, frame[2];
+                while (chain_count < FRAMES && rbp && wd_read(rbp, frame, sizeof(frame)) && frame[0] > rbp) {
                     chain[chain_count++] = frame[1];
                     rbp = frame[0];
                 }
             }
-            FILETIME c, e, kt, ut;
-            if (GetThreadTimes(t, &c, &e, &kt, &ut))
-                cpu_after = ((uint64_t)kt.dwHighDateTime << 32 | kt.dwLowDateTime) + ((uint64_t)ut.dwHighDateTime << 32 | ut.dwLowDateTime);
+            cpu_after = wd_cpu(t);
             ResumeThread(t);
         }
+        /* ThreadNameInformation (38): a UNICODE_STRING followed by the name. */
         char name[64] = "";
-        PWSTR wide = NULL;
-        if (describe && SUCCEEDED(describe(t, &wide)) && wide) {
-            WideCharToMultiByte(CP_UTF8, 0, wide, -1, name, sizeof(name), NULL, NULL);
-            LocalFree(wide);
+        ULONG returned = 0;
+        if (query_thread && query_thread(t, 38, name_buffer, sizeof(name_buffer), &returned) >= 0) {
+            const uint16_t length = *(const uint16_t *)name_buffer;
+            const uint16_t *wide = *(uint16_t *const *)(name_buffer + 8);
+            if (wide && (const unsigned char *)wide >= name_buffer && (const unsigned char *)wide < name_buffer + sizeof(name_buffer)) {
+                size_t chars = length / 2 < 63 ? length / 2 : 63;
+                for (size_t i = 0; i < chars; ++i) name[i] = wide[i] < 128 ? (char)wide[i] : '?';
+                name[chars] = 0;
+            }
         }
         CloseHandle(t);
         if (!have) continue;
-        char line[400];
-        snprintf(line, sizeof(line), "  tid %lu '%s' cpu=%llums/1s rdi=%#llx rcx=%#llx rdx=%#llx\n",
-                 (unsigned long)tids[k], name,
-                 (unsigned long long)(cpu_after > cpu_before[k] ? (cpu_after - cpu_before[k]) / 10000 : 0),
-                 (unsigned long long)ctx.Rdi, (unsigned long long)ctx.Rcx, (unsigned long long)ctx.Rdx);
-        WriteFile(err, line, (DWORD)strlen(line), &written, NULL);
-        /* rip, the rbp chain, then up to 12 code addresses found on the stack. */
+        wd_str("  tid "); wd_dec(tids[k]); wd_str(" '"); wd_str(name); wd_str("' cpu=");
+        wd_dec(cpu_after > cpu_before[k] ? (cpu_after - cpu_before[k]) / 10000 : 0); wd_str("ms/1s");
+        wd_str(" rsp="); wd_hex(ctx.Rsp); wd_str(" rbp="); wd_hex(ctx.Rbp);
+        wd_str(" rdi="); wd_hex(ctx.Rdi); wd_str(" rcx="); wd_hex(ctx.Rcx); wd_str(" rdx="); wd_hex(ctx.Rdx);
+        wd_flush();
+        wd_str("     rip   "); wd_where((uintptr_t)ctx.Rip); wd_flush();
+        for (size_t i = 0; i < chain_count; ++i) { wd_str("     frame "); wd_where(chain[i]); wd_flush(); }
         int scanned = 0;
-        for (size_t i = 0; i < 1 + chain_count + got / 8 && scanned < 20; ++i) {
-            const int in_chain = i <= chain_count;
-            const uintptr_t a = i == 0 ? (uintptr_t)ctx.Rip : in_chain ? chain[i - 1] : (uintptr_t)words[i - 1 - chain_count];
-            const char *what = i == 0 ? "rip  " : in_chain ? "frame" : "stack";
-            HMODULE module = NULL;
-            char mod[MAX_PATH];
-            MEMORY_BASIC_INFORMATION info;
-            const int code = a > 0x10000 && VirtualQuery((void *)a, &info, sizeof(info)) && info.State == MEM_COMMIT &&
-                             (info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
-            if (!in_chain && !code) continue; /* stack words that are not code addresses */
-            if (image && a - (uintptr_t)image < image_span) {
-                snprintf(line, sizeof(line), "     %s guest+0x%llx\n", what, (unsigned long long)(a - (uintptr_t)image));
-            } else if (a > 0x10000 && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                                             GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                                         (LPCSTR)a, &module) && module &&
-                       GetModuleFileNameA(module, mod, sizeof(mod))) {
-                const char *base = strrchr(mod, '\\');
-                snprintf(line, sizeof(line), "     %s %s+0x%llx\n", what, base ? base + 1 : mod,
-                         (unsigned long long)(a - (uintptr_t)module));
-            } else if (in_chain) {
-                snprintf(line, sizeof(line), "     %s %p\n", what, (void *)a);
-            } else {
-                continue;
-            }
-            if (!in_chain) ++scanned;
-            WriteFile(err, line, (DWORD)strlen(line), &written, NULL);
+        for (size_t i = 0; i < got / 8 && scanned < 20; ++i) {
+            if (!wd_is_code((uintptr_t)words[i])) continue; /* stack words that are not code addresses */
+            wd_str("     stack "); wd_where((uintptr_t)words[i]); wd_flush();
+            ++scanned;
         }
     }
-    WriteFile(err, "none reported\n", 14, &written, NULL);
+    wd_str("none reported"); wd_flush();
     /* Not fflush/_exit: ExitProcess runs DLL detach under the loader lock and stdio takes stream
      * locks, either of which a hung thread may hold. The streams are unbuffered (bbport_main). */
     TerminateProcess(GetCurrentProcess(), 128 + 14); /* SIGALRM */
