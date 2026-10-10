@@ -1080,3 +1080,5 @@
 {"v6EZ-YWRdMs#d#b","scePlayGoGetEta"},
 {"rvBSfTimejE#d#b","scePlayGoGetInstallSpeed"},
 {"MPe0EeBGM-E#d#b","scePlayGoTerminate"},
+{"E1Wrwd07Lr8#U#S","sceNpTrophyDestroyContext"},
+{"GNcF4oidY0Y#U#S","sceNpTrophyDestroyHandle"},

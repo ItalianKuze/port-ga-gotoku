@@ -561,12 +561,35 @@ static ABI int32_t ime_result(uint32_t *result) {
 static ABI int32_t ime_term(void) { memset(&ime,0,sizeof(ime)); return 0; }
 
 /* ---- Trophies: accepted locally, recorded in the log ---- */
+/* Live trophy contexts and handles, so Destroy can reject an unknown one as shadPS4 does
+ * (np_trophy.cpp: INVALID_CONTEXT 0x80551609, INVALID_HANDLE 0x80551608). */
+#define TROPHY_INVALID_HANDLE ((int32_t)0x80551608)
+#define TROPHY_INVALID_CONTEXT ((int32_t)0x80551609)
+enum { TROPHY_SLOTS=32 };
+static int32_t trophy_contexts[TROPHY_SLOTS], trophy_handles[TROPHY_SLOTS];
+static void trophy_track(int32_t *slots, int32_t id) {
+    pthread_mutex_lock(&lock);
+    for (int i=0;i<TROPHY_SLOTS;++i) if (!slots[i]) { slots[i]=id; break; }
+    pthread_mutex_unlock(&lock);
+}
+static int trophy_untrack(int32_t *slots, int32_t id) {
+    int found=0;
+    pthread_mutex_lock(&lock);
+    for (int i=0;i<TROPHY_SLOTS && !found;++i) if (id>0 && slots[i]==id) { slots[i]=0; found=1; }
+    pthread_mutex_unlock(&lock);
+    return found;
+}
 static ABI int32_t trophy_context(int32_t *ctx,int32_t user,uint32_t label,uint64_t options) {
     (void)user; (void)label; (void)options;
     if (!ctx) return TROPHY_INVALID;
-    *ctx=new_id(); return 0;
+    *ctx=new_id(); trophy_track(trophy_contexts,*ctx); return 0;
 }
-static ABI int32_t trophy_handle(int32_t *handle) { if (!handle) return TROPHY_INVALID; *handle=new_id(); return 0; }
+static ABI int32_t trophy_handle(int32_t *handle) {
+    if (!handle) return TROPHY_INVALID;
+    *handle=new_id(); trophy_track(trophy_handles,*handle); return 0;
+}
+static ABI int32_t trophy_destroy_context(int32_t ctx) { return trophy_untrack(trophy_contexts,ctx) ? 0 : TROPHY_INVALID_CONTEXT; }
+static ABI int32_t trophy_destroy_handle(int32_t handle) { return trophy_untrack(trophy_handles,handle) ? 0 : TROPHY_INVALID_HANDLE; }
 static ABI int32_t trophy_register(int32_t ctx,int32_t handle,uint64_t options) { (void)ctx; (void)handle; (void)options; return 0; }
 static ABI int32_t trophy_unlock(int32_t ctx,int32_t handle,int32_t id,int32_t *platinum) {
     (void)ctx; (void)handle;
@@ -827,6 +850,7 @@ static const RuntimeExport exports[]={
     {"sceImeDialogInit",ime_init}, {"sceImeDialogGetStatus",ime_status}, {"sceImeDialogGetResult",ime_result},
     {"sceImeDialogTerm",ime_term}, {"sceImeDialogAbort",ime_term},
     {"sceNpTrophyCreateContext",trophy_context}, {"sceNpTrophyCreateHandle",trophy_handle},
+    {"sceNpTrophyDestroyContext",trophy_destroy_context}, {"sceNpTrophyDestroyHandle",trophy_destroy_handle},
     {"sceNpTrophyRegisterContext",trophy_register}, {"sceNpTrophyUnlockTrophy",trophy_unlock},
     {"sceNpTrophyGetGameInfo",trophy_game_info}, {"sceNpTrophyGetTrophyInfo",trophy_info},
     {"scePlayGoInitialize",playgo_init}, {"scePlayGoOpen",playgo_open}, {"scePlayGoGetChunkId",playgo_chunk_ids},
