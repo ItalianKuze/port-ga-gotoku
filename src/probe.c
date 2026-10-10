@@ -613,7 +613,10 @@ __declspec(dllexport) int bbport_main(int argc, char **argv) {
 #else
 int main(int argc, char **argv) {
 #endif
+    /* Unbuffered: a hang ended by the watchdog (_exit) must not lose the last lines. On Windows
+     * the runtime, libbbgpu and bb-probe share ucrtbase.dll, so this covers all of them. */
     setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
 #ifndef _WIN32
     /* Keep host heap objects handed to the guest (thread handles, TLS) in the
        non-PIE brk heap, i.e. below 1 TiB: the guest packs pointers into 40 bits. */
