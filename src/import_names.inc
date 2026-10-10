@@ -1072,3 +1072,7 @@
 {"QBi7HCK03hw#G#E","sceKernelClockGettime"},
 {"nKWi-N2HBV4#G#E","sceKernelPwrite"},
 {"WlyEA-sLDf0#G#E","sceKernelTruncate"},
+{"jh+8XiK4LeE#G#E","sceKernelIsAddressSanitizerEnabled"},
+{"3k6kx-zOOSQ#G#E","sceKernelMlock"},
+{"NhpspxdjEKU#G#E","nanosleep"},
+{"How7B8Oet6k#G#E","scePthreadGetname"},

@@ -353,6 +353,14 @@ static ABI int32_t thread_rename(GuestThread *t,const char *name) {
     return 0;
 }
 static ABI int32_t thread_equal(GuestThread *a,GuestThread *b) { return a==b; }
+/* scePthreadGetname, as shadPS4's ORBIS(posix_pthread_getname_np): the name (at most 32 bytes,
+ * terminated) into a 32-byte buffer; an unknown thread is ESRCH. */
+static ABI int32_t thread_get_name(GuestThread *t,char *name) {
+    if (!find_thread(t)) return ERR(3);
+    if (!name) return ERR(22);
+    snprintf(name,32,"%s",t->name);
+    return 0;
+}
 
 /* POSIX (libScePosix) variants return positive errno values. */
 static int32_t posix(int32_t r) { return r ? (int32_t)((uint32_t)r&0xffff) : 0; }
@@ -389,7 +397,7 @@ uintptr_t runtime_thread_resolve(const char *name) {
         {"1tKyG7RlMJo#p#J",thread_get_prio}, {"1tKyG7RlMJo#G#E",thread_get_prio},
         {"W0Hpm2X0uPE#p#J",thread_set_prio}, {"W0Hpm2X0uPE#G#E",thread_set_prio},
         {"bt3CTBKmGyI#p#J",thread_set_affinity}, {"bt3CTBKmGyI#G#E",thread_set_affinity}, {"rcrVFJsQWRY#p#J",thread_get_affinity}, {"rcrVFJsQWRY#G#E",thread_get_affinity},
-        {"GBUY7ywdULE#p#J",thread_rename}, {"GBUY7ywdULE#G#E",thread_rename}, {"3PtV6p3QNX4#p#J",thread_equal}, {"3PtV6p3QNX4#G#E",thread_equal},
+        {"How7B8Oet6k#p#J",thread_get_name}, {"How7B8Oet6k#G#E",thread_get_name}, {"GBUY7ywdULE#p#J",thread_rename}, {"GBUY7ywdULE#G#E",thread_rename}, {"3PtV6p3QNX4#p#J",thread_equal}, {"3PtV6p3QNX4#G#E",thread_equal},
         {"wtkt-teR1so#I#J",posix_attr_init}, {"zHchY8ft5pk#I#J",posix_attr_destroy},
         {"E+tyo3lp5Lw#I#J",posix_attr_set_detach}, {"2Q0z6rnBrTE#I#J",posix_attr_set_stack},
         {"euKRgm0Vn2M#I#J",posix_attr_set_param}, {"OxhIB8LB-PQ#I#J",posix_create},

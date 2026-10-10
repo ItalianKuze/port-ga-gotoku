@@ -168,6 +168,14 @@ static ABI int64_t posix_time(int64_t *out) { int64_t t=(int64_t)time(NULL); if 
 
 /* ---- process ---- */
 static ABI int32_t get_pagesize(void) { return PAGE; }
+/* As shadPS4: no address sanitizer in a retail build. */
+static ABI uint32_t asan_enabled(void) { return 0; }
+/* sceKernelMlock, as shadPS4 (posix_mlock): guest memory is always resident here, so only the
+ * arguments are checked. */
+static ABI int32_t kernel_mlock(const void *address, uint64_t size) {
+    if (!address || !size || (uintptr_t)address+size<(uintptr_t)address) return ERR(22);
+    return 0;
+}
 static ABI int32_t get_pid(void) { return 1000; }
 static ABI int32_t yield(void) { sched_yield(); return 0; }
 static ABI __attribute__((noreturn)) void hard_exit(int status) {
@@ -328,7 +336,7 @@ static const RuntimeExport exports[]={
     {"sceKernelGettimezone",kernel_gettimezone}, {"gettimeofday",posix_gettimeofday},
     {"sceKernelGettimeofday",kernel_gettimeofday},
     {"time",posix_time},
-    {"getpagesize",get_pagesize}, {"getpid",get_pid}, {"sched_yield",yield},
+    {"getpagesize",get_pagesize}, {"sceKernelIsAddressSanitizerEnabled",asan_enabled}, {"sceKernelMlock",kernel_mlock}, {"getpid",get_pid}, {"sched_yield",yield},
     {"_exit",hard_exit},
     {"sceKernelDebugRaiseException",raise_exception},
     {"sceKernelDebugRaiseExceptionOnReleaseMode",raise_exception},
