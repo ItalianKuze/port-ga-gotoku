@@ -30,3 +30,18 @@ patches.json
 /docs/ISSUE_ACTION_PLAN_*.md
 # AMD FidelityFX DLLs (FSR 4.1.1 is built from the user's own): never in the repository
 *.dll
+# PortGaGotoku: build outputs, logs, binaries and temporary files
+out-win/
+*.log
+*.exe
+*.so
+*.o
+*.obj
+*.a
+*.lib
+*.pdb
+*.tmp
+*.swp
+*.bak
+*~
+.vscode/
