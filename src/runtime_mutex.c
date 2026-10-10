@@ -4,11 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
-typedef struct { int type; } GuestAttr;
+typedef struct { int type, protocol; } GuestAttr;
 typedef struct { pthread_mutex_t native; } GuestMutex;
 static size_t created, locks, unlocks;
 static int32_t orbis_error(int e) {
@@ -21,6 +20,7 @@ static int32_t orbis_error(int e) {
     case EINVAL: code=22; break;
     case EAGAIN: code=35; break;
     case EDEADLK: code=11; break;
+    case ENOTSUP: code=45; break;
     default: fprintf(stderr, "STOP: unmapped host pthread error %d\n", e); exit(21);
     }
     return (int32_t)(UINT32_C(0x80020000) | code);
@@ -29,15 +29,16 @@ static ABI int32_t attr_init(GuestAttr **out) {
     if (!out) return orbis_error(EINVAL);
     GuestAttr *attr = malloc(sizeof(*attr));
     if (!attr) return orbis_error(ENOMEM);
-    attr->type = 1; *out = attr; return 0;
+    attr->type = 1; attr->protocol = PTHREAD_PRIO_NONE; *out = attr; return 0;
 }
 static ABI int32_t attr_type(GuestAttr **attr, int type) {
     if (!attr || !*attr || type < 1 || type > 4) return orbis_error(EINVAL);
     (*attr)->type = type; return 0;
 }
-/* Priority protocols need a PS4 scheduler; the value is validated and recorded only. */
+/* PS4 uses the POSIX protocol values; apply them to the host mutex attributes at init. */
 static ABI int32_t attr_protocol(GuestAttr **attr, int protocol) {
     if (!attr || !*attr || protocol < 0 || protocol > 2) return orbis_error(EINVAL);
+    (*attr)->protocol = protocol;
     return 0;
 }
 static ABI int32_t attr_destroy(GuestAttr **attr) {
@@ -55,7 +56,11 @@ static ABI int32_t mutex_init(GuestMutex **out, GuestAttr **attr, const char *na
     int e = pthread_mutexattr_init(&native_attr);
     if (e) { free(mutex); return orbis_error(e); }
     int native_type = type == 2 ? PTHREAD_MUTEX_RECURSIVE : type == 3 ? PTHREAD_MUTEX_NORMAL : PTHREAD_MUTEX_ERRORCHECK;
-    e = pthread_mutexattr_settype(&native_attr, native_type);
+    int protocol = attr ? (*attr)->protocol : PTHREAD_PRIO_NONE;
+    int native_protocol = protocol == 1 ? PTHREAD_PRIO_INHERIT :
+                          protocol == 2 ? PTHREAD_PRIO_PROTECT : PTHREAD_PRIO_NONE;
+    e = pthread_mutexattr_setprotocol(&native_attr, native_protocol);
+    if (!e) e = pthread_mutexattr_settype(&native_attr, native_type);
     if (!e) e = pthread_mutex_init(&mutex->native, &native_attr);
     pthread_mutexattr_destroy(&native_attr);
     if (e) { free(mutex); return orbis_error(e); }
@@ -132,10 +137,27 @@ static ABI int32_t mutex_timedlock(GuestMutex **mutex, uint32_t usec) {
 /* Condition variables: opaque handles over host pthread_cond (CLOCK_REALTIME,
  * like FreeBSD's default), sharing the host mutex behind GuestMutex. */
 typedef struct { pthread_cond_t native; } GuestCond;
+/* FreeBSD/Orbis pthread_condattr_t: process-sharing mode and clock id. */
+typedef struct { int32_t pshared, clock_id; } GuestCondAttr;
 static size_t conds, waits, wakeups;
+static ABI int32_t condattr_init(GuestCondAttr **attr) {
+    if (!attr) return orbis_error(EINVAL);
+    GuestCondAttr *value = malloc(sizeof(*value));
+    if (!value) return orbis_error(ENOMEM);
+    value->pshared = 0; /* PTHREAD_PROCESS_PRIVATE */
+    value->clock_id = CLOCK_REALTIME;
+    *attr = value;
+    return 0;
+}
+static ABI int32_t condattr_destroy(GuestCondAttr **attr) {
+    if (!attr || !*attr) return orbis_error(EINVAL);
+    free(*attr);
+    *attr = NULL;
+    return 0;
+}
 static ABI int32_t cond_init(GuestCond **out, void **attr, const char *name) {
     (void)attr; (void)name;
-    if (!out) return orbis_error(EINVAL);
+    if (!out || (attr && !*attr)) return orbis_error(EINVAL);
     GuestCond *c = malloc(sizeof(*c));
     if (!c) return orbis_error(ENOMEM);
     int e = pthread_cond_init(&c->native, NULL);
@@ -221,18 +243,20 @@ static ABI int32_t posix_cond_timedwait(GuestCond **c, GuestMutex **m, const Gue
 static ABI int32_t posix_cond_signal(GuestCond **c) { return posix_result(cond_signal(c)); }
 static ABI int32_t posix_cond_broadcast(GuestCond **c) { return posix_result(cond_broadcast(c)); }
 uintptr_t runtime_mutex_resolve(const char *name) {
+    if (!strcmp(name,"m5-2bsNfv7s#G#E")) return (uintptr_t)condattr_init;
+    if (!strcmp(name,"waPcxYiR3WA#G#E")) return (uintptr_t)condattr_destroy;
     if (!strcmp(name,"0TyVk4MSLt0#I#J")) return (uintptr_t)posix_cond_init;
     if (!strcmp(name,"RXXqi4CtF8w#I#J")) return (uintptr_t)posix_cond_destroy;
     if (!strcmp(name,"Op8TBGY5KHg#I#J")) return (uintptr_t)posix_cond_wait;
     if (!strcmp(name,"27bAgiJmOh0#I#J")) return (uintptr_t)posix_cond_timedwait;
     if (!strcmp(name,"2MOy+rUfuhQ#I#J")) return (uintptr_t)posix_cond_signal;
     if (!strcmp(name,"mkx2fVhNMsg#I#J")) return (uintptr_t)posix_cond_broadcast;
-    if (!strcmp(name,"2Tb92quprl0#p#J")) return (uintptr_t)cond_init;
+    if (!strcmp(name,"2Tb92quprl0#p#J") || !strcmp(name,"2Tb92quprl0#G#E")) return (uintptr_t)cond_init;
     if (!strcmp(name,"g+PZd2hiacg#p#J")) return (uintptr_t)cond_destroy;
-    if (!strcmp(name,"WKAXJ4XBPQ4#p#J")) return (uintptr_t)cond_wait;
+    if (!strcmp(name,"WKAXJ4XBPQ4#p#J") || !strcmp(name,"WKAXJ4XBPQ4#G#E")) return (uintptr_t)cond_wait;
     if (!strcmp(name,"BmMjYxmew1w#p#J")) return (uintptr_t)cond_timedwait;
     if (!strcmp(name,"kDh-NfxgMtE#p#J")) return (uintptr_t)cond_signal;
-    if (!strcmp(name,"JGgj7Uvrl+A#p#J")) return (uintptr_t)cond_broadcast;
+    if (!strcmp(name,"JGgj7Uvrl+A#p#J") || !strcmp(name,"JGgj7Uvrl+A#G#E")) return (uintptr_t)cond_broadcast;
     if (!strcmp(name,"IafI2PxcPnQ#p#J")) return (uintptr_t)mutex_timedlock;
     if (!strcmp(name,"dQHWEsJtoE4#I#J")) return (uintptr_t)posix_attr_init;
     if (!strcmp(name,"mDmgMOGVUqg#I#J")) return (uintptr_t)posix_attr_type;
@@ -242,41 +266,18 @@ uintptr_t runtime_mutex_resolve(const char *name) {
     if (!strcmp(name,"7H0iTOciTLo#I#J")) return (uintptr_t)posix_mutex_lock;
     if (!strcmp(name,"K-jXhbt2gn4#I#J")) return (uintptr_t)posix_mutex_trylock;
     if (!strcmp(name,"2Z+PpY6CaJg#I#J")) return (uintptr_t)posix_mutex_unlock;
-    if (!strcmp(name, "F8bUHwAG284#p#J")) return (uintptr_t)attr_init;
-    if (!strcmp(name, "iMp8QpE+XO4#p#J")) return (uintptr_t)attr_type;
-    if (!strcmp(name, "smWEktiyyG0#p#J")) return (uintptr_t)attr_destroy;
-    if (!strcmp(name, "1FGvU0i9saQ#p#J")) return (uintptr_t)attr_protocol;
-    if (!strcmp(name, "cmo1RIYva9o#p#J")) return (uintptr_t)mutex_init;
-    if (!strcmp(name, "9UK1vLZQft4#p#J")) return (uintptr_t)mutex_lock;
+    if (!strcmp(name, "F8bUHwAG284#p#J") || !strcmp(name, "F8bUHwAG284#G#E")) return (uintptr_t)attr_init;
+    if (!strcmp(name, "iMp8QpE+XO4#p#J") || !strcmp(name, "iMp8QpE+XO4#G#E")) return (uintptr_t)attr_type;
+    if (!strcmp(name, "smWEktiyyG0#p#J") || !strcmp(name, "smWEktiyyG0#G#E")) return (uintptr_t)attr_destroy;
+    if (!strcmp(name, "1FGvU0i9saQ#p#J") || !strcmp(name, "1FGvU0i9saQ#G#E")) return (uintptr_t)attr_protocol;
+    if (!strcmp(name, "cmo1RIYva9o#p#J") || !strcmp(name, "cmo1RIYva9o#G#E")) return (uintptr_t)mutex_init;
+    if (!strcmp(name, "9UK1vLZQft4#p#J") || !strcmp(name, "9UK1vLZQft4#G#E")) return (uintptr_t)mutex_lock;
     if (!strcmp(name, "upoVrzMHFeE#p#J")) return (uintptr_t)mutex_trylock;
-    if (!strcmp(name, "tn3VlD0hG60#p#J")) return (uintptr_t)mutex_unlock;
-    if (!strcmp(name, "2Of0f+3mhhE#p#J")) return (uintptr_t)mutex_destroy;
+    if (!strcmp(name, "tn3VlD0hG60#p#J") || !strcmp(name, "tn3VlD0hG60#G#E")) return (uintptr_t)mutex_unlock;
+    if (!strcmp(name, "2Of0f+3mhhE#p#J") || !strcmp(name, "2Of0f+3mhhE#G#E")) return (uintptr_t)mutex_destroy;
     return 0;
 }
 void runtime_mutex_report(void) {
     printf("Runtime: mutexes created=%zu, locks=%zu, unlocks=%zu\n", created, locks, unlocks);
     printf("Runtime: condition variables created=%zu, waits=%zu, wakeups=%zu\n", conds, waits, wakeups);
 }
-#else
-static ABI int32_t posix_cond_init(GuestCond **c, void **a) { return posix_result(cond_init(c, a, NULL)); }
-static ABI int32_t posix_cond_destroy(GuestCond **c) { return posix_result(cond_destroy(c)); }
-static ABI int32_t posix_cond_wait(GuestCond **c, GuestMutex **m) { return posix_result(cond_wait(c, m)); }
-static ABI int32_t posix_cond_timedwait(GuestCond **c, GuestMutex **m, const GuestTimespec *t) { return posix_result(cond_abs_timedwait(c, m, t)); }
-static ABI int32_t posix_cond_signal(GuestCond **c) { return posix_result(cond_signal(c)); }
-static ABI int32_t posix_cond_broadcast(GuestCond **c) { return posix_result(cond_broadcast(c)); }
-uintptr_t runtime_mutex_resolve(const char *name) {
-    if (!strcmp(name,"0TyVk4MSLt0#I#J")) return (uintptr_t)posix_cond_init;
-    if (!strcmp(name,"RXXqi4CtF8w#I#J")) return (uintptr_t)posix_cond_destroy;
-    if (!strcmp(name,"Op8TBGY5KHg#I#J")) return (uintptr_t)posix_cond_wait;
-    if (!strcmp(name,"27bAgiJmOh0#I#J")) return (uintptr_t)posix_cond_timedwait;
-    if (!strcmp(name,"2MOy+rUfuhQ#I#J")) return (uintptr_t)posix_cond_signal;
-    if (!strcmp(name,"mkx2fVhNMsg#I#J")) return (uintptr_t)posix_cond_broadcast;
-    if (!strcmp(name,"2Tb92quprl0#p#J")) return (uintptr_t)cond_init;
-    if (!strcmp(name,"g+PZd2hiacg#p#J")) return (uintptr_t)cond_destroy;
-    if (!strcmp(name,"WKAXJ4XBPQ4#p#J")) return (uintptr_t)cond_wait;
-    if (!strcmp(name,"BmMjYxmew1w#p#J")) return (uintptr_t)cond_timedwait;
-    if (!strcmp(name,"kDh-NfxgMtE#p#J")) return (uintptr_t)cond_signal;
-    if (!strcmp(name,"JGgj7Uvrl+A#p#J")) return (uintptr_t)cond_broadcast;
-    if (!strcmp(name,"IafI2PxcPnQ#p#J")) return (uintptr_t)mutex_timedlock; (void)name; return 0; }
-void runtime_mutex_report(void) { puts("Runtime: Windows mutex backend not implemented"); }
-#endif

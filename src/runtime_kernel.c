@@ -7,22 +7,27 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <errno.h>
 #include <pthread.h>
 #include <sched.h>
 #include <time.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <sys/syscall.h>
+#endif
+#ifndef _WIN32
 #include <dlfcn.h>
+#endif
 #include <dirent.h>
+#include <sys/time.h>
+#include <intrin.h>
+#ifndef _WIN32
 #include <ucontext.h>
 #include <signal.h>
 #include <sys/uio.h>
 #include <sys/random.h>
 #include <sys/resource.h>
-#include <sys/time.h>
-#include <x86intrin.h>
+#endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define PAGE 16384
 
@@ -140,7 +145,8 @@ typedef struct { int32_t minuteswest, dsttime; } GuestTimezone;
 static ABI int32_t kernel_gettimezone(GuestTimezone *tz) {
     if (!tz) return ERR(22);
     time_t now=time(NULL); struct tm local; localtime_r(&now,&local);
-    tz->minuteswest=(int32_t)(-local.tm_gmtoff/60); tz->dsttime=0;
+    struct tm tmp=local;
+    tz->minuteswest=(int32_t)(-((int64_t)(_mkgmtime(&tmp)-now)/60)); tz->dsttime=0;
     return 0;
 }
 static ABI int32_t posix_gettimeofday(GuestTimeval *tv,GuestTimezone *tz) {
@@ -287,7 +293,27 @@ static ABI int32_t posix_key_create(uint32_t *k,KeyDestructor d) { int32_t r=key
 static ABI int32_t posix_key_delete(uint32_t k) { int32_t r=key_delete(k); return r ? r&0xffff : 0; }
 static ABI int32_t posix_key_set(uint32_t k,void *v) { int32_t r=key_set(k,v); return r ? r&0xffff : 0; }
 
+/* Match the GPU shim's explicit base-PS4 mode. */
+static ABI int32_t kernel_is_neo_mode(void) { return 0; }
+
+/* PSF ATTRIBUTE's CPU-mode flags, parsed from the selected app0 param.sfo. */
+static uint32_t app_attributes;
+static int app_attributes_valid;
+void runtime_kernel_configure(uint32_t attributes, int valid) {
+    app_attributes = attributes;
+    app_attributes_valid = valid;
+}
+static ABI int32_t kernel_get_cpumode(void) {
+    uint32_t cpu6 = (app_attributes >> 15) & 1;
+    uint32_t cpu7 = (app_attributes >> 16) & 1;
+    if (cpu6 && cpu7) return 2;
+    if (cpu7) return 5;
+    return 0;
+}
+
 static const RuntimeExport exports[]={
+    {"sceKernelIsNeoMode",kernel_is_neo_mode},
+    {"sceKernelGetCpumode",kernel_get_cpumode},
     {"sceKernelClockGettime",kernel_clock_gettime}, {"clock_gettime",posix_clock_gettime},
     {"clock_getres",posix_clock_getres},
     {"sceKernelGetProcessTime",process_time}, {"sceKernelGetProcessTimeCounter",process_time_counter},
@@ -312,12 +338,10 @@ static const RuntimeExport exports[]={
     {"pthread_key_create",posix_key_create}, {"pthread_key_delete",posix_key_delete},
     {"pthread_setspecific",posix_key_set}, {"pthread_getspecific",key_get},
 };
-uintptr_t runtime_kernel_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
-#else
-uintptr_t runtime_kernel_resolve(const char *name) { (void)name; return 0; }
-int32_t runtime_guest_errno(int e) { return e ? 5 : 0; }
-void runtime_thread_keys_cleanup(void) {}
-#endif
+uintptr_t runtime_kernel_resolve(const char *name) {
+    if (!strcmp(name,"sceKernelGetCpumode") && !app_attributes_valid) return 0;
+    return RUNTIME_LOOKUP(exports,name);
+}
 
 static void sample_start(void);
 static void sample_report(void);
@@ -334,9 +358,9 @@ static void guest_call_sites(uint64_t out[3]) {
     const uintptr_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
     static _Thread_local uintptr_t stack_hi;
     if (!stack_hi) {
-        pthread_attr_t attr; void *base=NULL; size_t size=0;
-        if (!pthread_getattr_np(pthread_self(),&attr)) { pthread_attr_getstack(&attr,&base,&size); pthread_attr_destroy(&attr); }
-        stack_hi=(uintptr_t)base+size;
+        ULONG_PTR lo, hi;
+        GetCurrentThreadStackLimits(&lo, &hi);
+        stack_hi=(uintptr_t)hi;
     }
     const uintptr_t *sp=(const uintptr_t *)__builtin_frame_address(0);
     int found=0;
@@ -347,7 +371,7 @@ void runtime_wait_note(int kind, uint64_t ns) {
     static int enabled=-1;
     if (enabled<0) enabled=getenv("BB_FRAME_STATS")!=NULL;
     if (!enabled) return;
-    if (!wait_tid) wait_tid=(int)syscall(SYS_gettid);
+    if (!wait_tid) wait_tid=(int)gettid();
     uint64_t sites[3];
     guest_call_sites(sites);
     const uint64_t key=((sites[0]<<20)^(sites[1]*0x9E3779B1ull)^(sites[2]<<7)^((uint64_t)wait_tid<<4)^(uint64_t)kind)|1;
@@ -392,6 +416,7 @@ void runtime_wait_report(double frames) {
 /* bbport BB_SAMPLE_THREAD=<name> (with frame stats): where that thread runs, sampled with SIGPROF
  * every 0.5 ms; reported with the wait profile. A thread that never blocks but waits for the GPU
  * shows up spinning in its polling loop. */
+#ifndef _WIN32
 static _Atomic uint64_t sample_keys[1024], sample_counts[1024];
 static uint64_t sample_rips[1024], sample_callers[1024];
 static _Atomic uint64_t samples_total;
@@ -493,5 +518,9 @@ static void sample_report(void) {
     }
     printf("\n");
 }
+#else
+static void sample_start(void) {}
+static void sample_report(void) {}
+#endif
 /* The first three return addresses into the game's code on the calling thread's stack. */
 void runtime_guest_call_sites(uint64_t out[3]) { guest_call_sites(out); }

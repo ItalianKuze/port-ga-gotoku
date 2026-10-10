@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "bbport_setjmp_compat.h"
+
 extern "C" std::uint64_t runtime_disabled_optimizations;
 /// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c).
 extern "C" std::uint64_t runtime_experiment_bits;

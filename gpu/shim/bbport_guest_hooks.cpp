@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <csignal>
+#include "bbport_sigaction_compat.h"
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>

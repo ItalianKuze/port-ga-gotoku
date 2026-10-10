@@ -18,6 +18,19 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 
 // DejaVu Sans (Cyrillic), embedded (third_party/fonts, Bitstream Vera license).
+#ifdef _WIN32
+// COFF names the read-only section .rdata and has no .hidden. The explicit .section .text at the
+// end is the counterpart of ELF's .previous: without it the assembler still considers itself
+// inside .rdata and rejects the .seh_endproc GCC emits next.
+asm(".section .rdata,\"dr\"\n"
+    ".balign 16\n"
+    ".globl bb_font_ttf\n"
+    "bb_font_ttf:\n"
+    ".incbin \"" BB_FONT_PATH "\"\n"
+    ".globl bb_font_ttf_end\n"
+    "bb_font_ttf_end:\n"
+    ".section .text\n");
+#else
 asm(".section .rodata\n"
     ".balign 16\n"
     ".hidden bb_font_ttf\n"
@@ -28,6 +41,7 @@ asm(".section .rodata\n"
     ".global bb_font_ttf_end\n"
     "bb_font_ttf_end:\n"
     ".previous\n");
+#endif
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 

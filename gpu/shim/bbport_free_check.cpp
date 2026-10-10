@@ -14,8 +14,8 @@
 #include <unordered_map>
 #include <pthread.h>
 #include <sys/mman.h>
-#include <sys/syscall.h>
 #include <csignal>
+#include "bbport_sigaction_compat.h"
 #include <ucontext.h>
 #include <unordered_set>
 #include <sys/uio.h>
@@ -681,7 +681,7 @@ bool ReadQword(u64 address, u64& value) {
     return process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == 8;
 }
 u32 SignalTid() {
-    return u32(syscall(SYS_gettid));
+    return u32(gettid());
 }
 void NoteTrapDecoded(u64 label) {
     const u64 page = label & ~(PageSize - 1);

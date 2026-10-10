@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -129,11 +128,14 @@ static Listing *list_directory(const char *path) {
         if (!l->offsets || !l->types || !l->names) { fputs("Out of memory listing directory\n",stderr); exit(1); }
         memcpy(l->names+bytes,e->d_name,n);
         l->offsets[l->count]=bytes;
-        unsigned char type=e->d_type;
-        if (type==DT_LNK || type==DT_UNKNOWN) {
+        /* MinGW's dirent has no d_type, so ask the filesystem what the entry is. */
+        unsigned char type=DT_UNKNOWN;
+        {
+            char full[4096];
             struct stat entry;
-            if (!fstatat(dirfd(d),e->d_name,&entry,0))
-                type=S_ISDIR(entry.st_mode) ? DT_DIR : S_ISREG(entry.st_mode) ? DT_REG : type;
+            snprintf(full,sizeof(full),"%s/%s",path,e->d_name);
+            if (!stat(full,&entry))
+                type = S_ISDIR(entry.st_mode) ? DT_DIR : S_ISREG(entry.st_mode) ? DT_REG : DT_UNKNOWN;
         }
         l->types[l->count]=type==DT_DIR ? 4 : type==DT_REG ? 8 : type==DT_LNK ? 10 : 0;
         ++l->count; bytes+=n;
@@ -145,10 +147,19 @@ static void convert_stat(const struct stat *s,GuestStat *g) {
     memset(g,0,sizeof(*g));
     g->dev=(uint32_t)s->st_dev; g->ino=(uint32_t)s->st_ino;
     g->mode=(uint16_t)s->st_mode; g->nlink=(uint16_t)s->st_nlink;
-    g->size=s->st_size; g->blocks=s->st_blocks; g->blksize=(uint32_t)s->st_blksize;
+    g->size=s->st_size;
+#ifdef _WIN32
+    /* MinGW's struct stat has no block fields and its timestamps are plain __time64_t. */
+    g->blocks=0; g->blksize=4096;
+    g->atime=(GuestTimespec){(int64_t)s->st_atime,0};
+    g->mtime=(GuestTimespec){(int64_t)s->st_mtime,0};
+    g->ctime=(GuestTimespec){(int64_t)s->st_ctime,0};
+#else
+    g->blocks=s->st_blocks; g->blksize=(uint32_t)s->st_blksize;
     g->atime=(GuestTimespec){s->st_atim.tv_sec,s->st_atim.tv_nsec};
     g->mtime=(GuestTimespec){s->st_mtim.tv_sec,s->st_mtim.tv_nsec};
     g->ctime=(GuestTimespec){s->st_ctim.tv_sec,s->st_ctim.tv_nsec};
+#endif
     g->birthtime=g->ctime;
 }
 static File *get(int fd) {
@@ -384,6 +395,18 @@ static ABI int64_t posix_rmdir(const char *p) { return posix(path_op(p,1,0)); }
 static ABI int64_t sce_unlink(const char *p) { return sce(path_op(p,2,0)); }
 static ABI int64_t posix_unlink(const char *p) { return posix(path_op(p,2,0)); }
 static ABI int32_t sce_check_reachability(const char *p) {
+    if (!p) return ERR(EFAULT);
+    size_t n=strnlen(p,256);
+    if (n==256) return (int32_t)UINT32_C(0x8002003f); /* KERNEL_ERROR_ENAMETOOLONG */
+    if (!strcmp(p,"/")) return 0;
+    static const char *const devices[]={
+        "/dev/stdin","/dev/stdout","/dev/stderr","/dev/fd/0","/dev/fd/1","/dev/fd/2",
+        "/dev/deci_stdin","/dev/deci_stdout","/dev/deci_stderr","/dev/null","/dev/urandom",
+        "/dev/random","/dev/srandom","/dev/console","/dev/deci_tty6","/dev/deci_tty7",
+        "/dev/rng","/dev/zero"
+    };
+    for (size_t i=0;i<sizeof(devices)/sizeof(devices[0]);++i)
+        if (!strncmp(p,devices[i],strlen(devices[i]))) return 0;
     GuestStat s; return (int32_t)sce(do_stat(p,&s));
 }
 
@@ -423,8 +446,3 @@ void runtime_file_report(void) {
     printf("Runtime: files opened=%zu, reads=%zu (%llu bytes), writes=%zu, not found=%zu\n",
            opens,reads,(unsigned long long)bytes_read,writes,missing);
 }
-#else
-uintptr_t runtime_file_resolve(const char *name) { (void)name; return 0; }
-void runtime_file_report(void) {}
-void runtime_file_configure(const char *a,const char *u) { (void)a; (void)u; }
-#endif

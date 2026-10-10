@@ -202,7 +202,8 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!(capabilities & 1)) return 0;
     if (is_data) {
         static int32_t need_libc_internal = 1; /* SDK marker variable referenced by Fios2 */
-        if (!strcmp(name, "f7uOxY9mM1U#p#J")) return (uintptr_t)&stack_canary;
+        if (!strcmp(name, "f7uOxY9mM1U#p#J") || !strcmp(name, "f7uOxY9mM1U#G#E"))
+            return (uintptr_t)&stack_canary;
         if (!strcmp(name, "ZT4ODD2Ts9o#libSceLibcInternal")) return (uintptr_t)&need_libc_internal;
         return 0;
     }
@@ -223,8 +224,10 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "DfivPArhucg#q#q")) return (uintptr_t)guest_memcmp;
     if (!strcmp(name, "j4ViWNHEgww#q#q")) return (uintptr_t)guest_strlen;
     if (!strcmp(name, "vNe1w4diLCs#p#J")) return (uintptr_t)guest_tls_get_addr;
-    if (!strcmp(name, "959qrazPIrg#p#J")) return (uintptr_t)guest_procparam;
-    if (!strcmp(name, "p5EcQeEeJAE#p#J")) return (uintptr_t)guest_set_heap_api;
+    if (!strcmp(name, "959qrazPIrg#p#J") || !strcmp(name, "959qrazPIrg#G#E"))
+        return (uintptr_t)guest_procparam;
+    if (!strcmp(name, "p5EcQeEeJAE#p#J") || !strcmp(name, "p5EcQeEeJAE#G#E"))
+        return (uintptr_t)guest_set_heap_api;
     uintptr_t mutex = runtime_mutex_resolve(name);
     if (mutex) return mutex;
     uintptr_t thread = runtime_thread_resolve(name);
@@ -243,6 +246,8 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (kernel) return kernel;
     uintptr_t services = runtime_services_resolve(name);
     if (services) return services;
+    uintptr_t zlib = runtime_zlib_resolve(name);
+    if (zlib) return zlib;
     uintptr_t ajm = runtime_ajm_resolve(name);
     if (ajm) return ajm;
     uintptr_t audio = runtime_audio_resolve(name);

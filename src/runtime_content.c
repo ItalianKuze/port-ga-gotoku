@@ -11,6 +11,7 @@
 static unsigned refs, initialized, configured;
 static uint32_t parameters[5];
 static unsigned queries, lists;
+typedef struct { char data[16]; } AppContentMountPoint;
 void runtime_content_configure(const uint32_t values[5]) {
     if (refs || initialized || (values[0]!=1 && values[0]!=3)) {
         fputs("ERROR: invalid or late content profile\n",stderr); exit(1);
@@ -77,13 +78,22 @@ static ABI int32_t addon_list(uint32_t service,void *list,uint32_t capacity,uint
     if (hits) *hits=0;
     ++lists; return 0;
 }
+static ABI int32_t temporary_data_mount2(uint32_t option,AppContentMountPoint *mount_point) {
+    (void)option;
+    if (!mount_point) return PARAMETER;
+    memcpy(mount_point->data,"/temp0",sizeof("/temp0"));
+    return 0;
+}
 uintptr_t runtime_content_resolve(const char *name) {
-    if (!strcmp(name,"g8cM39EUZ6o#M#N")) return (uintptr_t)module_load;
+    if (!strcmp(name,"g8cM39EUZ6o#M#N") || !strcmp(name,"g8cM39EUZ6o#n#F")) return (uintptr_t)module_load;
     if (!strcmp(name,"fMP5NHUOaMk#M#N")) return (uintptr_t)module_loaded;
     if (!strcmp(name,"eR2bZFAAU0Q#M#N")) return (uintptr_t)module_unload;
-    if (!strcmp(name,"R9lA82OraNs#c#d")) return (uintptr_t)content_init;
-    if (!strcmp(name,"99b82IKXpH4#c#d")) return (uintptr_t)param_int;
+    if (!strcmp(name,"R9lA82OraNs#c#d") || !strcmp(name,"R9lA82OraNs#c#a"))
+        return (uintptr_t)content_init;
+    if (!strcmp(name,"99b82IKXpH4#c#d") || !strcmp(name,"99b82IKXpH4#c#a"))
+        return (uintptr_t)param_int;
     if (!strcmp(name,"xnd8BJzAxmk#c#d")) return (uintptr_t)addon_list;
+    if (!strcmp(name,"buYbeLOGWmA#c#a")) return (uintptr_t)temporary_data_mount2;
     return 0;
 }
 void runtime_content_report(void) {

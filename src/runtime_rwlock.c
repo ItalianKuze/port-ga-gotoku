@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <errno.h>
 #include <limits.h>
@@ -160,7 +159,3 @@ void runtime_rwlock_report(void) {
     printf("Runtime: rwlocks created=%zu, reads=%zu, writes=%zu, unlocks=%zu\n",created,reads,writes,unlocks);
     pthread_mutex_unlock(&registry_lock);
 }
-#else
-uintptr_t runtime_rwlock_resolve(const char *name) { (void)name; return 0; }
-void runtime_rwlock_report(void) { puts("Runtime: Windows rwlock backend not implemented"); }
-#endif

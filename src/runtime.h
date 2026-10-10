@@ -1,9 +1,17 @@
 #ifndef BB_RUNTIME_H
 #define BB_RUNTIME_H
-#include <time.h>
 #include <stdint.h>
 #include <stddef.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#include "win_compat.h"
+/* Recovery point for speculative guest memory reads on this thread (probe.c VEH). Restoring the
+   stored CONTEXT is the Windows equivalent of siglongjmp back to the sigsetjmp. */
+extern __thread CONTEXT *runtime_fault_recover;
+/* Restarts the game (in-game settings menu, render resolution change). */
+void runtime_restart(void);
+#else
+#include <time.h>
 #include <setjmp.h>
 /* Recovery point for speculative guest memory reads on this thread (probe.c fault handler). */
 extern __thread sigjmp_buf *runtime_fault_recover;
@@ -21,6 +29,12 @@ void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);
 void runtime_memory_report(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
+#ifndef _WIN32
+static inline void runtime_memory_reserve(void) {}
+#else
+/* Reserves the fixed PS4 user range before anything maps inside it (probe.c). */
+void runtime_memory_reserve(void);
+#endif
 /* The CPU is about to write the range outside guest code (a file read): tells the GPU side. */
 void runtime_memory_note_write(uintptr_t address, uint64_t size);
 void runtime_memory_note_cpu_write(uintptr_t address, uint64_t size);
@@ -30,7 +44,16 @@ void runtime_wait_report(double frames);
 void runtime_guest_call_sites(uint64_t out[3]);
 /* bbport: times the game's heap asked for more memory (posix_mmap): a sign it leaks. */
 uint64_t runtime_heap_growths(void);
+#ifndef _WIN32
 static inline uint64_t runtime_wait_clock(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000000+(uint64_t)t.tv_nsec; }
+#else
+/* QueryPerformanceCounter: the Windows monotonic clock behind runtime_process_time_us. */
+static inline uint64_t runtime_wait_clock(void) {
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return (uint64_t)c.QuadPart;
+}
+#endif
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
@@ -41,6 +64,13 @@ void **runtime_application_heap_api(void);
 uintptr_t runtime_thread_resolve(const char *name);
 void runtime_thread_report(void);
 void runtime_set_main_tls(const void *data, uint64_t filesz, uint64_t memsz, uint64_t align);
+#ifndef _WIN32
+static inline uint32_t runtime_thread_tcb_offset(void) { return 0; }
+#else
+/* TEB TLS slot holding the guest TCB, as a gs-relative displacement. The loader needs it to
+ * rewrite the guest's `mov rax, gs:[0]`, so the slot is allocated before the image is patched. */
+uint32_t runtime_thread_tcb_offset(void);
+#endif
 void runtime_thread_attach_main(void);
 int32_t *runtime_errno(void);
 uintptr_t runtime_sema_resolve(const char *name);
@@ -55,8 +85,10 @@ typedef struct { const char *name; void *function; } RuntimeExport;
 const char *runtime_symbol(const char *nid);
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *nid);
 uintptr_t runtime_kernel_resolve(const char *name);
+void runtime_kernel_configure(uint32_t app_attributes, int valid);
 uintptr_t runtime_file_resolve(const char *name);
 uintptr_t runtime_services_resolve(const char *name);
+uintptr_t runtime_zlib_resolve(const char *name);
 void runtime_file_report(void);
 void runtime_file_configure(const char *app0, const char *user);
 int runtime_file_mount(const char *guest, const char *host);

@@ -96,6 +96,13 @@ public:
         }
     }
 
+    /// bbport BB_STALL_TRACE=1: copies still owed (queued or running).
+    unsigned long long PendingTasks() {
+        std::scoped_lock lk{mutex};
+        return static_cast<unsigned long long>(pending) +
+               static_cast<unsigned long long>(async_tasks.size());
+    }
+
     void Run(std::size_t count, const std::function<void(std::size_t)>& task) {
         auto job = std::make_shared<Job>();
         job->task = &task;
@@ -292,6 +299,10 @@ void WaitAsync() {
         batch.bytes = 0;
     }
     GetPool().WaitAll();
+}
+
+unsigned long long Pending() {
+    return GetPool().PendingTasks();
 }
 
 void ParallelFor(std::size_t count, const std::function<void(std::size_t)>& task) {

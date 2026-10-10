@@ -65,7 +65,9 @@ public:
 
 class BufferCache {
     static constexpr u64 ADDRESS_SPACE_BITS = 40;
-    static constexpr u64 ARENA_PAGE_BITS = 32;
+    // Keep sparse Vulkan buffers below 4 GiB. Some drivers fail to create one 4 GiB sparse
+    // resource even though they support the required sparse binding features.
+    static constexpr u64 ARENA_PAGE_BITS = 31;
     static constexpr u64 ARENA_PAGE_SIZE = u64{1} << ARENA_PAGE_BITS;
     static constexpr u64 NUM_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - ARENA_PAGE_BITS);
     static constexpr u64 MIN_BLOCK_SIZE = 16_KB;

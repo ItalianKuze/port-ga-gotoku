@@ -219,7 +219,9 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR,
         vk::PhysicalDeviceImage2DViewOf3DFeaturesEXT, vk::PhysicalDeviceShaderClockFeaturesKHR,
         vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR,
+#if defined(VK_VALVE_shader_mixed_float_dot_product)
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
+#endif
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR, vk::PhysicalDeviceShaderFloat8FeaturesEXT>();
     features = feature_chain.get().features;
 
@@ -362,10 +364,15 @@ bool Instance::CreateDevice() {
     // bbport: FSR 4 v07 INT8 (vk_temporal_upscaler): quad derivatives in compute shaders.
     compute_shader_derivatives = add_extension(VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
     // bbport: FSR 4.1.1 passes (dot2 of halves accumulated in float, as vkd3d-proton translates them).
+#if defined(VK_VALVE_shader_mixed_float_dot_product)
     mixed_float_dot_product =
         feature_chain.get<vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE>()
             .shaderMixedFloatDotProductFloat16AccFloat32 &&
         add_extension(VK_VALVE_SHADER_MIXED_FLOAT_DOT_PRODUCT_EXTENSION_NAME);
+#else
+    // Older Vulkan-Headers cannot describe this optional FSR 4.1.1 feature.
+    mixed_float_dot_product = false;
+#endif
     // bbport: FSR 4.1.1's FP8 variant (RDNA4): FP8 cooperative matrices. Cooperative matrices
     // alone (FP16) run it emulated, for testing (BB_FSR411_VARIANT=fp8emu).
     cooperative_matrix =
@@ -592,9 +599,11 @@ bool Instance::CreateDevice() {
             .computeDerivativeGroupLinear =
                 compute_shader_derivatives_features.computeDerivativeGroupLinear,
         },
+#if defined(VK_VALVE_shader_mixed_float_dot_product)
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE{
             .shaderMixedFloatDotProductFloat16AccFloat32 = true,
         },
+#endif
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR{
             .cooperativeMatrix = true,
         },
@@ -656,9 +665,11 @@ bool Instance::CreateDevice() {
     if (!compute_shader_derivatives) {
         device_chain.unlink<vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR>();
     }
+#if defined(VK_VALVE_shader_mixed_float_dot_product)
     if (!mixed_float_dot_product) {
         device_chain.unlink<vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE>();
     }
+#endif
     if (!cooperative_matrix) {
         device_chain.unlink<vk::PhysicalDeviceCooperativeMatrixFeaturesKHR>();
     }

@@ -321,6 +321,72 @@ void Scheduler::SignalAfterHostCopies(std::function<void()> signal) {
     KickRecording(true);
 }
 
+// bbport BB_STALL_TRACE=1: a signal handed to SignalAfterHostCopies that has not run after
+// this many seconds prints why: whether the recording threads were given the ordered chunk, and
+// whether the copy pool still owes a callback (the signal runs once the copies are done).
+void Scheduler::ReportDeferredStall(u64 issued) {
+    static const double limit = [] {
+        const char* env = std::getenv("BB_STALL_TRACE");
+        return env ? std::max(0.1, std::atof(env)) : 5.0;
+    }();
+    const auto start = std::chrono::steady_clock::now();
+    u64 done = deferred_signals_done->load(std::memory_order_acquire);
+    u64 wait_s = 0;
+    u64 copy_pending = 0;
+    u64 copy_ticks = 0;
+    while (done < issued) {
+        BbCopy::WaitAsync();
+        std::this_thread::yield();
+        done = deferred_signals_done->load(std::memory_order_acquire);
+        if (done < issued) {
+            copy_pending = BbCopy::Pending();
+            copy_ticks++;
+        }
+        const auto seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (seconds >= limit) {
+            wait_s = static_cast<u64>(seconds);
+            break;
+        }
+    }
+    if (done >= issued) {
+        return;
+    }
+    // What is the ordered chunk waiting for: the commands recorded before it, or a copy callback.
+    std::scoped_lock lk{recorder_mutex};
+    const u64 queued = ordered_queue.size();
+    const bool running = ordered_running;
+    u32 segment = 0, after = 0, recorded = 0, unrecorded = 0;
+    if (!ordered_queue.empty()) {
+        const RecordChunk& next = *ordered_queue.front();
+        segment = next.segment;
+        after = next.after;
+        recorded = next.batch->recorded[next.segment];
+        for (u32 i = 0; i < next.segment; ++i) {
+            unrecorded += next.batch->handed[i] - std::min(next.batch->recorded[i], next.batch->handed[i]);
+        }
+        if (next.batch->recorded[next.segment] < next.after) {
+            unrecorded += next.after - next.batch->recorded[next.segment];
+        }
+    }
+    size_t worker_queued = 0;
+    u32 busy = 0, sleeping = 0;
+    for (const auto& w : workers) {
+        worker_queued += w->queue.size();
+        busy += w->busy ? 1 : 0;
+        sleeping += w->sleeping ? 1 : 0;
+    }
+    std::printf("Stall: deferred signal not run after %llu s (%llu of %llu): %zu ordered chunks "
+                "queued, running=%d, front waits for %u unrecorded commands (segment %u, "
+                "recorded %u of %u), %zu commands queued on %u recording threads "
+                "(busy %u, sleeping %u), copy pool: %llu pending after %llu spins\n",
+                (unsigned long long)wait_s, (unsigned long long)done,
+                (unsigned long long)issued, queued, running ? 1 : 0, unrecorded, segment, recorded,
+                after, worker_queued, static_cast<u32>(workers.size()), busy, sleeping,
+                (unsigned long long)copy_pending, (unsigned long long)copy_ticks);
+    std::fflush(stdout);
+}
+
 void Scheduler::WaitDeferredSignals() {
     const u64 issued = deferred_signals_issued.load(std::memory_order_relaxed);
     if (deferred_signals_done->load(std::memory_order_acquire) >= issued ||
@@ -329,11 +395,19 @@ void Scheduler::WaitDeferredSignals() {
     }
     BbStats::WaitTimer timer{BbStats::host_copies_wait_ns};
     KickRecording(true);
-    while (deferred_signals_done->load(std::memory_order_acquire) < issued) {
-        // Helps the copy threads the signals wait for.
-        BbCopy::WaitAsync();
-        std::this_thread::yield();
+    static const bool trace = [] {
+        const char* env = std::getenv("BB_STALL_TRACE");
+        return env && env[0] != '0';
+    }();
+    if (!trace) {
+        while (deferred_signals_done->load(std::memory_order_acquire) < issued) {
+            // Helps the copy threads the signals wait for.
+            BbCopy::WaitAsync();
+            std::this_thread::yield();
+        }
+        return;
     }
+    ReportDeferredStall(issued);
 }
 
 namespace {

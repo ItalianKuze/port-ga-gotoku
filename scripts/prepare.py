@@ -71,6 +71,34 @@ def parse_self(data):
     return elf, header, ph, segments, missing
 
 
+def parse_elf(data):
+    """Read an already extracted ELF without SELF segment reconstruction."""
+    if span(data, 0, 4) != b'\x7fELF':
+        raise ValueError("expected ELF")
+    header = unpack('<16sHHIQQQIHHHHHH', data, 0)
+    if header[0][:7] != b'\x7fELF\x02\x01\x01' or header[2] != 62:
+        raise ValueError("expected little-endian x86-64 ELF")
+    if header[8] != 64 or header[9] != 56 or not 0 < header[10] < 256:
+        raise ValueError("unsupported ELF or program headers")
+    ph = [dict(zip(('type', 'flags', 'offset', 'vaddr', 'paddr', 'filesz', 'memsz', 'align'),
+                   unpack('<IIQQQQQQ', data, header[5] + i * header[9])))
+          for i in range(header[10])]
+    for i, p in enumerate(ph):
+        span(data, p['offset'], p['filesz'])
+    if max(p['offset'] + p['filesz'] for p in ph) > 512 * 1024 * 1024:
+        raise ValueError("probe image exceeds 512 MiB limit")
+    return bytearray(data), header, ph, [], []
+
+
+def parse_executable(data):
+    """Parse either a PS4 SELF or an already extracted ELF."""
+    if data[:4] == b'O\x15=\x1d':
+        return parse_self(data)
+    if data[:4] == b'\x7fELF':
+        return parse_elf(data)
+    raise ValueError("expected PS4 SELF or extracted ELF")
+
+
 def sfo(data):
     magic, version, keys, values, count = unpack('<4sIIII', data, 0)
     if magic != b'\0PSF':
@@ -93,7 +121,7 @@ def nid(name):
 def inspect_libc(path):
     """Prove that this dump's _init_env is exactly RET; never assume it."""
     source = path.read_bytes()
-    elf, header, ph, _, missing = parse_self(source)
+    elf, header, ph, _, missing = parse_executable(source)
     dynamic = next(p for p in ph if p['type'] == 2)
     tags = dict(unpack('<QQ', elf, pos) for pos in
                 range(dynamic['offset'], dynamic['offset'] + dynamic['filesz'], 16))
@@ -126,9 +154,12 @@ class GameCheckError(Exception):
     """Game files bbport does not run (game_check.py)."""
 
 
-def prepare(game, out):
+def prepare(game, out, experimental_elf=False):
     source = (game / 'eboot.bin').read_bytes()
-    elf, header, ph, segments, missing = parse_self(source)
+    is_raw_elf = source[:4] == b'\x7fELF'
+    if is_raw_elf and not experimental_elf:
+        raise ValueError('raw ELF loading is experimental; pass --experimental-elf explicitly')
+    elf, header, ph, segments, missing = parse_executable(source)
     loads = [p for p in ph if p['type'] in (1, 0x61000010)]
     def mapped(addr, size=8):
         return any(p['vaddr'] <= addr and addr + size <= p['vaddr'] + p['memsz'] for p in loads)
@@ -141,7 +172,7 @@ def prepare(game, out):
             raise ValueError('segment file size exceeds memory size')
         image[p['vaddr']:p['vaddr'] + p['filesz']] = span(elf, p['offset'], p['filesz'])
     # bbport: only the supported executable runs (game_check.py); others fail in the game's code.
-    if found := game_check.problem(game, hashlib.sha256(image).hexdigest()):
+    if not is_raw_elf and (found := game_check.problem(game, hashlib.sha256(image).hexdigest())):
         raise GameCheckError(game_check.explain(*found))
     dp = next(p for p in ph if p['type'] == 2)
     dyn = []
@@ -258,9 +289,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('game', type=Path)
     parser.add_argument('--out', type=Path, default=Path(__file__).resolve().parent.parent / 'out')
+    parser.add_argument('--experimental-elf', action='store_true',
+                        help='allow an already extracted ELF and skip the Bloodborne identity check')
     args = parser.parse_args()
     try:
-        prepare(args.game, args.out)
+        prepare(args.game, args.out, experimental_elf=args.experimental_elf)
     except GameCheckError as error:
         parser.exit(2, f'\nUnsupported game files: {error}\nSet BB_SKIP_GAME_CHECK=1 to start anyway.\n')
     except (ValueError, OSError, StopIteration, KeyError, IndexError) as error:

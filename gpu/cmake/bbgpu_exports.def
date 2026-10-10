@@ -1,0 +1,17 @@
+; SPDX-License-Identifier: GPL-2.0-or-later
+; bbport: the DLL's public API (gpu/bbgpu.h). MinGW's linker otherwise exports every non-static
+; symbol, which fails on the C++ COMDATs in shadPS4 and would leak the whole implementation.
+; On Linux libbbgpu.so exports exactly this set through default visibility, so the two builds
+; present the same surface to bb-probe.
+
+EXPORTS
+    bbgpu_init
+    bbgpu_register_kernel
+    bbgpu_resolve
+    bbgpu_handle_fault
+    bbgpu_dump_guest_writes
+    bbgpu_text_input_begin
+    bbgpu_text_input_poll
+    bbgpu_overlay_captures_input
+    bbgpu_patch_image
+    bbgpu_symbol_count

@@ -7,15 +7,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _WIN32
 #include <pthread.h>
 #include <sched.h>
 #include <setjmp.h>
 #include <errno.h>
 #include <unistd.h>
+#ifndef _WIN32
 #include <sys/syscall.h>
-#include <sys/mman.h>
 #include <asm/prctl.h>
+#else
+#include <windows.h>
+#endif
+#include <sys/mman.h>
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define ATTR_MAGIC UINT32_C(0x41545452)
 #define STACK_MARGIN (256*1024)
@@ -57,14 +60,51 @@ void runtime_set_main_tls(const void *data,uint64_t filesz,uint64_t memsz,uint64
     tls_template=data; tls_filesz=filesz; tls_memsz=memsz; tls_align=align ? align : 16;
 }
 static uint64_t tls_offset(void) { return (tls_memsz+tls_align-1)&~(tls_align-1); }
+#ifdef _WIN32
+/* Windows x64 gives GS the TEB and offers no way to move it: SetThreadContext on a 64-bit thread
+ * exposes only segment *selectors*, not bases, and a user-mode process cannot run the privileged
+ * lgdt/lldt needed to install a descriptor of its own. Linux instead points GS at the TCB with
+ * arch_prctl(ARCH_SET_GS). So the TCB goes into a TEB TLS slot instead: TlsAlloc() picks the slot,
+ * TlsSetValue() stores this thread's TCB in it, and the loader rewrites the guest's
+ * `mov rax, gs:[0]` to `mov rax, gs:[0x1480+8*slot]` -- the same 9-byte instruction with another
+ * displacement. Host TLS is untouched, and the slot is per-thread, so this works for every guest
+ * thread without touching the TEB layout.
+ *
+ * Slots 64 and above live outside TEB.TlsSlots and cannot be addressed with this form. */
+static DWORD tls_slot=TLS_OUT_OF_INDEXES;
+void runtime_thread_adopt_slot(uint32_t index) {
+    /* The launcher reserves the slot before this module is loaded (launcher_win.c): this DLL
+     * imports SDL3/Vulkan/FFmpeg, and those take most of the 64 TEB slots during loading, so by
+     * the time bbport_main runs TlsAlloc() would hand back an index that gs: cannot address. */
+    if (index>=64) { fprintf(stderr,"STOP: launcher reserved unusable TLS slot %u\n",index); exit(21); }
+    tls_slot=(DWORD)index;
+}
+uint32_t runtime_thread_tcb_offset(void) {
+    if (tls_slot==TLS_OUT_OF_INDEXES) {
+        tls_slot=TlsAlloc();
+        if (tls_slot==TLS_OUT_OF_INDEXES || tls_slot>=64) {
+            fprintf(stderr,"STOP: no TEB TLS slot below 64 (TlsAlloc gave %lu)\n",(unsigned long)tls_slot);
+            exit(21);
+        }
+    }
+    return 0x1480+8*(uint32_t)tls_slot;
+}
+static void set_gs(void *base) {
+    runtime_thread_tcb_offset();
+    if (!TlsSetValue(tls_slot,base)) { fprintf(stderr,"STOP: TlsSetValue failed (%lu)\n",(unsigned long)GetLastError()); exit(21); }
+}
+#define tls_block_alloc(size) _aligned_malloc((size)?(size):1,64)
+#else
 static void set_gs(void *base) {
     if (syscall(SYS_arch_prctl,ARCH_SET_GS,(unsigned long)base)) { perror("STOP: arch_prctl(ARCH_SET_GS)"); exit(21); }
 }
+#define tls_block_alloc(size) aligned_alloc(64,size)
+#endif
 /* Build TCB/static TLS for the calling host thread and point GS at it. */
 static void attach(GuestThread *t) {
     uint64_t offset=tls_offset();
     size_t total=offset+256;
-    unsigned char *block=aligned_alloc(64,(total+63)&~(size_t)63);
+    unsigned char *block=tls_block_alloc((total+63)&~(size_t)63);
     if (!block) { fputs("Cannot allocate guest TLS\n",stderr); exit(1); }
     memset(block,0,total);
     if (tls_filesz) memcpy(block,tls_template,tls_filesz);
@@ -187,7 +227,9 @@ static ABI int32_t attr_set_inherit(ThreadAttr **slot,int inherit) {
 }
 static ABI int32_t attr_set_param(ThreadAttr **slot,const int *param) {
     ThreadAttr *a=find_attr(slot);
-    if (!a || !param) return ERR(22);
+    if (!a) return ERR(22);
+    if (!param) return ERR(45);
+    if ((a->policy == 1 || a->policy == 3) && (*param < 0x100 || *param > 0x2ff)) return ERR(45);
     a->prio=*param; return 0;
 }
 static ABI int32_t attr_get_param(ThreadAttr **slot,int *param) {
@@ -324,19 +366,28 @@ static ABI int32_t posix_join(GuestThread *t,void **r) { return posix(thread_joi
 
 uintptr_t runtime_thread_resolve(const char *name) {
     static const struct { const char *nid; void *fn; } table[]={
-        {"aI+OeCz8xrQ#p#J",thread_self}, {"EotR8a3ASf4#I#J",thread_self},
+        {"aI+OeCz8xrQ#p#J",thread_self}, {"aI+OeCz8xrQ#G#E",thread_self},
+        {"EotR8a3ASf4#I#J",thread_self},
         {"9BcDykPmo1I#p#J",guest_error},
-        {"nsYoNRywwNg#p#J",attr_init}, {"62KCwEMmzcM#p#J",attr_destroy},
-        {"x1X76arYMxU#p#J",attr_get}, {"8+s5BzZjxSg#p#J",attr_affinity},
-        {"UTXzJbWhhTE#p#J",attr_set_stack}, {"-Wreprtu0Qs#p#J",attr_set_detach},
-        {"4+h9EzwKF4I#p#J",attr_set_policy}, {"DzES9hQF4f4#p#J",attr_set_param},
-        {"3qxgM4ezETA#p#J",attr_set_affinity}, {"eXbUSpEaTsA#p#J",attr_set_inherit},
+        {"nsYoNRywwNg#p#J",attr_init}, {"nsYoNRywwNg#G#E",attr_init},
+        {"62KCwEMmzcM#p#J",attr_destroy}, {"62KCwEMmzcM#G#E",attr_destroy},
+        {"x1X76arYMxU#p#J",attr_get}, {"x1X76arYMxU#G#E",attr_get},
+        {"8+s5BzZjxSg#p#J",attr_affinity}, {"8+s5BzZjxSg#G#E",attr_affinity},
+        {"UTXzJbWhhTE#p#J",attr_set_stack}, {"UTXzJbWhhTE#G#E",attr_set_stack},
+        {"-Wreprtu0Qs#p#J",attr_set_detach}, {"-Wreprtu0Qs#G#E",attr_set_detach},
+        {"4+h9EzwKF4I#p#J",attr_set_policy},
+        {"DzES9hQF4f4#p#J",attr_set_param}, {"DzES9hQF4f4#G#E",attr_set_param},
+        {"3qxgM4ezETA#p#J",attr_set_affinity}, {"3qxgM4ezETA#G#E",attr_set_affinity},
+        {"eXbUSpEaTsA#p#J",attr_set_inherit}, {"eXbUSpEaTsA#G#E",attr_set_inherit},
         {"JaRMy+QcpeU#p#J",attr_get_detach}, {"-fA+7ZlGDQs#p#J",attr_get_stack},
         {"FXPWHNk8Of0#p#J",attr_get_param}, {"El+cQ20DynU#p#J",attr_set_guard},
-        {"6UgtwV+0zb4#p#J",thread_create}, {"onNY9Byn-W8#p#J",thread_join},
+        {"6UgtwV+0zb4#p#J",thread_create}, {"6UgtwV+0zb4#G#E",thread_create},
+        {"onNY9Byn-W8#p#J",thread_join}, {"onNY9Byn-W8#G#E",thread_join},
         {"4qGrR6eoP9Y#p#J",thread_detach}, {"3kg7rT0NQIs#p#J",thread_exit},
-        {"T72hz6ffq08#p#J",thread_yield}, {"1tKyG7RlMJo#p#J",thread_get_prio},
-        {"W0Hpm2X0uPE#p#J",thread_set_prio}, {"bt3CTBKmGyI#p#J",thread_set_affinity}, {"rcrVFJsQWRY#p#J",thread_get_affinity},
+        {"T72hz6ffq08#p#J",thread_yield}, {"T72hz6ffq08#G#E",thread_yield},
+        {"1tKyG7RlMJo#p#J",thread_get_prio}, {"1tKyG7RlMJo#G#E",thread_get_prio},
+        {"W0Hpm2X0uPE#p#J",thread_set_prio}, {"W0Hpm2X0uPE#G#E",thread_set_prio},
+        {"bt3CTBKmGyI#p#J",thread_set_affinity}, {"bt3CTBKmGyI#G#E",thread_set_affinity}, {"rcrVFJsQWRY#p#J",thread_get_affinity},
         {"GBUY7ywdULE#p#J",thread_rename}, {"3PtV6p3QNX4#p#J",thread_equal},
         {"wtkt-teR1so#I#J",posix_attr_init}, {"zHchY8ft5pk#I#J",posix_attr_destroy},
         {"E+tyo3lp5Lw#I#J",posix_attr_set_detach}, {"2Q0z6rnBrTE#I#J",posix_attr_set_stack},
@@ -353,9 +404,3 @@ void runtime_thread_report(void) {
     printf("Runtime: guest threads created=%zu, exited=%zu, joined=%zu\n",created,exited,joined_count);
     pthread_mutex_unlock(&lock);
 }
-#else
-uintptr_t runtime_thread_resolve(const char *name) { (void)name; return 0; }
-void runtime_thread_report(void) {}
-void runtime_thread_attach_main(void) {}
-void runtime_set_main_tls(const void *d,uint64_t f,uint64_t m,uint64_t a) { (void)d;(void)f;(void)m;(void)a; }
-#endif

@@ -9,6 +9,7 @@
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "gpu/bbgpu.h"
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -126,7 +127,20 @@ static void report_guest_heap(void) {
     if (!enabled || now-last<5000000) return;
     last=now;
     const uint8_t *stub=(const uint8_t *)(0x800000000ull+0x56e0000+0x1f8c0);
-    if (stub[0]!=0xff || stub[1]!=0x25) return; /* another libc */
+    /* libc.prx is not mapped this early (or is not at that image offset): reading the stub to
+     * look at it faults the game, and the recovery point lets the probe's fault handler skip it. */
+    int readable;
+#ifdef _WIN32
+    readable = 0;
+#else
+    { sigjmp_buf recover;
+      sigjmp_buf *saved=runtime_fault_recover;
+      runtime_fault_recover=&recover;
+      readable=sigsetjmp(recover,1)==0 && stub[0]==0xff && stub[1]==0x25;
+      runtime_fault_recover=saved;
+    }
+#endif
+    if (!readable) return; /* not mapped yet, or another libc */
     ABI int (*stats)(MallocManagedSize *)=(ABI int (*)(MallocManagedSize *))(uintptr_t)stub;
     MallocManagedSize m={.size=sizeof(m),.version=1};
     const int result=stats(&m);
@@ -327,8 +341,8 @@ static void read_inject(void) {
     last_check=now;
     struct stat st;
     if (stat(path,&st)!=0) return;
-    if (st.st_mtim.tv_sec==mtime.tv_sec && st.st_mtim.tv_nsec==mtime.tv_nsec) return;
-    mtime=st.st_mtim;
+    if (st.st_mtime==mtime.tv_sec) return;
+    mtime.tv_sec=st.st_mtime; mtime.tv_nsec=0;
     FILE *f=fopen(path,"r");
     if (!f) return;
     static const struct { const char *name; uint32_t ps; } names[]={

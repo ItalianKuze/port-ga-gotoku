@@ -9,6 +9,9 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
     (void)table; (void)count; (void)name;
     return 0;
 }
+/* Defined in runtime_memory.c, which this test does not link. Only report_guest_heap's
+ * speculative libc.prx read touches it, and that needs BB_FRAME_STATS: unreached here. */
+__thread sigjmp_buf *runtime_fault_recover;
 
 static void inject(const char *path, const char *tokens) {
     FILE *f=fopen(path,"w");

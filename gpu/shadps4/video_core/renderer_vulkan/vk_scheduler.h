@@ -932,6 +932,9 @@ public:
     /// may free memory the earlier fence then writes into (corrupted heap, guest fault).
     void WaitDeferredSignals();
 
+    /// bbport BB_STALL_TRACE=1: waits like WaitDeferredSignals, then reports why a signal has
+    /// not run (the ordered chunk not picked up, or a copy callback still owed).
+    void ReportDeferredStall(u64 issued);
     /// Whether a render pass with exactly this state is open.
     [[nodiscard]] bool IsRenderingWith(const RenderState& state) const {
         return is_rendering && render_state == state;

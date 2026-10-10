@@ -16,6 +16,7 @@ add_compile_options(-fno-omit-frame-pointer)
 # profile). Covers bbgpu and the static libraries linked into it. No -march: the same build
 # runs on the Steam Deck.
 option(BB_LTO "Link-time optimization of bbgpu" ON)
+option(BB_PIPELINE_CACHE_ARCHIVE "Build ZIP-archived shader cache support (requires miniz)" OFF)
 set(BB_PGO "off" CACHE STRING "Profile-guided optimization: off, generate, use")
 set(BB_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../pgo" CACHE PATH "Profile directory")
 if (BB_LTO)
@@ -40,17 +41,23 @@ elseif (BB_PGO STREQUAL "use")
                         -fprofile-correction -Wno-missing-profile -Wno-coverage-mismatch)
 endif()
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 find_package(Vulkan REQUIRED)
 find_package(fmt REQUIRED)
 find_package(Boost REQUIRED)
 find_package(magic_enum REQUIRED)
 find_package(tsl-robin-map REQUIRED)
-find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(VulkanMemoryAllocator REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)
 pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
-pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
-find_package(miniz REQUIRED)
+# X11 only supplies the Xlib surface create-info struct; Windows uses the Win32 path in vk_platform.cpp.
+if (NOT WIN32)
+    pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
+endif()
+if (BB_PIPELINE_CACHE_ARCHIVE)
+    find_package(miniz REQUIRED)
+endif()
 find_package(Zydis REQUIRED)
 find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
 
@@ -115,6 +122,7 @@ set(COMMON
     shadps4/common/io_file.cpp shadps4/common/native_clock.cpp shadps4/common/number_utils.cpp
     shadps4/common/path_util.cpp shadps4/common/rdtsc.cpp shadps4/common/spin_lock.cpp shadps4/common/recursive_lock.cpp
     shadps4/common/string_util.cpp shadps4/common/thread.cpp shadps4/common/signal_context.cpp
+    shadps4/common/ntapi.cpp
     shim/common/logging/log.cpp)
 file(GLOB AVPLAYER CONFIGURE_DEPENDS shadps4/core/libraries/avplayer/*.cpp)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
@@ -135,17 +143,45 @@ target_compile_definitions(bbgpu PRIVATE IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     BB_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf")
 set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES
     OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf)
-target_include_directories(bbgpu PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include third_party/half/include)
+target_include_directories(bbgpu PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include third_party/half/include third_party/xbyak)
 target_compile_definitions(bbgpu PRIVATE BOOST_ASIO_STANDALONE NDEBUG)
+if (WIN32)
+    # windows.h pulls in the Winsock 1 header, which then clashes with boost/asio's winsock2.
+    target_compile_definitions(bbgpu PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(bbgpu PRIVATE ws2_32)
+    # The runtime_* HLE API is bound at load time, but a PE DLL cannot carry unresolved
+    # externals, so link against the module that really exports it. On Linux the equivalent is
+    # -Wl,--allow-shlib-undefined plus -rdynamic on the executable.
+    if (NOT BBPORT_RUNTIME_LIB)
+        message(FATAL_ERROR
+            "Set -DBBPORT_RUNTIME_LIB=<path to libbbport_runtime.dll.a>; build the runtime first "
+            "(see scripts/build-win.sh).")
+    endif()
+    target_link_libraries(bbgpu PRIVATE "${BBPORT_RUNTIME_LIB}")
+    # Restrict the export table to the documented API; supplying a .def also turns off MinGW's
+    # auto-export of every global, which fails to link on shadPS4's C++ COMDATs.
+    target_link_options(bbgpu PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/bbgpu_exports.def")
+endif()
+target_compile_definitions(bbgpu PRIVATE BB_PIPELINE_CACHE_ARCHIVE=$<BOOL:${BB_PIPELINE_CACHE_ARCHIVE}>)
 target_compile_options(bbgpu PRIVATE -Wno-deprecated-declarations -Wno-missing-field-initializers)
-# Loaded with bb-probe at startup (DT_NEEDED, never dlopen): thread_local access without a
-# TLS descriptor call (_dl_tlsdesc_return was ~2% of the draw recording thread).
-target_compile_options(bbgpu PRIVATE -ftls-model=initial-exec)
-# Runtime symbols (runtime_memory_*, runtime_process_*) resolve against bb-probe.
-target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
+if (NOT WIN32)
+    # Loaded with bb-probe at startup (DT_NEEDED, never dlopen): thread_local access without a
+    # TLS descriptor call (_dl_tlsdesc_return was ~2% of the draw recording thread).
+    target_compile_options(bbgpu PRIVATE -ftls-model=initial-exec)
+    # Runtime symbols (runtime_memory_*, runtime_process_*) resolve against bb-probe.
+    target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
+endif()
 target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vulkan)
-target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
-    tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::X11 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit)
+set(BB_GPU_DEPENDENCIES Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
+    tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG
+    Zydis::Zydis sirit)
+if (NOT WIN32)
+    list(APPEND BB_GPU_DEPENDENCIES PkgConfig::X11)
+endif()
+if (BB_PIPELINE_CACHE_ARCHIVE)
+    list(APPEND BB_GPU_DEPENDENCIES miniz::miniz)
+endif()
+target_link_libraries(bbgpu PUBLIC ${BB_GPU_DEPENDENCIES})
 
 # Explicit test targets; neither launches the game nor needs a Vulkan device.
 add_executable(motion-history-test EXCLUDE_FROM_ALL ../tests/test_motion_history.cpp)

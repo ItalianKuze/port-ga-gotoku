@@ -11,7 +11,9 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 
+#if BB_PIPELINE_CACHE_ARCHIVE
 #include <miniz.h>
+#endif
 
 #include <condition_variable>
 #include <functional>
@@ -27,8 +29,10 @@ std::condition_variable_any request_cv{};
 std::queue<std::packaged_task<void()>> req_queue{};
 std::mutex m_request{};
 
+#if BB_PIPELINE_CACHE_ARCHIVE
 mz_zip_archive zip_ar{};
 bool ar_is_read_only{true};
+#endif
 
 } // namespace
 
@@ -95,6 +99,7 @@ void DataBase::Open() {
     const auto& game_info = Common::ElfInfo::Instance();
 
     using namespace Common::FS;
+#if BB_PIPELINE_CACHE_ARCHIVE
     if (EmulatorSettings.IsPipelineCacheArchived()) {
         mz_zip_zero_struct(&zip_ar);
 
@@ -109,7 +114,9 @@ void DataBase::Open() {
             mz_zip_reader_end(&zip_ar);
             mz_zip_writer_init_file(&zip_ar, cache_path.string().c_str(), 0);
         }
-    } else {
+    } else
+#endif
+    {
         cache_path = GetUserPath(PathType::CacheDir) / game_info.GameSerial();
         if (!std::filesystem::exists(cache_path)) {
             std::filesystem::create_directories(cache_path);
@@ -128,10 +135,12 @@ void DataBase::Close() {
     io_worker.request_stop();
     io_worker.join();
 
+#if BB_PIPELINE_CACHE_ARCHIVE
     if (EmulatorSettings.IsPipelineCacheArchived()) {
         mz_zip_writer_finalize_archive(&zip_ar);
         mz_zip_writer_end(&zip_ar);
     }
+#endif
 
     opened = false;
     LOG_INFO(Render, "Cache dumped");
@@ -143,6 +152,7 @@ bool WriteVector(const BlobType type, std::filesystem::path&& path_, std::vector
         auto request = std::packaged_task<void()>{[=]() {
             auto path{path_};
             path.replace_extension(GetBlobFileExtension(type));
+#if BB_PIPELINE_CACHE_ARCHIVE
             if (EmulatorSettings.IsPipelineCacheArchived()) {
                 ASSERT_MSG(!ar_is_read_only,
                            "The archive is read-only. Did you forget to call `FinishPreload`?");
@@ -150,7 +160,9 @@ bool WriteVector(const BlobType type, std::filesystem::path&& path_, std::vector
                                            v.size() * sizeof(T), MZ_BEST_COMPRESSION)) {
                     LOG_ERROR(Render, "Failed to add {} to the archive", path.string().c_str());
                 }
-            } else {
+            } else
+#endif
+            {
                 // bbport: written under a temporary name and renamed into place, so a crash or a
                 // power loss mid-write leaves the old file or none, never a cut-short one that
                 // the next start reads as a damaged entry (issue #28).
@@ -186,6 +198,7 @@ template <typename T>
 void LoadVector(BlobType type, std::filesystem::path& path, std::vector<T>& v) {
     using namespace Common::FS;
     path.replace_extension(GetBlobFileExtension(type));
+#if BB_PIPELINE_CACHE_ARCHIVE
     if (EmulatorSettings.IsPipelineCacheArchived()) {
         int index{-1};
         index = mz_zip_reader_locate_file(&zip_ar, path.string().c_str(), nullptr, 0);
@@ -197,7 +210,9 @@ void LoadVector(BlobType type, std::filesystem::path& path, std::vector<T>& v) {
         mz_zip_reader_file_stat(&zip_ar, index, &stat);
         v.resize(stat.m_uncomp_size / sizeof(T));
         mz_zip_reader_extract_to_mem(&zip_ar, index, v.data(), stat.m_uncomp_size, 0);
-    } else {
+    } else
+#endif
+    {
         const auto file = IOFile{path, FileAccessMode::Read};
         v.resize(file.GetSize() / sizeof(T));
         file.Read(v);
@@ -246,6 +261,7 @@ void DataBase::Load(BlobType type, const std::string& name, std::vector<u32>& da
 
 void DataBase::ForEachBlob(BlobType type, const std::function<void(std::vector<u8>&& data)>& func) {
     const auto& ext = GetBlobFileExtension(type);
+#if BB_PIPELINE_CACHE_ARCHIVE
     if (EmulatorSettings.IsPipelineCacheArchived()) {
         const auto num_files = mz_zip_reader_get_num_files(&zip_ar);
         for (int index = 0; index < num_files; ++index) {
@@ -260,7 +276,9 @@ void DataBase::ForEachBlob(BlobType type, const std::function<void(std::vector<u
                 func(std::move(data));
             }
         }
-    } else {
+    } else
+#endif
+    {
         for (const auto& file_name : std::filesystem::directory_iterator{cache_path}) {
             if (file_name.path().extension().string().ends_with(ext)) {
                 using namespace Common::FS;
@@ -290,10 +308,12 @@ void DataBase::Clear() {
 }
 
 void DataBase::FinishPreload() {
+#if BB_PIPELINE_CACHE_ARCHIVE
     if (EmulatorSettings.IsPipelineCacheArchived()) {
         mz_zip_writer_init_from_reader(&zip_ar, cache_path.string().c_str());
         ar_is_read_only = false;
     }
+#endif
 }
 
 } // namespace Storage

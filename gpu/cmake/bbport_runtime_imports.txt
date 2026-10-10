@@ -1,0 +1,34 @@
+# bbport: the runtime_* HLE API that the GPU DLL calls, and that the loader exports.
+# On Linux these stay unresolved in libbbgpu.so (-Wl,--allow-shlib-undefined) and the dynamic
+# linker binds them to bb-probe at load time. A PE DLL cannot carry unresolved externals, so the
+# Windows build generates a stub module exporting this list and links the DLL against its import
+# library; the loader resolves the same names from the real HLE runtime at load time.
+#
+# One symbol per line. Keep in sync with src/runtime*.c.
+runtime_disabled_optimizations
+runtime_errno
+runtime_fault_recover
+runtime_file_translate
+runtime_heap_growths
+runtime_memory_clamp
+runtime_memory_direct_phys
+runtime_memory_generation
+runtime_memory_gpu_protect
+runtime_memory_read_backing
+runtime_memory_region
+runtime_memory_set_cpu_write_hook
+runtime_memory_set_gpu_hooks
+runtime_memory_set_guest_chunk_allocator
+runtime_memory_set_guest_chunk_whole
+runtime_memory_set_note_write_hook
+runtime_memory_set_write_watch
+runtime_memory_vma_info
+runtime_memory_write_backing
+runtime_process_time_counter
+runtime_process_time_us
+runtime_restart
+runtime_restarting
+runtime_sleep_stats
+runtime_thread_attach_host
+runtime_tsc_frequency
+runtime_wait_report

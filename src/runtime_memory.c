@@ -13,11 +13,17 @@
 #include <limits.h>
 #include <pthread.h>
 #include <time.h>
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#include <io.h>
+#include <sys/mman.h>  /* gpu/shim: PROT_*/MAP_* plus mprotect on VirtualProtect */
+#include <unistd.h>    /* gpu/shim: gettid(), sysconf() */
+#else
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 /* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. BB_DMEM_MB raises it (the resolution
  * patches above 1080p need about 4 GiB more; run.sh sets it). */
 static uint64_t pool_size_bytes(void) {
@@ -42,8 +48,10 @@ static uint64_t pool_size_bytes(void) {
 #define NO_SPACE ((int32_t)UINT32_C(0x80020023))
 #define MAP_FIXED_FLAG 0x10
 #define MAP_NO_OVERWRITE 0x80
-enum { KIND_RESERVED=1, KIND_DIRECT, KIND_FLEXIBLE };
+enum { KIND_RESERVED=1, KIND_DIRECT, KIND_FLEXIBLE, KIND_POOL_RESERVED, KIND_POOL_COMMITTED };
+static int kind_is_reserved(int kind) { return kind==KIND_RESERVED || kind==KIND_POOL_RESERVED; }
 typedef struct { uint64_t start, size; int type, used; } Block;
+typedef struct { uint64_t start, size, committed; int used; } PoolBacking;
 typedef struct { uintptr_t start, end; int kind, prot, type; uint64_t phys; } Vma;
 typedef struct {
     uintptr_t start, end; uint64_t offset; int32_t protection, memory_type;
@@ -71,8 +79,11 @@ static void write_unlock(void) {
 static void read_lock(void) { if (!exclusive_depth) pthread_rwlock_rdlock(&lock); }
 static void read_unlock(void) { if (!exclusive_depth) pthread_rwlock_unlock(&lock); }
 static Block blocks[LIMIT];
+static PoolBacking pool_backing[LIMIT];
 static Vma *vmas; static size_t vma_count, vma_capacity;
+#ifndef _WIN32
 static int pool_fd=-1;
+#endif
 /* bbport: direct memory in GPU-visible system memory the GPU library allocates (dma-buf chunks,
  * BB_GUEST_GPU_MEMORY=1): the GPU reads the game's data in place instead of the CPU copying it
  * into staging buffers first. Chunks are allocated when the game allocates direct memory in them;
@@ -80,12 +91,15 @@ static int pool_fd=-1;
 #define CHUNK (UINT64_C(256) << 20)
 typedef int (*GuestChunkAlloc)(uint64_t phys, uint64_t size);
 static GuestChunkAlloc chunk_alloc;
+#ifndef _WIN32
 static int *chunk_fds; /* per CHUNK of direct memory: -1 not decided, -2 memfd, else a dma-buf fd */
+#endif
 /* Drivers whose dma-buf maps at offset 0 only (NVIDIA): a chunk per direct allocation instead of
  * the CHUNK grid. The game maps each of its allocations once, whole, so its mappings and the
  * backing view start at offset 0 of their chunk. */
 static unsigned char *backing_base; /* second view of the pool: host writes bypass guest/GPU page protection */
 static int whole_chunks;
+#ifndef _WIN32
 typedef struct { uint64_t phys, size; int fd; } Region;
 #define MAX_REGIONS 256
 static Region regions[MAX_REGIONS];
@@ -111,6 +125,7 @@ static void add_region(uint64_t phys, uint64_t size) {
     regions[i]=(Region){phys,size,fd>=0 ? fd : -2};
     ++region_count;
 }
+#endif
 #define FLEX_SPAN (UINT64_C(1024) * 1024 * 1024)
 static uint64_t flex_bitmap[FLEX_SPAN/PAGE/64];
 /* GPU hooks (bbgpu): notified outside the lock, in order, after each operation. */
@@ -129,6 +144,198 @@ static int host_prot(int prot) {
     /* GPU read/write bits (0x10/0x20) need host access for the future GPU backend. */
     return ((prot & 0x11) ? PROT_READ : 0) | ((prot & 0x22) ? PROT_WRITE|PROT_READ : 0) | ((prot & 4) ? PROT_EXEC|PROT_READ : 0);
 }
+#ifdef _WIN32
+/* ---- host mappings (Windows) ----
+ * [USER_MIN,USER_MAX) is covered by regions, each one placeholder or one view of the section.
+ * Mapping a range carves it out as a single placeholder first: views overlapping it are unmapped,
+ * placeholders coalesced and split, and the parts of views outside the range mapped again with
+ * the page protections they had (GPU page tracking included).
+ *
+ * The PS4 user range is fixed, so the process image must not be allowed to land in it: the
+ * launcher links with --disable-high-entropy-va. */
+typedef struct { uintptr_t start, end; uint64_t phys; int mapped; } HostRegion;
+/* Windows 10 2004 replaced the placeholder-based memory management with VirtualAlloc2 /
+ * MapViewOfFile3 / UnmapViewOfFile2. Those exports could not be made to work here: every shape
+ * tried (4..8 parameters, NULL and zeroed MEMORY_EXTENDED_ALLOC_INFORMATION, kernel32 and
+ * kernelbase) returned ERROR_INVALID_PARAMETER or ERROR_INVALID_HANDLE, including the trivial
+ * VirtualAlloc2(NULL, 1 MiB, MEM_RESERVE, PAGE_NOACCESS, 0, 0, NULL), while plain VirtualAlloc at
+ * the same address succeeds. The backend below therefore uses only the long-standing APIs --
+ * VirtualAlloc/VirtualFree, MapViewOfFileEx, UnmapViewOfFile, VirtualProtect, VirtualQuery -- which
+ * behave identically everywhere and need no dynamic resolution.
+ *
+ * Without placeholders a reservation cannot be split or released partially, so the guest range is
+ * NOT reserved up front. Instead every unmapped guest range owns its own VirtualAlloc reservation
+ * and every mapped range owns its own view of the section; splitting a mapped range means unmapping
+ * it whole and mapping the surviving left/right pieces again at their saved protections. That keeps
+ * the same invariants: fixed guest addresses, region bookkeeping, split/coalesce, shared
+ * file-backed storage, per-range page protections and no silent approximation of any of them.
+ *
+ * runtime_memory_reserve() is therefore just a sanity check that the guest range is addressable
+ * (probing a byte at each end with VirtualQuery) rather than a bulk reservation. */
+/* phys == RESERVED_PHYS marks a region that owns a VirtualAlloc reservation and no view. */
+#define RESERVED_PHYS UINT64_MAX
+static HostRegion *host_regions; static size_t host_region_count, host_region_capacity;
+static HANDLE section;
+static DWORD win_prot(int prot) {
+    if (prot & PROT_EXEC) return (prot & PROT_WRITE) ? PAGE_EXECUTE_READWRITE : (prot & PROT_READ) ? PAGE_EXECUTE_READ : PAGE_EXECUTE;
+    if (prot & PROT_WRITE) return PAGE_READWRITE;
+    return (prot & PROT_READ) ? PAGE_READONLY : PAGE_NOACCESS;
+}
+static void win_fail(const char *what, uintptr_t address, uint64_t size) {
+    fprintf(stderr,"STOP: %s failed at %p (+0x%" PRIx64 "), error %lu\n",what,(void *)address,size,GetLastError());
+    exit(21);
+}
+static size_t host_region_index(uintptr_t a) { /* first region with end > a */
+    size_t lo=0, hi=host_region_count;
+    while (lo<hi) { size_t mid=(lo+hi)/2; if (host_regions[mid].end<=a) lo=mid+1; else hi=mid; }
+    return lo;
+}
+static void host_region_insert(size_t at, HostRegion r) {
+    if (host_region_count==host_region_capacity) {
+        size_t capacity=host_region_capacity ? host_region_capacity*2 : 256;
+        HostRegion *next=realloc(host_regions,capacity*sizeof(*next));
+        if (!next) { fputs("Out of memory (host regions)\n",stderr); exit(1); }
+        host_regions=next; host_region_capacity=capacity;
+    }
+    memmove(host_regions+at+1,host_regions+at,(host_region_count-at)*sizeof(*host_regions));
+    host_regions[at]=r; ++host_region_count;
+}
+static void host_region_erase(size_t at, size_t n) {
+    memmove(host_regions+at,host_regions+at+n,(host_region_count-at-n)*sizeof(*host_regions));
+    host_region_count-=n;
+}
+/* The guest range has to be usable before anything is placed in it. There is no bulk reservation
+ * (see above), so this only proves the range can actually be claimed: Windows hands out part of a
+ * large pre-existing reservation to VirtualAlloc, so querying the state alone proves nothing. */
+void runtime_memory_reserve(void) {
+    static int done;
+    if (done++) return;
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    size_t granule = si.dwAllocationGranularity;
+    void *p = VirtualAlloc((void *)USER_MIN, granule, MEM_RESERVE, PAGE_NOACCESS);
+    if (!p) win_fail("the PS4 user range is not available to this process",USER_MIN,granule);
+    VirtualFree(p, 0, MEM_RELEASE);
+}
+/* One view of the section over [r->start,r->end) at section offset r->phys. */
+static void view_map(HostRegion *r, DWORD protect) {
+    /* MinGW declares the low-level form with the file offset split into two DWORDs. */
+    void *p=MapViewOfFileExNuma(section,FILE_MAP_ALL_ACCESS,
+                                (DWORD)(r->phys>>32),(DWORD)(r->phys&0xffffffffu),
+                                r->end-r->start,(void *)r->start,0);
+    if (p!=r->start) win_fail("MapViewOfFileEx",r->start,r->end-r->start);
+    if (protect!=PAGE_READWRITE) {
+        DWORD old;
+        if (!VirtualProtect((void *)r->start,r->end-r->start,protect,&old))
+            win_fail("VirtualProtect",r->start,r->end-r->start);
+    }
+    r->mapped=1;
+}
+static void view_unmap(HostRegion *r) {
+    if (r->mapped) UnmapViewOfFile((void *)r->start);
+    r->mapped=0;
+}
+/* Releases a region's address space: a view, or a reservation this backend made for it. */
+static void host_release(HostRegion *r) {
+    view_unmap(r);
+    if (r->phys!=RESERVED_PHYS) VirtualFree((void *)r->start,0,MEM_RELEASE);
+    r->start=r->end=0; r->phys=0;
+}
+/* Claims [a,b) as a standalone reservation, so nothing else can take it. */
+static void host_reserve(HostRegion *r) {
+    void *p=VirtualAlloc((void *)r->start,r->end-r->start,MEM_RESERVE,PAGE_NOACCESS);
+    if (!p) win_fail("VirtualAlloc(MEM_RESERVE)",r->start,r->end-r->start);
+    r->mapped=0; r->phys=RESERVED_PHYS;
+}
+static int host_protect(uintptr_t address, uint64_t size, int prot) {
+    DWORD protect=win_prot(prot), old;
+    uintptr_t end=address+size;
+    for (size_t i=host_region_index(address); i<host_region_count && host_regions[i].start<end; ++i) {
+        if (!host_regions[i].mapped) continue;
+        uintptr_t a=host_regions[i].start>address ? host_regions[i].start : address, b=host_regions[i].end<end ? host_regions[i].end : end;
+        if (!VirtualProtect((void *)a,b-a,protect,&old)) return -1;
+    }
+    return 0;
+}
+/* Direct memory occupies [0,POOL_SIZE) of the section, flexible memory [POOL_SIZE,+FLEX_SPAN). */
+static int pool(void) {
+    if (backing_base) return 0;
+    runtime_memory_reserve();
+    const uint64_t bytes=POOL_SIZE+FLEX_SPAN;
+    section=CreateFileMappingW(INVALID_HANDLE_VALUE,NULL,PAGE_READWRITE,
+                               (DWORD)(bytes>>32),(DWORD)(bytes&0xffffffffu),NULL);
+    if (!section) { fprintf(stderr,"Runtime: cannot create %" PRIu64 " MiB of guest memory (error %lu); is the page file large enough?\n",bytes>>20,GetLastError()); return -1; }
+    backing_base=MapViewOfFile(section,FILE_MAP_ALL_ACCESS,0,0,bytes);
+    return backing_base ? 0 : -1;
+}
+/* Reserves [a,b) for the guest and records it as one host region. */
+static size_t host_reserve_range(uintptr_t a, uintptr_t b) {
+    size_t at=host_region_index(a);
+    if (at<host_region_count && host_regions[at].start<a) win_fail("guest range splits a host region",a,b-a);
+    host_region_insert(at,(HostRegion){a,b,RESERVED_PHYS,0});
+    host_reserve(&host_regions[at]);
+    return at;
+}
+/* Turns [a,b) into a view of the section at phys, leaving everything outside it alone. Regions it
+ * overlaps are released whole and their surviving left/right pieces mapped again at the protections
+ * they had (GPU page tracking included), so a split never loses or widens guest access. */
+static size_t host_map_range(uintptr_t a, uintptr_t b, int prot, uint64_t phys) {
+    size_t first=host_region_index(a), last=first;
+    while (last<host_region_count && host_regions[last].start<b) ++last;
+    int need_left = first<host_region_count && host_regions[first].start<a && host_regions[first].mapped;
+    int need_right = last<host_region_count && host_regions[last].end>b && host_regions[last].mapped;
+    HostRegion left = need_left ? host_regions[first] : (HostRegion){0,0,0,0};
+    HostRegion right = need_right ? host_regions[last] : (HostRegion){0,0,0,0};
+    DWORD left_prot = PAGE_READWRITE, right_prot = PAGE_READWRITE;
+    MEMORY_BASIC_INFORMATION m;
+    if (need_left  && VirtualQuery((void *)a,&m,sizeof m)) left_prot = m.Protect;
+    if (need_right && VirtualQuery((void *)(b-1),&m,sizeof m)) right_prot = m.Protect;
+    for (size_t i=first;i<last;++i) host_release(&host_regions[i]);
+    host_region_erase(first,last-first);
+    size_t at=first;
+    if (need_left) {
+        host_region_insert(at,(HostRegion){left.start,a,left.phys,0});
+        view_map(&host_regions[at],left_prot);
+        ++at;
+    }
+    host_region_insert(at,(HostRegion){a,b,phys,0});
+    view_map(&host_regions[at],win_prot(prot));
+    ++at;
+    if (need_right) {
+        host_region_insert(at,(HostRegion){b,right.end,right.phys+(b-right.start),0});
+        view_map(&host_regions[at],right_prot);
+    }
+    return first;
+}
+/* Releases [a,b) and leaves it reserved for a later mapping, same splitting rules as host_map. */
+static void host_unmap_range(uintptr_t a, uintptr_t b) {
+    size_t first=host_region_index(a), last=first;
+    while (last<host_region_count && host_regions[last].start<b) ++last;
+    int need_left = first<host_region_count && host_regions[first].start<a && host_regions[first].mapped;
+    int need_right = last<host_region_count && host_regions[last].end>b && host_regions[last].mapped;
+    HostRegion left = need_left ? host_regions[first] : (HostRegion){0,0,0,0};
+    HostRegion right = need_right ? host_regions[last] : (HostRegion){0,0,0,0};
+    DWORD left_prot = PAGE_READWRITE, right_prot = PAGE_READWRITE;
+    MEMORY_BASIC_INFORMATION m;
+    if (need_left  && VirtualQuery((void *)a,&m,sizeof m)) left_prot = m.Protect;
+    if (need_right && VirtualQuery((void *)(b-1),&m,sizeof m)) right_prot = m.Protect;
+    for (size_t i=first;i<last;++i) host_release(&host_regions[i]);
+    host_region_erase(first,last-first);
+    size_t at=first;
+    if (need_left) {
+        host_region_insert(at,(HostRegion){left.start,a,left.phys,0});
+        view_map(&host_regions[at],left_prot);
+        ++at;
+    }
+    host_region_insert(at,(HostRegion){a,b,RESERVED_PHYS,0});
+    host_reserve(&host_regions[at]);
+    ++at;
+    if (need_right) {
+        host_region_insert(at,(HostRegion){b,right.end,right.phys+(b-right.start),0});
+        view_map(&host_regions[at],right_prot);
+    }
+}
+#else
 /* Direct memory occupies [0,POOL_SIZE) of the memfd, flexible memory [POOL_SIZE,+FLEX_SPAN). */
 static int pool(void) {
     if (pool_fd>=0) return 0;
@@ -142,6 +349,8 @@ static int pool(void) {
     for (uint64_t c=0;c<=POOL_SIZE/CHUNK;++c) chunk_fds[c]=-1;
     return 0;
 }
+#endif
+#ifndef _WIN32
 /* Size of direct memory chunk c (the last one may be shorter). */
 static uint64_t chunk_size(uint64_t c) {
     const uint64_t start=c*CHUNK;
@@ -174,8 +383,17 @@ static void ensure_chunks(uint64_t phys, uint64_t size) {
         chunk_fds[c]=fd>=0 ? fd : -2;
     }
 }
+#else
+/* No dma-buf chunks on Windows: every direct range is a view of the one section. */
+static void ensure_chunks(uint64_t phys, uint64_t size) { (void)phys; (void)size; }
+#endif /* !_WIN32: the dma-buf chunk grid is Linux-only */
 /* mmap of direct or flexible memory at phys, split where it crosses chunks. */
 static void *map_phys(uintptr_t address, uint64_t size, int prot, uint64_t phys) {
+#ifdef _WIN32
+    /* One view of the section per range at a fixed guest address; no dma-buf, so no chunk split. */
+    host_map_range(address,address+size,host_prot(prot),phys);
+    return (void *)address;
+#else
     if (!chunk_fds || phys>=POOL_SIZE)
         return mmap((void *)address,size,prot,MAP_SHARED|MAP_FIXED,pool_fd,(off_t)phys);
     ensure_chunks(phys,size);
@@ -213,9 +431,14 @@ static void *map_phys(uintptr_t address, uint64_t size, int prot, uint64_t phys)
         done+=n;
     }
     return (void *)address;
+#endif /* _WIN32 */
 }
 /* Returns released physical memory to zero: hole punching in the memfd, a clear in a chunk. */
 static void zero_phys(uint64_t phys, uint64_t size) {
+#ifdef _WIN32
+    /* The section is already committed, so released pages read as zero once they are cleared. */
+    memset(backing_base+phys,0,size);
+#else
     for (uint64_t done=0;done<size;) {
         const uint64_t at=phys+done;
         if (!chunk_fds || at>=POOL_SIZE) {
@@ -236,6 +459,7 @@ static void zero_phys(uint64_t phys, uint64_t size) {
         else fallocate(pool_fd,FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,(off_t)at,(off_t)n);
         done+=n;
     }
+#endif /* _WIN32 */
 }
 static void queue_hook(int kind, uintptr_t address, uint64_t size) {
     GpuRange hook = kind==HOOK_MAP ? hook_map : kind==HOOK_UNMAP ? hook_unmap : hook_invalidate;
@@ -271,7 +495,11 @@ static uint64_t flex_alloc(uint64_t size) {
 }
 static void flex_free(uint64_t phys, uint64_t size) {
     flex_set((phys-POOL_SIZE)/PAGE,size/PAGE,0);
+#ifdef _WIN32
+    memset(backing_base+phys,0,size);
+#else
     fallocate(pool_fd,FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,(off_t)phys,(off_t)size);
+#endif
 }
 static size_t vma_index(uintptr_t a) { /* first VMA with end > a */
     size_t lo=0, hi=vma_count;
@@ -296,7 +524,7 @@ static int split_at(uintptr_t a) {
     if (i==vma_count || vmas[i].start>=a) return 0;
     Vma right=vmas[i];
     right.start=a;
-    if (right.kind==KIND_DIRECT) right.phys+=a-vmas[i].start;
+    if (right.kind==KIND_DIRECT || right.kind==KIND_POOL_COMMITTED) right.phys+=a-vmas[i].start;
     vmas[i].end=a;
     return vma_insert(i+1,right);
 }
@@ -308,14 +536,14 @@ static size_t carve(uintptr_t start, uintptr_t end, int *error) {
 static int covered(uintptr_t start, uintptr_t end, int allow_reserved) {
     size_t i=vma_index(start); uintptr_t at=start;
     for (; at<end; ++i) {
-        if (i==vma_count || vmas[i].start>at || (!allow_reserved && vmas[i].kind==KIND_RESERVED)) return 0;
+        if (i==vma_count || vmas[i].start>at || (!allow_reserved && kind_is_reserved(vmas[i].kind))) return 0;
         at=vmas[i].end;
     }
     return 1;
 }
 static int overlaps(uintptr_t start, uintptr_t end, int ignore_reserved) {
     for (size_t i=vma_index(start); i<vma_count && vmas[i].start<end; ++i)
-        if (!ignore_reserved || vmas[i].kind!=KIND_RESERVED) return 1;
+        if (!ignore_reserved || !kind_is_reserved(vmas[i].kind)) return 1;
     return 0;
 }
 /* First-fit search in the PS4 user range, starting from the hint. */
@@ -349,14 +577,25 @@ static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t 
         address=find_free(address,size,alignment);
         if (!address) return NO_MEMORY;
     }
-    void *mapped = kind!=KIND_RESERVED
+    void *mapped;
+#ifdef _WIN32
+    /* Reserved kinds keep a placeholder (PAGE_NOACCESS) until the guest commits them; the rest
+     * get a view of the direct/flexible memory at phys. */
+    if (kind_is_reserved(kind)) {
+        host_reserve_range(address,address+size);
+        mapped=(void *)address;
+    } else
+        mapped=map_phys(address,size,host_prot(prot),phys);
+#else
+    mapped = !kind_is_reserved(kind)
         ? map_phys(address,size,host_prot(prot),phys)
         : mmap((void *)address,size,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE|MAP_FIXED,-1,0);
+#endif
     if (mapped==MAP_FAILED) return NO_MEMORY;
     drop_range(address,address+size);
     if (vma_insert(vma_index(address),(Vma){address,address+size,kind,prot,type,phys})) return NO_MEMORY;
     if (kind==KIND_FLEXIBLE) flexible_bytes+=size;
-    if (kind!=KIND_RESERVED) queue_hook(HOOK_MAP,address,size);
+    if (!kind_is_reserved(kind)) queue_hook(HOOK_MAP,address,size);
     *inout=mapped;
     return 0;
 }
@@ -407,6 +646,32 @@ static ABI int32_t direct_allocate(int64_t low, int64_t high, uint64_t size,
     printf("Runtime: direct allocation offset=0x%" PRIx64 ", size=%" PRIu64 " bytes, type=%d\n", start, size, type);
     return 0;
 }
+/* sceKernelMemoryPoolExpand reserves direct-memory backing for later pool commits.
+ * Keep the PS4 ABI and validation aligned with shadPS4's libkernel implementation;
+ * type 3 is the memory type assigned to expanded pool backing there as well. */
+static ABI int32_t memory_pool_expand(uint64_t search_start, uint64_t search_end,
+                                     uint64_t size, uint64_t alignment, uint64_t *physical_out) {
+    const uint64_t pool_alignment = UINT64_C(64) * 1024;
+    if (search_end <= search_start || !size || size % pool_alignment ||
+        (alignment && alignment % pool_alignment) || !physical_out)
+        return INVALID;
+    if (search_end - search_start < size) return NO_MEMORY;
+    if (!alignment) alignment = pool_alignment;
+    if (search_start > INT64_MAX || search_end > INT64_MAX) return INVALID;
+    int64_t physical = 0;
+    write_lock();
+    int slot=-1;
+    for (int i=0;i<LIMIT;++i) if (!pool_backing[i].used) { slot=i; break; }
+    if (slot<0) { write_unlock(); return NO_MEMORY; }
+    int32_t result = direct_allocate((int64_t)search_start, (int64_t)search_end,
+                                     size, alignment, 3, &physical);
+    if (result == NO_SPACE) { write_unlock(); return NO_MEMORY; }
+    if (result) { write_unlock(); return result; }
+    pool_backing[slot]=(PoolBacking){(uint64_t)physical,size,0,1};
+    *physical_out = (uint64_t)physical;
+    write_unlock();
+    return 0;
+}
 static int32_t map_direct_locked(void **out, uint64_t size, int prot, int flags, int64_t physical, uint64_t alignment) {
     if (!alignment) alignment=PAGE;
     if (!out || physical < 0 || (uint64_t)physical % PAGE || !size || size % PAGE || !valid_alignment(alignment) ||
@@ -433,13 +698,17 @@ static int32_t unmap_locked(uintptr_t start, uint64_t size) {
     if (start%PAGE || !size) return INVALID;
     uint64_t end=start+align_up(size,PAGE);
     for (size_t i=vma_index(start); i<vma_count && vmas[i].start<end; ++i)
-        if (vmas[i].kind!=KIND_RESERVED) {
+        if (!kind_is_reserved(vmas[i].kind)) {
             uintptr_t a=vmas[i].start>start ? vmas[i].start : start, b=vmas[i].end<end ? vmas[i].end : end;
             queue_hook(HOOK_UNMAP,a,b-a);
         }
     for (size_t i=vma_index(start); i<vma_count && vmas[i].start<end; ++i) {
         uintptr_t a=vmas[i].start>start ? vmas[i].start : start, b=vmas[i].end<end ? vmas[i].end : end;
+#ifdef _WIN32
+        host_unmap_range(a,b);
+#else
         if (munmap((void *)a,b-a)) return INVALID;
+#endif
     }
     drop_range(start,end);
     return 0;
@@ -463,7 +732,7 @@ static ABI int32_t direct_release(uint64_t start, uint64_t size) {
     for (size_t i=0; i<vma_count;) {
         Vma v=vmas[i];
         uint64_t length=v.end-v.start;
-        if (v.kind==KIND_DIRECT && v.phys<start+size && start<v.phys+length) {
+        if ((v.kind==KIND_DIRECT || v.kind==KIND_POOL_COMMITTED) && v.phys<start+size && start<v.phys+length) {
             uint64_t a=v.phys>start ? v.phys : start, b=v.phys+length<start+size ? v.phys+length : start+size;
             unmap_locked(v.start+(a-v.phys),b-a);
             i=vma_index(v.start);
@@ -542,11 +811,107 @@ static ABI int32_t reserve_range(void **inout, uint64_t size, int flags, uint64_
     if (!result) printf("Runtime: reserved virtual range %p, size=%" PRIu64 "\n", *inout, size);
     return result;
 }
+/* sceKernelMemoryPoolReserve reserves virtual address space for later pool commits.
+ * It is intentionally distinct from MemoryPoolExpand, which reserves physical backing. */
+static ABI int32_t memory_pool_reserve(void *address_in, uint64_t size, uint64_t alignment,
+                                      int flags, void **address_out) {
+    const uint64_t pool_alignment=UINT64_C(2)*1024*1024;
+    if (!address_out || !size || size%pool_alignment) return INVALID;
+    if (alignment && ((!valid_alignment(alignment) && alignment%pool_alignment) ||
+                      (alignment%PAGE))) return INVALID;
+    if (!alignment) alignment=pool_alignment;
+    uintptr_t hint=(uintptr_t)address_in;
+    if (hint>=USER_MAX || size>USER_MAX-USER_MIN) return INVALID;
+    if (flags&MAP_FIXED_FLAG) {
+        if (hint<USER_MIN || hint%PAGE || size>USER_MAX-hint) return INVALID;
+    }
+    void *out=address_in;
+    write_lock();
+    int32_t result;
+    if ((flags&(MAP_FIXED_FLAG|MAP_NO_OVERWRITE))==(MAP_FIXED_FLAG|MAP_NO_OVERWRITE) &&
+        overlaps(hint,hint+(uintptr_t)size,0)) result=NO_MEMORY;
+    else result=place(&out,size,0,flags,alignment,KIND_POOL_RESERVED,0,0);
+    write_unlock();
+    if (!result) {
+        *address_out=out;
+        printf("Runtime: reserved memory-pool virtual range %p, size=%" PRIu64 "\n",out,size);
+    }
+    return result;
+}
+typedef struct { int backing; uint64_t physical, size; } PoolCommitPart;
+static ABI int32_t memory_pool_commit(void *address, uint64_t size, int type, int prot, int flags) {
+    const uint64_t pool_alignment=UINT64_C(64)*1024;
+    (void)flags;
+    if (!address || !size || size%pool_alignment || (prot&4)) return INVALID;
+    uintptr_t start=(uintptr_t)align_up((uintptr_t)address,pool_alignment);
+    if (start<USER_MIN || start>=USER_MAX || size>USER_MAX-start) return INVALID;
+    const uintptr_t end=start+(uintptr_t)size;
+    PoolCommitPart parts[LIMIT];
+    size_t part_count=0;
+    uint64_t remaining=size;
+
+    write_lock();
+    for (uintptr_t at=start;at<end;) {
+        size_t i=vma_index(at);
+        if (i==vma_count || vmas[i].start>at || vmas[i].kind!=KIND_POOL_RESERVED) {
+            write_unlock(); return INVALID;
+        }
+        at=vmas[i].end<end ? vmas[i].end : end;
+    }
+    for (int i=0;i<LIMIT && remaining;++i) {
+        PoolBacking *b=&pool_backing[i];
+        if (!b->used || b->committed>=b->size) continue;
+        uint64_t available=b->size-b->committed;
+        uint64_t amount=available<remaining ? available : remaining;
+        parts[part_count++]=(PoolCommitPart){i,b->start+b->committed,amount};
+        remaining-=amount;
+    }
+    if (remaining) { write_unlock(); return NO_MEMORY; }
+
+    uint64_t mapped=0;
+    int32_t result=0;
+    for (size_t i=0;i<part_count;++i) {
+        void *out=(void *)(start+mapped);
+        result=place(&out,parts[i].size,prot,MAP_FIXED_FLAG,pool_alignment,
+                     KIND_POOL_COMMITTED,type,parts[i].physical);
+        if (result) break;
+        mapped+=parts[i].size;
+    }
+    if (result) {
+        uint64_t rolled_back=0;
+        for (size_t i=0;i<part_count && rolled_back<mapped;++i) {
+            const uint64_t amount=parts[i].size<mapped-rolled_back ? parts[i].size : mapped-rolled_back;
+            const uintptr_t at=start+rolled_back;
+            if (unmap_locked(at,amount)) { fputs("STOP: failed to roll back partial memory-pool commit\n",stderr); exit(21); }
+            void *reserved=(void *)at;
+            if (place(&reserved,amount,0,MAP_FIXED_FLAG,pool_alignment,KIND_POOL_RESERVED,0,0)) {
+                fputs("STOP: failed to restore memory-pool reservation after commit failure\n",stderr); exit(21);
+            }
+            rolled_back+=amount;
+        }
+        write_unlock();
+        flush_hooks();
+        return result;
+    }
+    for (size_t i=0;i<part_count;++i) {
+        pool_backing[parts[i].backing].committed+=parts[i].size;
+        ++maps;
+    }
+    write_unlock();
+    flush_hooks();
+    printf("Runtime: committed memory-pool range %p, size=%" PRIu64 " bytes, parts=%zu\n",
+           (void *)start,size,part_count);
+    return 0;
+}
 static int32_t protect_locked(uintptr_t start, uint64_t size, int prot, int type) {
     uintptr_t end=start+align_up(size,PAGE);
     start&=~(uintptr_t)(PAGE-1);
     if ((prot & ~0x37) || !covered(start,end,0)) return INVALID;
+#ifdef _WIN32
+    if (host_protect(start,end-start,host_prot(prot))) return INVALID;
+#else
     if (mprotect((void *)start,end-start,host_prot(prot))) return INVALID;
+#endif
     int error; size_t i=carve(start,end,&error);
     if (error) return NO_MEMORY;
     for (; i<vma_count && vmas[i].start<end; ++i) { vmas[i].prot=prot; if (type>=0) vmas[i].type=type; }
@@ -564,13 +929,13 @@ static ABI int32_t kernel_mprotect(const void *address, uint64_t size, int prot)
 static ABI int32_t query_protection(void *address, void **start, void **end, uint32_t *prot) {
     read_lock();
     size_t i=vma_index((uintptr_t)address);
-    if (i==vma_count || vmas[i].start>(uintptr_t)address || vmas[i].kind==KIND_RESERVED) {
+    if (i==vma_count || vmas[i].start>(uintptr_t)address || kind_is_reserved(vmas[i].kind)) {
         read_unlock(); return ACCESS;
     }
     /* Report the whole contiguous run with identical protection. */
     size_t first=i, last=i;
-    while (first && vmas[first-1].end==vmas[first].start && vmas[first-1].kind!=KIND_RESERVED && vmas[first-1].prot==vmas[i].prot) --first;
-    while (last+1<vma_count && vmas[last+1].start==vmas[last].end && vmas[last+1].kind!=KIND_RESERVED && vmas[last+1].prot==vmas[i].prot) ++last;
+    while (first && vmas[first-1].end==vmas[first].start && !kind_is_reserved(vmas[first-1].kind) && vmas[first-1].prot==vmas[i].prot) --first;
+    while (last+1<vma_count && vmas[last+1].start==vmas[last].end && !kind_is_reserved(vmas[last+1].kind) && vmas[last+1].prot==vmas[i].prot) ++last;
     if (start) *start=(void *)vmas[first].start;
     if (end) *end=(void *)vmas[last].end;
     if (prot) *prot=(uint32_t)vmas[i].prot;
@@ -586,10 +951,15 @@ static ABI int32_t virtual_query(const void *address, int flags, VirtualQueryInf
     Vma v=vmas[i];
     memset(info,0,sizeof(*info));
     info->start=v.start; info->end=v.end;
-    info->offset=v.kind==KIND_DIRECT ? v.phys : 0;
+    info->offset=(v.kind==KIND_DIRECT || v.kind==KIND_POOL_COMMITTED) ? v.phys : 0;
     info->protection=v.prot; info->memory_type=v.type;
-    info->flags=(v.kind==KIND_FLEXIBLE ? 1u : 0) | (v.kind==KIND_DIRECT ? 2u : 0) | (v.kind!=KIND_RESERVED ? 16u : 0);
-    strcpy(info->name, v.kind==KIND_RESERVED ? "reserved" : v.kind==KIND_DIRECT ? "direct" : "flexible");
+    info->flags=(v.kind==KIND_FLEXIBLE ? 1u : 0) |
+                 (v.kind==KIND_DIRECT ? 2u : 0) |
+                 (v.kind==KIND_POOL_COMMITTED ? 8u|16u : !kind_is_reserved(v.kind) ? 16u : 0);
+    strcpy(info->name, v.kind==KIND_POOL_RESERVED ? "pool_reserved" :
+                       v.kind==KIND_POOL_COMMITTED ? "pool_committed" :
+                       kind_is_reserved(v.kind) ? "reserved" :
+                       v.kind==KIND_DIRECT ? "direct" : "flexible");
     __atomic_add_fetch(&queries,1,__ATOMIC_RELAXED);
     read_unlock();
     return 0;
@@ -640,10 +1010,32 @@ static const RuntimeExport exports[]={
     {"sceKernelBatchMap",batch_map}, {"sceKernelBatchMap2",batch_map2},
     {"mmap",posix_mmap},
 };
+/* HLE contract mirrored from shadPS4's sceLibcHeapGetTraceInfo implementation.
+ * libc.prx uses this to query optional heap trace state during initialization. */
+typedef struct {
+    uint64_t size;
+    uint32_t flag;
+    uint32_t get_segment_info;
+    uint64_t *mspace_atomic_id_mask;
+    uint64_t *mstate_table;
+} GuestHeapTraceInfo;
+_Static_assert(sizeof(GuestHeapTraceInfo)==32,"PS4 heap trace info layout");
+static uint64_t heap_mspace_atomic_id_mask;
+static uint64_t heap_mstate_table[64];
+static ABI void heap_get_trace_info(GuestHeapTraceInfo *info) {
+    info->mspace_atomic_id_mask=&heap_mspace_atomic_id_mask;
+    info->mstate_table=heap_mstate_table;
+    info->get_segment_info=0;
+}
 uintptr_t runtime_memory_resolve(const char *name) {
+    if (!strcmp(name,"NWtTN10cJzE#libSceLibcInternalExt")) return (uintptr_t)heap_get_trace_info;
+    if (!strcmp(name,"mL8NDH86iQI#G#E")) return (uintptr_t)map_flexible_named;
     /* Direct-memory NIDs are exercised by test_runtime.c before names are loaded. */
     if (!strcmp(name, "pO96TwzOm5E#p#J")) return (uintptr_t)direct_size;
     if (!strcmp(name, "rTXw65xmLIA#p#J")) return (uintptr_t)direct_allocate;
+    if (!strcmp(name, "qCSfqDILlns#G#E")) return (uintptr_t)memory_pool_expand;
+    if (!strcmp(name, "pU-QydtGcGY#G#E")) return (uintptr_t)memory_pool_reserve;
+    if (!strcmp(name, "Vzl66WmfLvk#G#E")) return (uintptr_t)memory_pool_commit;
     if (!strcmp(name, "L-Q3LEjIbgA#p#J")) return (uintptr_t)direct_map;
     if (!strcmp(name, "MBuItvba6z8#p#J")) return (uintptr_t)direct_release;
     if (!strcmp(name, "cQke9UuBQOk#p#J")) return (uintptr_t)direct_unmap;
@@ -656,6 +1048,15 @@ static uintptr_t low_next=LOW_MIN;
 void *runtime_low_map(size_t size, int prot) {
     size=align_up(size,PAGE);
     write_lock();
+#ifdef _WIN32
+    void *p=NULL;
+    while (!p && low_next+size<=USER_MIN) {
+        p=VirtualAlloc((void *)low_next,size,MEM_RESERVE|MEM_COMMIT,win_prot(prot));
+        low_next+=size+UINT64_C(65536); /* unmapped gap catches overruns; allocation granularity */
+    }
+    write_unlock();
+    return p;
+#else
     void *p=MAP_FAILED;
     while (low_next+size<=USER_MIN) {
         p=mmap((void *)low_next,size,prot,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
@@ -664,6 +1065,7 @@ void *runtime_low_map(size_t size, int prot) {
     }
     write_unlock();
     return p==MAP_FAILED ? NULL : p;
+#endif
 }
 /* ---- GPU library interface (gpu/shim/bbgpu.cpp) ---- */
 /* Optimizations switched off at run time (diagnostics): the number in the file named by
@@ -687,7 +1089,9 @@ uint64_t runtime_disabled_optimizations;
 uint64_t runtime_experiment_bits;
 /* Speculative readers of guest memory (GPU draw-preparation workers) register a recovery
  * point: a fault on that thread jumps back to it instead of terminating (probe.c). */
+#ifndef _WIN32
 __thread sigjmp_buf *runtime_fault_recover;
+#endif
 static void *toggle_watcher(void *path) {
     for (unsigned long long last=ULLONG_MAX;;) {
         FILE *f=fopen(path,"r");
@@ -716,7 +1120,7 @@ void runtime_memory_set_gpu_hooks(GpuRange map, GpuRange unmap, GpuRange invalid
     if (toggles && !watcher) pthread_create(&watcher,NULL,toggle_watcher,(void *)toggles);
     write_lock();
     hook_map=map; hook_unmap=unmap; hook_invalidate=invalidate;
-    for (size_t i=0;i<vma_count;++i) if (vmas[i].kind!=KIND_RESERVED) queue_hook(HOOK_MAP,vmas[i].start,vmas[i].end-vmas[i].start);
+    for (size_t i=0;i<vma_count;++i) if (!kind_is_reserved(vmas[i].kind)) queue_hook(HOOK_MAP,vmas[i].start,vmas[i].end-vmas[i].start);
     write_unlock();
     flush_hooks();
 }
@@ -731,7 +1135,7 @@ void runtime_memory_note_write(uintptr_t address, uint64_t size) {
     int n=0;
     read_lock();
     for (size_t i=vma_index(address); i<vma_count && vmas[i].start<address+size && n<8; ++i) {
-        if (vmas[i].kind==KIND_RESERVED || !(vmas[i].prot & 0x30)) continue;
+        if (kind_is_reserved(vmas[i].kind) || !(vmas[i].prot & 0x30)) continue;
         starts[n]=vmas[i].start>address ? vmas[i].start : address;
         ends[n]=vmas[i].end<address+size ? vmas[i].end : address+size;
         ++n;
@@ -785,7 +1189,8 @@ void runtime_memory_note_cpu_write(uintptr_t address, uint64_t size) {
 int runtime_memory_direct_phys(uintptr_t address, uint64_t *phys, uintptr_t *end) {
     read_lock();
     const size_t i=vma_index(address);
-    const int ok = i<vma_count && vmas[i].start<=address && address<vmas[i].end && vmas[i].kind==KIND_DIRECT;
+    const int ok = i<vma_count && vmas[i].start<=address && address<vmas[i].end &&
+                   (vmas[i].kind==KIND_DIRECT || vmas[i].kind==KIND_POOL_COMMITTED);
     if (ok) {
         *phys=vmas[i].phys+(address-vmas[i].start);
         *end=vmas[i].end;
@@ -798,10 +1203,10 @@ int runtime_memory_direct_phys(uintptr_t address, uint64_t *phys, uintptr_t *end
 int runtime_memory_vma_info(uintptr_t address, int *prot, int *type, uintptr_t *end) {
     read_lock();
     const size_t i=vma_index(address);
-    const int ok = i<vma_count && vmas[i].start<=address && vmas[i].kind!=KIND_RESERVED;
+    const int ok = i<vma_count && vmas[i].start<=address && !kind_is_reserved(vmas[i].kind);
     if (ok) {
         *prot=vmas[i].prot;
-        *type=vmas[i].kind==KIND_DIRECT ? vmas[i].type : -1;
+        *type=(vmas[i].kind==KIND_DIRECT || vmas[i].kind==KIND_POOL_COMMITTED) ? vmas[i].type : -1;
         *end=vmas[i].end;
     }
     read_unlock();
@@ -828,7 +1233,7 @@ int runtime_memory_write_backing(uintptr_t address, const void *data, uint64_t s
     int ok=1;
     for (uintptr_t at=address, end=address+size; at<end && ok;) {
         size_t i=vma_index(at);
-        if (i==vma_count || vmas[i].start>at || vmas[i].kind==KIND_RESERVED) { ok=0; break; }
+        if (i==vma_count || vmas[i].start>at || kind_is_reserved(vmas[i].kind)) { ok=0; break; }
         uint64_t n=(vmas[i].end<end ? vmas[i].end : end)-at;
         store_once(backing_base+vmas[i].phys+(at-vmas[i].start),(const unsigned char *)data+(at-address),n);
         at+=n;
@@ -846,7 +1251,7 @@ void runtime_memory_read_backing(uintptr_t address, void *data, uint64_t size) {
     for (uintptr_t at=address, end=address+size; at<end;) {
         const size_t i=vma_index(at);
         uint64_t n;
-        if (i<vma_count && vmas[i].start<=at && vmas[i].kind!=KIND_RESERVED) {
+        if (i<vma_count && vmas[i].start<=at && !kind_is_reserved(vmas[i].kind)) {
             n=(vmas[i].end<end ? vmas[i].end : end)-at;
             memcpy(out+(at-address),backing_base+vmas[i].phys+(at-vmas[i].start),n);
         } else {
@@ -883,12 +1288,12 @@ const uint64_t *runtime_memory_generation(void) { return &table_generation; }
 /* Mapped length from address, up to size, across adjacent mappings. */
 uint64_t runtime_memory_clamp(uintptr_t address, uint64_t size) {
     const CachedRegion *c=(runtime_disabled_optimizations & 1) ? NULL : cached_region(address);
-    if (c && c->kind!=KIND_RESERVED && size<=c->end-address) return size;
+    if (c && !kind_is_reserved(c->kind) && size<=c->end-address) return size;
     read_lock();
     { size_t i=vma_index(address); if (i<vma_count && vmas[i].start<=address) cache_region(i); }
     uint64_t length=0;
     for (size_t i=vma_index(address); i<vma_count && length<size; ++i) {
-        if (vmas[i].start>address+length || vmas[i].kind==KIND_RESERVED) break;
+        if (vmas[i].start>address+length || kind_is_reserved(vmas[i].kind)) break;
         length=vmas[i].end-address;
     }
     read_unlock();
@@ -897,13 +1302,13 @@ uint64_t runtime_memory_clamp(uintptr_t address, uint64_t size) {
 /* Region around address: [start,end) mapped or a gap; 0 past the last mapping. */
 int runtime_memory_region(uintptr_t address, uintptr_t *start, uintptr_t *end, int *mapped) {
     const CachedRegion *c=(runtime_disabled_optimizations & 1) ? NULL : cached_region(address);
-    if (c) { *start=c->start; *end=c->end; *mapped=c->kind!=KIND_RESERVED; return 1; }
+    if (c) { *start=c->start; *end=c->end; *mapped=!kind_is_reserved(c->kind); return 1; }
     read_lock();
     size_t i=vma_index(address);
     int found=i<vma_count;
     if (found && vmas[i].start<=address) {
         cache_region(i);
-        *start=vmas[i].start; *end=vmas[i].end; *mapped=vmas[i].kind!=KIND_RESERVED;
+        *start=vmas[i].start; *end=vmas[i].end; *mapped=!kind_is_reserved(vmas[i].kind);
     } else if (found) {
         *start=i ? vmas[i-1].end : 0; *end=vmas[i].start; *mapped=0;
     }
@@ -914,19 +1319,23 @@ int runtime_memory_region(uintptr_t address, uintptr_t *start, uintptr_t *end, i
 void runtime_memory_gpu_protect(uintptr_t address, uint64_t size, int read, int write) {
     read_lock();
     for (size_t i=vma_index(address); i<vma_count && vmas[i].start<address+size; ++i) {
-        if (vmas[i].kind==KIND_RESERVED) continue;
+        if (kind_is_reserved(vmas[i].kind)) continue;
         uintptr_t a=vmas[i].start>address ? vmas[i].start : address;
         uintptr_t b=vmas[i].end<address+size ? vmas[i].end : address+size;
         int guest=host_prot(vmas[i].prot);
         int want=(read ? PROT_READ : 0)|(write ? PROT_WRITE|PROT_READ : 0)|(guest & PROT_EXEC);
+#ifdef _WIN32
+        host_protect(a,b-a,guest & want);
+#else
         mprotect((void *)a,b-a,guest & want);
+#endif
     }
     read_unlock();
 }
 /* Host view of a guest range, for the GPU backend: the range must be mapped. */
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size) {
     const CachedRegion *c=(runtime_disabled_optimizations & 1) ? NULL : cached_region(address);
-    if (c && c->kind!=KIND_RESERVED && size<=c->end-address) return 1;
+    if (c && !kind_is_reserved(c->kind) && size<=c->end-address) return 1;
     read_lock();
     int result=covered(address,address+size,0);
     read_unlock();
@@ -938,9 +1347,3 @@ void runtime_memory_report(void) {
     printf("Runtime: flexible maps=%zu, in use=%" PRIu64 ", protects=%zu, queries=%zu, regions=%zu\n",
            flexible_maps, flexible_bytes, protects, queries, vma_count);
 }
-#else
-void *runtime_low_map(size_t size, int prot) { (void)size; (void)prot; return NULL; }
-uintptr_t runtime_memory_resolve(const char *name) { (void)name; return 0; }
-int runtime_memory_is_mapped(uintptr_t address, uint64_t size) { (void)address; (void)size; return 0; }
-void runtime_memory_report(void) { puts("Runtime: Windows direct-memory backend not implemented"); }
-#endif

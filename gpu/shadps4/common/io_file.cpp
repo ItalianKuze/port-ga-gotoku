@@ -266,8 +266,8 @@ uintptr_t IOFile::GetFileMapping() {
     HANDLE mapping = nullptr;
 
     if (file_access_mode == FileAccessMode::ReadWrite) {
-        mapping = CreateFileMapping2(hfile, NULL, FILE_MAP_WRITE, PAGE_READWRITE, SEC_COMMIT, 0,
-                                     NULL, NULL, 0);
+        // CreateFileMapping2 is the macOS call; the Win32 equivalent takes no flags/offset.
+        mapping = CreateFileMappingA(hfile, NULL, PAGE_READWRITE, 0, 0, NULL);
     } else {
         mapping = hfile;
     }
