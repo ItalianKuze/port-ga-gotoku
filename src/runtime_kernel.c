@@ -20,7 +20,11 @@
 #endif
 #include <dirent.h>
 #include <sys/time.h>
+#ifdef _WIN32
 #include <intrin.h>
+#else
+#include <x86intrin.h>
+#endif
 #ifndef _WIN32
 #include <ucontext.h>
 #include <signal.h>
@@ -358,9 +362,15 @@ static void guest_call_sites(uint64_t out[3]) {
     const uintptr_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
     static _Thread_local uintptr_t stack_hi;
     if (!stack_hi) {
+#ifdef _WIN32
         ULONG_PTR lo, hi;
         GetCurrentThreadStackLimits(&lo, &hi);
         stack_hi=(uintptr_t)hi;
+#else
+        pthread_attr_t attr; void *base=NULL; size_t size=0;
+        if (!pthread_getattr_np(pthread_self(),&attr)) { pthread_attr_getstack(&attr,&base,&size); pthread_attr_destroy(&attr); }
+        stack_hi=(uintptr_t)base+size;
+#endif
     }
     const uintptr_t *sp=(const uintptr_t *)__builtin_frame_address(0);
     int found=0;
