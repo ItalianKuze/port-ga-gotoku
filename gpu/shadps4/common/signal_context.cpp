@@ -5,7 +5,9 @@
 #include "common/signal_context.h"
 
 #ifdef _WIN32
-#include <windows.h>
+// bbport: the fault handlers get the glibc-layout ucontext_t that gpu/shim/ucontext.h builds from
+// the VEH's CONTEXT (src/probe.c), not shadPS4's EXCEPTION_POINTERS.
+#include <ucontext.h>
 #elif defined(__FreeBSD__)
 #include <machine/npx.h>
 #include <sys/ucontext.h>
@@ -17,7 +19,7 @@ namespace Common {
 
 void* GetRip(void* ctx) {
 #if defined(_WIN32)
-    return (void*)((EXCEPTION_POINTERS*)ctx)->ContextRecord->Rip;
+    return (void*)((ucontext_t*)ctx)->uc_mcontext.gregs[REG_RIP];
 #elif defined(__APPLE__) && defined(ARCH_X86_64)
     return (void*)((ucontext_t*)ctx)->uc_mcontext->__ss.__rip;
 #elif defined(__APPLE__) && defined(ARCH_ARM64)
@@ -33,7 +35,7 @@ void* GetRip(void* ctx) {
 
 bool IsWriteError(void* ctx) {
 #if defined(_WIN32)
-    return ((EXCEPTION_POINTERS*)ctx)->ExceptionRecord->ExceptionInformation[0] == 1;
+    return ((ucontext_t*)ctx)->uc_mcontext.gregs[REG_ERR] & 0x2;
 #elif defined(__APPLE__) && defined(ARCH_X86_64)
     return ((ucontext_t*)ctx)->uc_mcontext->__es.__err & 0x2;
 #elif defined(__APPLE__) && defined(ARCH_ARM64)

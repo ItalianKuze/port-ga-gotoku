@@ -287,7 +287,7 @@ static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
     CONTEXT *ctx = ep->ContextRecord;
     void *address = (void *)(uintptr_t)ep->ExceptionRecord->ExceptionInformation[1];
     ucontext_t uc;
-    BbUcontextFromWindows(ctx, code, ep->ExceptionRecord->ExceptionFlags, &uc);
+    BbUcontextFromWindows(ctx, ep->ExceptionRecord, &uc);
     const greg_t before[23];
     memcpy(before, uc.uc_mcontext.gregs, sizeof(before));
 

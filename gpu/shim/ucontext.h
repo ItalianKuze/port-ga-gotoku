@@ -59,9 +59,11 @@ struct ucontext_s {
 
 typedef struct ucontext_s ucontext_t;
 
-/// Builds the glibc-layout view of a Windows exception context. The exception code and flags
-/// live in the EXCEPTION_RECORD rather than the CONTEXT, so they are passed in.
-BB_SHIM_INLINE void BbUcontextFromWindows(const CONTEXT* in, DWORD code, DWORD flags,
+/// Builds the glibc-layout view of a Windows exception context. REG_ERR and REG_TRAPNO get what
+/// the Linux kernel puts there for a page fault, so handlers test `gregs[REG_ERR] & 2` for a write
+/// on both systems: an access violation's ExceptionInformation[0] is 0 for a read, 1 for a write
+/// and 8 for an instruction fetch (DEP), which are x86 error-code bits 1 (W) and 4 (I).
+BB_SHIM_INLINE void BbUcontextFromWindows(const CONTEXT* in, const EXCEPTION_RECORD* record,
                                           ucontext_t* out) {
     greg_t* g = out->uc_mcontext.gregs;
     int i;
@@ -86,8 +88,12 @@ BB_SHIM_INLINE void BbUcontextFromWindows(const CONTEXT* in, DWORD code, DWORD f
     g[REG_RSP] = (greg_t)in->Rsp;
     g[REG_RIP] = (greg_t)in->Rip;
     g[REG_EFL] = (greg_t)in->EFlags;
-    g[REG_ERR] = (greg_t)code;
-    g[REG_TRAPNO] = (greg_t)flags;
+    if (record->ExceptionCode == EXCEPTION_ACCESS_VIOLATION ||
+        record->ExceptionCode == EXCEPTION_IN_PAGE_ERROR) {
+        const ULONG_PTR kind = record->NumberParameters ? record->ExceptionInformation[0] : 0;
+        g[REG_ERR] = 0x4 | (kind == 1 ? 0x2 : 0) | (kind == 8 ? 0x10 : 0); /* user | W | I */
+        g[REG_TRAPNO] = 14;                                                 /* #PF */
+    }
 }
 
 /// Copies back the registers a handler rewrote; only the architectural ones are restored.
