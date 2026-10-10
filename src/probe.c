@@ -955,6 +955,11 @@ int main(int argc, char **argv) {
         t[8] = 0x48; t[9] = 0xb8; memcpy(t + 10, &handler, 8);
         t[18] = 0xff; t[19] = 0xe0;
     }
+    /* BB_IMPORT_REPORT=<file>: how every referenced import was bound (runtime HLE, the game's own
+     * libc/module export, or nothing -- an unresolved import stops the game when it is called). */
+    unsigned char *bound = calloc(import_count ? import_count : 1, 1); /* 0 unused, 1 none, 2 runtime, 3 native */
+    unsigned char *bound_kind = calloc(import_count ? import_count : 1, 1);
+    if (!bound || !bound_kind) fail("allocation failed");
     for (uint64_t i = 0; i < nr; ++i) {
         uintptr_t value = relocs[i].kind == 2 ? (uintptr_t)(data_traps + page_size * relocs[i].value + relocs[i].addend)
                         : relocs[i].kind == 1 ? (uintptr_t)(traps + 32 * relocs[i].value)
@@ -963,15 +968,36 @@ int main(int argc, char **argv) {
             uintptr_t resolved = runtime_resolve(names[relocs[i].value], relocs[i].kind == 2);
             /* BB_IMPORT_TRACE: function imports go through a logging stub (import_trace.c). */
             if (resolved && relocs[i].kind == 1 && !relocs[i].addend) resolved = import_trace_wrap(names[relocs[i].value], resolved);
-            if (resolved) value = resolved + relocs[i].addend;
+            uint32_t index = (uint32_t)relocs[i].value;
+            bound_kind[index] = (unsigned char)relocs[i].kind;
+            if (resolved) { value = resolved + relocs[i].addend; bound[index] = 2; }
             else if (native_libc && bindings[relocs[i].value]) {
                 uint64_t address=bindings[relocs[i].value];
                 if (binding_kinds[relocs[i].value]!=relocs[i].kind || !mapped(segments,ns,address,relocs[i].addend+1)) fail("native export kind/range mismatch");
                 value=(uintptr_t)image+address+relocs[i].addend;
-            }
+                if (bound[index] != 2) bound[index] = 3;
+            } else if (!bound[index]) bound[index] = 1;
         }
         memcpy(image + relocs[i].target, &value, 8);
     }
+    const char *report_path = getenv("BB_IMPORT_REPORT");
+    if (report_path && *report_path) {
+        FILE *report = fopen(report_path, "w");
+        if (!report) fprintf(stderr, "Import report: cannot open %s\n", report_path);
+        else {
+            static const char *how[] = {"unused", "UNRESOLVED", "runtime", "native"};
+            unsigned counts[4] = {0};
+            for (uint64_t i = 0; i < import_count; ++i) {
+                ++counts[bound[i]];
+                if (bound[i])
+                    fprintf(report, "%s\t%s\t%s\t%s\n", names[i], bound_kind[i] == 2 ? "data" : "function",
+                            how[bound[i]], runtime_import_name(names[i]));
+            }
+            fclose(report);
+            printf("Import report: %s (%u runtime, %u native, %u unresolved)\n", report_path, counts[2], counts[3], counts[1]);
+        }
+    }
+    free(bound); free(bound_kind);
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
     if (!cpu_only) bbgpu_patch_image(image, size);
     protect(traps, round_page((import_count + 1) * 32), 5);
