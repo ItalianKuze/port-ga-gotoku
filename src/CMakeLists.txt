@@ -108,7 +108,10 @@ endif()
 target_link_libraries(bbport_runtime PRIVATE "${BBPORT_SDL_LIB}" "${BBPORT_ZLIB_LIB}")
 
 add_executable(bb-probe "${BBPORT_SRC}/launcher_win.c")
-target_link_options(bb-probe PRIVATE "-static-libgcc")
+# The process-wide bottom-up randomization (thread stacks, heaps) follows the EXE's flag, not the
+# DLL's: with high-entropy ASLR it places stacks anywhere up to 8 TiB, including inside the PS4
+# user range that runtime_memory_reserve() must claim as one placeholder (ERROR_INVALID_ADDRESS).
+target_link_options(bb-probe PRIVATE "-static-libgcc" "-Wl,--disable-high-entropy-va")
 # The launcher must not carry its own copy of runtime DLLs; it only uses kernel32.
 target_link_libraries(bb-probe PRIVATE kernel32)
 
