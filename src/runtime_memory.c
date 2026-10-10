@@ -147,35 +147,45 @@ static int host_prot(int prot) {
 #ifdef _WIN32
 /* ---- host mappings (Windows) ----
  * [USER_MIN,USER_MAX) is covered by regions, each one placeholder or one view of the section.
- * Mapping a range carves it out as a single placeholder first: views overlapping it are unmapped,
- * placeholders coalesced and split, and the parts of views outside the range mapped again with
- * the page protections they had (GPU page tracking included).
+ * The PS4 maps at 16 KiB granularity, while MapViewOfFileEx and VirtualAlloc place views and
+ * reservations only at the 64 KiB allocation granularity (ERROR_MAPPED_ALIGNMENT, 1132). Placeholders
+ * (VirtualAlloc2 MEM_RESERVE_PLACEHOLDER, Windows 10 1803+) can be split, coalesced and replaced by
+ * views at page granularity; shadPS4 (src/core/address_space.cpp) and the Phroster Windows port
+ * (windows/compat/memory.c) map guest memory this way, and this backend follows them. The API is
+ * resolved from kernelbase.dll at run time, as in the Phroster port, so no import library is needed.
+ *
+ * The whole range is reserved as one placeholder before anything else runs (runtime_memory_reserve),
+ * so nothing else in the process (heaps, Vulkan drivers) lands in it and any two adjacent
+ * placeholders belong to the same reservation and can be coalesced. Setting [a,b) to a view or
+ * back to a placeholder: the regions it overlaps become placeholders (views are unmapped with
+ * MEM_PRESERVE_PLACEHOLDER), those are coalesced into one and split at a and b, and the parts of
+ * views outside [a,b) are mapped again at the protection they had (GPU page tracking included).
  *
  * The PS4 user range is fixed, so the process image must not be allowed to land in it: the
  * launcher links with --disable-high-entropy-va. */
+#ifndef MEM_RESERVE_PLACEHOLDER
+#define MEM_RESERVE_PLACEHOLDER 0x00040000
+#endif
+#ifndef MEM_REPLACE_PLACEHOLDER
+#define MEM_REPLACE_PLACEHOLDER 0x00004000
+#endif
+#ifndef MEM_PRESERVE_PLACEHOLDER
+#define MEM_PRESERVE_PLACEHOLDER 0x00000002
+#endif
+#ifndef MEM_COALESCE_PLACEHOLDERS
+#define MEM_COALESCE_PLACEHOLDERS 0x00000001
+#endif
 typedef struct { uintptr_t start, end; uint64_t phys; int mapped; } HostRegion;
-/* Windows 10 2004 replaced the placeholder-based memory management with VirtualAlloc2 /
- * MapViewOfFile3 / UnmapViewOfFile2. Those exports could not be made to work here: every shape
- * tried (4..8 parameters, NULL and zeroed MEMORY_EXTENDED_ALLOC_INFORMATION, kernel32 and
- * kernelbase) returned ERROR_INVALID_PARAMETER or ERROR_INVALID_HANDLE, including the trivial
- * VirtualAlloc2(NULL, 1 MiB, MEM_RESERVE, PAGE_NOACCESS, 0, 0, NULL), while plain VirtualAlloc at
- * the same address succeeds. The backend below therefore uses only the long-standing APIs --
- * VirtualAlloc/VirtualFree, MapViewOfFileEx, UnmapViewOfFile, VirtualProtect, VirtualQuery -- which
- * behave identically everywhere and need no dynamic resolution.
- *
- * Without placeholders a reservation cannot be split or released partially, so the guest range is
- * NOT reserved up front. Instead every unmapped guest range owns its own VirtualAlloc reservation
- * and every mapped range owns its own view of the section; splitting a mapped range means unmapping
- * it whole and mapping the surviving left/right pieces again at their saved protections. That keeps
- * the same invariants: fixed guest addresses, region bookkeeping, split/coalesce, shared
- * file-backed storage, per-range page protections and no silent approximation of any of them.
- *
- * runtime_memory_reserve() is therefore just a sanity check that the guest range is addressable
- * (probing a byte at each end with VirtualQuery) rather than a bulk reservation. */
-/* phys == RESERVED_PHYS marks a region that owns a VirtualAlloc reservation and no view. */
+/* phys == RESERVED_PHYS marks a region that is a bare placeholder, with no view. */
 #define RESERVED_PHYS UINT64_MAX
 static HostRegion *host_regions; static size_t host_region_count, host_region_capacity;
 static HANDLE section;
+typedef PVOID (WINAPI *VirtualAlloc2Fn)(HANDLE, PVOID, SIZE_T, ULONG, ULONG, void *, ULONG);
+typedef PVOID (WINAPI *MapViewOfFile3Fn)(HANDLE, HANDLE, PVOID, ULONG64, SIZE_T, ULONG, ULONG, void *, ULONG);
+typedef BOOL (WINAPI *UnmapViewOfFile2Fn)(HANDLE, PVOID, ULONG);
+static VirtualAlloc2Fn virtual_alloc2;
+static MapViewOfFile3Fn map_view3;
+static UnmapViewOfFile2Fn unmap_view2;
 static DWORD win_prot(int prot) {
     if (prot & PROT_EXEC) return (prot & PROT_WRITE) ? PAGE_EXECUTE_READWRITE : (prot & PROT_READ) ? PAGE_EXECUTE_READ : PAGE_EXECUTE;
     if (prot & PROT_WRITE) return PAGE_READWRITE;
@@ -204,26 +214,42 @@ static void host_region_erase(size_t at, size_t n) {
     memmove(host_regions+at,host_regions+at+n,(host_region_count-at-n)*sizeof(*host_regions));
     host_region_count-=n;
 }
-/* The guest range has to be usable before anything is placed in it. There is no bulk reservation
- * (see above), so this only proves the range can actually be claimed: Windows hands out part of a
- * large pre-existing reservation to VirtualAlloc, so querying the state alone proves nothing. */
+/* Reserves the whole guest range as one placeholder; the first region covers all of it. */
 void runtime_memory_reserve(void) {
     static int done;
     if (done++) return;
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    size_t granule = si.dwAllocationGranularity;
-    void *p = VirtualAlloc((void *)USER_MIN, granule, MEM_RESERVE, PAGE_NOACCESS);
-    if (!p) win_fail("the PS4 user range is not available to this process",USER_MIN,granule);
-    VirtualFree(p, 0, MEM_RELEASE);
+    HMODULE kernelbase=GetModuleHandleW(L"kernelbase.dll");
+    if (kernelbase) {
+        virtual_alloc2=(VirtualAlloc2Fn)(void *)GetProcAddress(kernelbase,"VirtualAlloc2");
+        map_view3=(MapViewOfFile3Fn)(void *)GetProcAddress(kernelbase,"MapViewOfFile3");
+        unmap_view2=(UnmapViewOfFile2Fn)(void *)GetProcAddress(kernelbase,"UnmapViewOfFile2");
+    }
+    if (!virtual_alloc2 || !map_view3 || !unmap_view2) {
+        fputs("STOP: no placeholder memory API (VirtualAlloc2 needs Windows 10 1803 or later)\n",stderr);
+        exit(21);
+    }
+    if (virtual_alloc2(GetCurrentProcess(),(void *)USER_MIN,USER_MAX-USER_MIN,
+                       MEM_RESERVE|MEM_RESERVE_PLACEHOLDER,PAGE_NOACCESS,NULL,0)!=(void *)USER_MIN) {
+        const DWORD error=GetLastError();
+        /* Name what already occupies the range, so the failure says which module or heap it is. */
+        MEMORY_BASIC_INFORMATION m;
+        for (uintptr_t at=USER_MIN; at<USER_MAX && VirtualQuery((void *)at,&m,sizeof m); at=(uintptr_t)m.BaseAddress+m.RegionSize) {
+            if (m.State==MEM_FREE) continue;
+            char module[MAX_PATH]="";
+            if (m.Type==MEM_IMAGE) GetModuleFileNameA((HMODULE)m.AllocationBase,module,sizeof module);
+            fprintf(stderr,"Runtime: user range occupied: %p +0x%zx state=0x%lx type=0x%lx base=%p %s\n",
+                    m.BaseAddress,(size_t)m.RegionSize,m.State,m.Type,m.AllocationBase,module);
+        }
+        SetLastError(error);
+        win_fail("reserving the PS4 user range as a placeholder",USER_MIN,USER_MAX-USER_MIN);
+    }
+    host_region_insert(0,(HostRegion){USER_MIN,USER_MAX,RESERVED_PHYS,0});
 }
-/* One view of the section over [r->start,r->end) at section offset r->phys. */
+/* Replaces placeholder r (exactly its extent) with a view of the section at r->phys. */
 static void view_map(HostRegion *r, DWORD protect) {
-    /* MinGW declares the low-level form with the file offset split into two DWORDs. */
-    void *p=MapViewOfFileExNuma(section,FILE_MAP_ALL_ACCESS,
-                                (DWORD)(r->phys>>32),(DWORD)(r->phys&0xffffffffu),
-                                r->end-r->start,(void *)r->start,0);
-    if (p!=r->start) win_fail("MapViewOfFileEx",r->start,r->end-r->start);
+    void *p=map_view3(section,GetCurrentProcess(),(void *)r->start,r->phys,r->end-r->start,
+                      MEM_REPLACE_PLACEHOLDER,PAGE_READWRITE,NULL,0);
+    if (p!=(void *)r->start) win_fail("MapViewOfFile3",r->start,r->end-r->start);
     if (protect!=PAGE_READWRITE) {
         DWORD old;
         if (!VirtualProtect((void *)r->start,r->end-r->start,protect,&old))
@@ -231,21 +257,16 @@ static void view_map(HostRegion *r, DWORD protect) {
     }
     r->mapped=1;
 }
+/* Turns a view back into a placeholder of the same extent. */
 static void view_unmap(HostRegion *r) {
-    if (r->mapped) UnmapViewOfFile((void *)r->start);
-    r->mapped=0;
-}
-/* Releases a region's address space: a view, or a reservation this backend made for it. */
-static void host_release(HostRegion *r) {
-    view_unmap(r);
-    if (r->phys!=RESERVED_PHYS) VirtualFree((void *)r->start,0,MEM_RELEASE);
-    r->start=r->end=0; r->phys=0;
-}
-/* Claims [a,b) as a standalone reservation, so nothing else can take it. */
-static void host_reserve(HostRegion *r) {
-    void *p=VirtualAlloc((void *)r->start,r->end-r->start,MEM_RESERVE,PAGE_NOACCESS);
-    if (!p) win_fail("VirtualAlloc(MEM_RESERVE)",r->start,r->end-r->start);
+    if (r->mapped && !unmap_view2(GetCurrentProcess(),(void *)r->start,MEM_PRESERVE_PLACEHOLDER))
+        win_fail("UnmapViewOfFile2",r->start,r->end-r->start);
     r->mapped=0; r->phys=RESERVED_PHYS;
+}
+/* Splits [start,start+size) off the front of the placeholder that begins at start. */
+static void placeholder_split(uintptr_t start, uint64_t size) {
+    if (!VirtualFree((void *)start,size,MEM_RELEASE|MEM_PRESERVE_PLACEHOLDER))
+        win_fail("VirtualFree(MEM_PRESERVE_PLACEHOLDER)",start,size);
 }
 static int host_protect(uintptr_t address, uint64_t size, int prot) {
     DWORD protect=win_prot(prot), old;
@@ -268,73 +289,48 @@ static int pool(void) {
     backing_base=MapViewOfFile(section,FILE_MAP_ALL_ACCESS,0,0,bytes);
     return backing_base ? 0 : -1;
 }
-/* Reserves [a,b) for the guest and records it as one host region. */
-static size_t host_reserve_range(uintptr_t a, uintptr_t b) {
-    size_t at=host_region_index(a);
-    if (at<host_region_count && host_regions[at].start<a) win_fail("guest range splits a host region",a,b-a);
-    host_region_insert(at,(HostRegion){a,b,RESERVED_PHYS,0});
-    host_reserve(&host_regions[at]);
-    return at;
-}
-/* Turns [a,b) into a view of the section at phys, leaving everything outside it alone. Regions it
- * overlaps are released whole and their surviving left/right pieces mapped again at the protections
- * they had (GPU page tracking included), so a split never loses or widens guest access. */
-static size_t host_map_range(uintptr_t a, uintptr_t b, int prot, uint64_t phys) {
+/* Makes [a,b) one region: a view of the section at phys with protection protect, or a bare
+ * placeholder when phys is RESERVED_PHYS. Everything outside [a,b) keeps its mapping and the
+ * protection it had, so a split never loses or widens guest access. Returns the region's index. */
+static size_t host_set_range(uintptr_t a, uintptr_t b, uint64_t phys, DWORD protect) {
+    if (a<USER_MIN || b>USER_MAX || a>=b) win_fail("mapping outside the PS4 user range",a,b-a);
     size_t first=host_region_index(a), last=first;
     while (last<host_region_count && host_regions[last].start<b) ++last;
-    int need_left = first<host_region_count && host_regions[first].start<a && host_regions[first].mapped;
-    int need_right = last<host_region_count && host_regions[last].end>b && host_regions[last].mapped;
-    HostRegion left = need_left ? host_regions[first] : (HostRegion){0,0,0,0};
-    HostRegion right = need_right ? host_regions[last] : (HostRegion){0,0,0,0};
-    DWORD left_prot = PAGE_READWRITE, right_prot = PAGE_READWRITE;
+    const HostRegion left=host_regions[first], right=host_regions[last-1];
+    const int keep_left=left.start<a, keep_right=right.end>b;
+    DWORD left_prot=PAGE_READWRITE, right_prot=PAGE_READWRITE;
     MEMORY_BASIC_INFORMATION m;
-    if (need_left  && VirtualQuery((void *)a,&m,sizeof m)) left_prot = m.Protect;
-    if (need_right && VirtualQuery((void *)(b-1),&m,sizeof m)) right_prot = m.Protect;
-    for (size_t i=first;i<last;++i) host_release(&host_regions[i]);
+    if (keep_left && left.mapped && VirtualQuery((void *)(a-1),&m,sizeof m)) left_prot=m.Protect;
+    if (keep_right && right.mapped && VirtualQuery((void *)b,&m,sizeof m)) right_prot=m.Protect;
+    for (size_t i=first;i<last;++i) view_unmap(&host_regions[i]);
+    /* [left.start,right.end) is now last-first adjacent placeholders of one reservation. */
+    if (last-first>1 && !VirtualFree((void *)left.start,right.end-left.start,MEM_RELEASE|MEM_COALESCE_PLACEHOLDERS))
+        win_fail("VirtualFree(MEM_COALESCE_PLACEHOLDERS)",left.start,right.end-left.start);
     host_region_erase(first,last-first);
     size_t at=first;
-    if (need_left) {
-        host_region_insert(at,(HostRegion){left.start,a,left.phys,0});
-        view_map(&host_regions[at],left_prot);
+    if (keep_left) {
+        placeholder_split(left.start,a-left.start);
+        host_region_insert(at,(HostRegion){left.start,a,left.mapped ? left.phys : RESERVED_PHYS,0});
+        if (left.mapped) view_map(&host_regions[at],left_prot);
         ++at;
     }
+    if (keep_right) placeholder_split(a,b-a);
+    const size_t middle=at;
     host_region_insert(at,(HostRegion){a,b,phys,0});
-    view_map(&host_regions[at],win_prot(prot));
+    if (phys!=RESERVED_PHYS) view_map(&host_regions[at],protect);
     ++at;
-    if (need_right) {
-        host_region_insert(at,(HostRegion){b,right.end,right.phys+(b-right.start),0});
-        view_map(&host_regions[at],right_prot);
+    if (keep_right) {
+        host_region_insert(at,(HostRegion){b,right.end,right.mapped ? right.phys+(b-right.start) : RESERVED_PHYS,0});
+        if (right.mapped) view_map(&host_regions[at],right_prot);
     }
-    return first;
+    return middle;
 }
-/* Releases [a,b) and leaves it reserved for a later mapping, same splitting rules as host_map. */
-static void host_unmap_range(uintptr_t a, uintptr_t b) {
-    size_t first=host_region_index(a), last=first;
-    while (last<host_region_count && host_regions[last].start<b) ++last;
-    int need_left = first<host_region_count && host_regions[first].start<a && host_regions[first].mapped;
-    int need_right = last<host_region_count && host_regions[last].end>b && host_regions[last].mapped;
-    HostRegion left = need_left ? host_regions[first] : (HostRegion){0,0,0,0};
-    HostRegion right = need_right ? host_regions[last] : (HostRegion){0,0,0,0};
-    DWORD left_prot = PAGE_READWRITE, right_prot = PAGE_READWRITE;
-    MEMORY_BASIC_INFORMATION m;
-    if (need_left  && VirtualQuery((void *)a,&m,sizeof m)) left_prot = m.Protect;
-    if (need_right && VirtualQuery((void *)(b-1),&m,sizeof m)) right_prot = m.Protect;
-    for (size_t i=first;i<last;++i) host_release(&host_regions[i]);
-    host_region_erase(first,last-first);
-    size_t at=first;
-    if (need_left) {
-        host_region_insert(at,(HostRegion){left.start,a,left.phys,0});
-        view_map(&host_regions[at],left_prot);
-        ++at;
-    }
-    host_region_insert(at,(HostRegion){a,b,RESERVED_PHYS,0});
-    host_reserve(&host_regions[at]);
-    ++at;
-    if (need_right) {
-        host_region_insert(at,(HostRegion){b,right.end,right.phys+(b-right.start),0});
-        view_map(&host_regions[at],right_prot);
-    }
-}
+/* Reserves [a,b) for the guest: a placeholder, so any access faults until it is mapped. */
+static size_t host_reserve_range(uintptr_t a, uintptr_t b) { return host_set_range(a,b,RESERVED_PHYS,PAGE_NOACCESS); }
+/* Turns [a,b) into a view of the section at phys. */
+static size_t host_map_range(uintptr_t a, uintptr_t b, int prot, uint64_t phys) { return host_set_range(a,b,phys,win_prot(prot)); }
+/* Releases [a,b) and leaves it reserved for a later mapping. */
+static void host_unmap_range(uintptr_t a, uintptr_t b) { host_set_range(a,b,RESERVED_PHYS,PAGE_NOACCESS); }
 #else
 /* Direct memory occupies [0,POOL_SIZE) of the memfd, flexible memory [POOL_SIZE,+FLEX_SPAN). */
 static int pool(void) {
