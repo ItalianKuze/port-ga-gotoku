@@ -2,13 +2,16 @@
  * WaitForDone returns the completed request ID. */
 #define _GNU_SOURCE
 #include "runtime.h"
-#ifndef _WIN32
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+/* Before zlib.h: zconf.h includes <unistd.h> after defining FAR, and on Windows that is
+   gpu/shim/unistd.h, whose bbport_windows.h #undefs FAR. Taking the shim first leaves
+   zconf.h to define FAR itself. */
+#include <unistd.h>
 #include <zlib.h>
 
 #define ZLIB_NOT_FOUND ((int32_t)0x81120002)
@@ -248,6 +251,3 @@ uintptr_t runtime_zlib_resolve(const char *name) {
     if (!strcmp(name, "2eDcGHC0YaM#o#k")) return (uintptr_t)sce_zlib_get_result;
     return 0;
 }
-#else
-uintptr_t runtime_zlib_resolve(const char *name) { (void)name; return 0; }
-#endif
