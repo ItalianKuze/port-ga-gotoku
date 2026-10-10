@@ -547,6 +547,39 @@ static ABI int32_t pad_vibration(int32_t handle, const uint8_t *param) {
     pthread_mutex_unlock(&lock);
     return 0;
 }
+/* Light bar, as in shadPS4 (libraries/pad/pad.cpp): applied with SDL_SetGamepadLED where the
+ * controller has one (DualShock 4, DualSense); others (Xbox/XInput pads) ignore it. Logged only when
+ * the colour changes. The game sets it while guarding or when hit. */
+#define ERR_INVALID_LIGHTBAR_SETTING ((int32_t)0x80920006)
+typedef struct { uint8_t r, g, b, reserved; } PadLightBar;
+static void set_light_bar(uint8_t r, uint8_t g, uint8_t b, const char *why) {
+    static int last=-1;
+    const int colour=(r<<16)|(g<<8)|b;
+    SDL_Gamepad *pad=current_gamepad();
+    const int applied=pad && SDL_SetGamepadLED(pad,r,g,b);
+    if (colour!=last) {
+        printf("Runtime: pad light bar %s: RGB %u,%u,%u (%s)\n",why,r,g,b,
+               applied ? "applied to the controller" : pad ? "controller has no light bar" : "no controller");
+        last=colour;
+    }
+}
+static ABI int32_t pad_set_light_bar(int32_t handle, const PadLightBar *param) {
+    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    if (!param) return ERR_INVALID_ARG;
+    if (param->r<0x0D && param->g<0x0D && param->b<0x0D) return ERR_INVALID_LIGHTBAR_SETTING;
+    pthread_mutex_lock(&lock);
+    set_light_bar(param->r,param->g,param->b,"set");
+    pthread_mutex_unlock(&lock);
+    return 0;
+}
+/* Back to the colour of user 1 (blue), as the PS4 and shadPS4 do. */
+static ABI int32_t pad_reset_light_bar(int32_t handle) {
+    if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
+    pthread_mutex_lock(&lock);
+    set_light_bar(0,0,255,"reset");
+    pthread_mutex_unlock(&lock);
+    return 0;
+}
 static ABI int32_t pad_ok_handle(int32_t handle) { return handle==PAD_HANDLE && opened ? 0 : ERR_INVALID_HANDLE; }
 static ABI int32_t pad_ok_handle_flag(int32_t handle, uint8_t flag) { (void)flag; return pad_ok_handle(handle); }
 
@@ -554,6 +587,7 @@ static const RuntimeExport exports[]={
     {"scePadInit",pad_init}, {"scePadOpen",pad_open}, {"scePadClose",pad_close},
     {"scePadReadState",pad_read_state}, {"scePadRead",pad_read},
     {"scePadGetControllerInformation",pad_info}, {"scePadSetVibration",pad_vibration},
+    {"scePadSetLightBar",pad_set_light_bar}, {"scePadResetLightBar",pad_reset_light_bar},
     {"scePadResetOrientation",pad_ok_handle},
     {"scePadSetAngularVelocityDeadbandState",pad_ok_handle_flag}, {"scePadSetTiltCorrectionState",pad_ok_handle_flag},
     {"scePadSetMotionSensorState",pad_ok_handle_flag},

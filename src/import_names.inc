@@ -1043,3 +1043,6 @@
 {"6H-71OdrpXM#Y#W","sceMsgDialogProgressBarSetMsg"},
 {"wTpfglkmv34#j#k","sceMsgDialogProgressBarSetValue"},
 {"wTpfglkmv34#Y#W","sceMsgDialogProgressBarSetValue"},
+{"RR4novUEENY#j#g","scePadSetLightBar"},
+{"DscD1i9HX1w#j#g","scePadResetLightBar"},
+{"clVvL4ZDntw#j#g","scePadSetMotionSensorState"},
