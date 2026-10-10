@@ -85,8 +85,10 @@ ninja -C "$gpu_dir" bbgpu
 # bb-probe.exe finds bbport_runtime.dll next to itself, and the DLLs find libbbgpu.dll there too.
 # The directory is rebuilt from scratch every time, so it holds exactly what this build needs.
 run_dir=$build/run
-rm -rf "$run_dir"
+# Empty it rather than remove it: a bb-probe still running (or stuck exiting) keeps the directory
+# itself busy on Windows, while its files can still be deleted.
 mkdir -p "$run_dir"
+find "$run_dir" -mindepth 1 -delete
 cp -f "$gpu_dir/libbbgpu.dll" "$run_dir/"
 cp -f "$rt_dir/bbport_runtime.dll" "$run_dir/"
 cp -f "$rt_dir/bb-probe.exe" "$run_dir/"
