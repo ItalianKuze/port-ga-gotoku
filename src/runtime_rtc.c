@@ -72,7 +72,7 @@ static int64_t local_offset(uint64_t utc) {
     struct tm local;
     localtime_r(&seconds,&local);
     struct tm tmp=local;
-    return (int64_t)(_mkgmtime(&tmp)-seconds)*1000000;
+    return (int64_t)(bb_timegm(&tmp)-seconds)*1000000;
 }
 
 static ABI int32_t rtc_current_local(DateTime *t) {

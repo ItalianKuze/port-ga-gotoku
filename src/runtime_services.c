@@ -123,13 +123,9 @@ static ABI int32_t system_param(int32_t id,int32_t *value) {
     case 1: *value=language(); break;           /* language (1 = English US, 8 = Russian) */
     case 2: *value=1; break;                    /* date format DD/MM/YYYY */
     case 3: *value=1; break;                    /* 24-hour clock */
-#ifndef _WIN32
-    case 4: { time_t now=time(NULL); struct tm t; localtime_r(&now,&t); *value=(int32_t)(t.tm_gmtoff/60); break; }
-#else
-    /* No tm_gmtoff in the Windows CRT: the offset is the local fields read back as UTC, as in
-       runtime_kernel.c's kernel_gettimezone. */
-    case 4: { time_t now=time(NULL); struct tm t; localtime_r(&now,&t); *value=(int32_t)((int64_t)(_mkgmtime(&t)-now)/60); break; }
-#endif
+    /* UTC offset in minutes: the local fields read back as UTC (bb_timegm, runtime.h), as in
+       runtime_kernel.c's kernel_gettimezone; same as tm_gmtoff, which the Windows CRT lacks. */
+    case 4: { time_t now=time(NULL); struct tm t; localtime_r(&now,&t); *value=(int32_t)((int64_t)(bb_timegm(&t)-now)/60); break; }
     case 5: *value=0; break;                    /* summer time */
     case 7: *value=0; break;                    /* parental level off */
     case 1000: *value=1; break;                 /* enter button = cross */

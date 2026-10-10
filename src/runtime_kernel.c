@@ -146,7 +146,7 @@ static ABI int32_t kernel_gettimezone(GuestTimezone *tz) {
     if (!tz) return ERR(22);
     time_t now=time(NULL); struct tm local; localtime_r(&now,&local);
     struct tm tmp=local;
-    tz->minuteswest=(int32_t)(-((int64_t)(_mkgmtime(&tmp)-now)/60)); tz->dsttime=0;
+    tz->minuteswest=(int32_t)(-((int64_t)(bb_timegm(&tmp)-now)/60)); tz->dsttime=0;
     return 0;
 }
 static ABI int32_t posix_gettimeofday(GuestTimeval *tv,GuestTimezone *tz) {

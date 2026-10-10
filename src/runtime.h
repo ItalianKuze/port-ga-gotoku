@@ -18,6 +18,21 @@ extern __thread sigjmp_buf *runtime_fault_recover;
 /* Restarts the game (in-game settings menu, render resolution change). */
 void runtime_restart(void);
 #endif
+/* Broken-down UTC time back to time_t: POSIX timegm(), _mkgmtime() in the Windows CRT. The local
+ * UTC offset is bb_timegm(localtime(t)) - t (DST included), which replaces tm_gmtoff, a glibc/BSD
+ * field the Windows CRT does not have. */
+#include <time.h>
+#ifndef _WIN32
+/* Declared here so it does not depend on each file's feature-test macros (glibc hides it otherwise). */
+time_t timegm(struct tm *tm);
+#endif
+static inline time_t bb_timegm(struct tm *t) {
+#ifdef _WIN32
+    return _mkgmtime(t);
+#else
+    return timegm(t);
+#endif
+}
 #define ABI __attribute__((sysv_abi))
 typedef void (ABI *GuestCallback)(void);
 void runtime_start(uint64_t capabilities);
