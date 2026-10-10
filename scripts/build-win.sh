@@ -83,17 +83,41 @@ ninja -C "$gpu_dir" bbgpu
 
 # ---------------------------------------------------------------- lay out the run directory
 # bb-probe.exe finds bbport_runtime.dll next to itself, and the DLLs find libbbgpu.dll there too.
+# The directory is rebuilt from scratch every time, so it holds exactly what this build needs.
 run_dir=$build/run
+rm -rf "$run_dir"
 mkdir -p "$run_dir"
 cp -f "$gpu_dir/libbbgpu.dll" "$run_dir/"
 cp -f "$rt_dir/bbport_runtime.dll" "$run_dir/"
 cp -f "$rt_dir/bb-probe.exe" "$run_dir/"
-# Third-party runtime dependencies that are not on the system path.
-for dll in /ucrt64/bin/{SDL3.dll,libxxhash.dll,libZydis.dll,vulkan-1.dll,libstdc++-6.dll,libgcc_s_seh-1.dll,libwinpthread-1.dll} \
-           /ucrt64/bin/{avcodec-63.dll,avformat-63.dll,avutil-61.dll,swresample-7.dll,swscale-10.dll}; do
-    [[ -f $dll ]] && cp -f "$dll" "$run_dir/"
+
+# Runtime DLLs from the MSYS2 UCRT64 prefix, found recursively from the import tables (what
+# ntldd -R reports, limited to that prefix). Windows' own DLLs (System32, api-ms-win-*, ucrtbase)
+# are never copied, and neither is vulkan-1.dll: the Vulkan loader must be the one the GPU driver
+# installed in System32. DLLs loaded at run time with LoadLibrary are not in import tables.
+ucrt_bin=/ucrt64/bin
+sources=$build/run-dll-sources.txt
+: > "$sources"
+declare -A seen=()
+queue=("$run_dir/bb-probe.exe" "$run_dir/bbport_runtime.dll" "$run_dir/libbbgpu.dll")
+while (( ${#queue[@]} )); do
+    file=${queue[0]}
+    queue=("${queue[@]:1}")
+    while read -r name; do
+        key=${name,,}
+        [[ -n ${seen[$key]:-} ]] && continue
+        seen[$key]=1
+        case $key in vulkan-1.dll|api-ms-win-*|ext-ms-win-*|ucrtbase.dll) continue ;; esac
+        [[ -f $run_dir/$name ]] && continue                  # this build's own modules
+        src=$(find "$ucrt_bin" -maxdepth 1 -iname "$name" -print -quit)
+        [[ -n $src ]] || continue                             # not in UCRT64: a Windows DLL
+        cp -f "$src" "$run_dir/"
+        printf '%-28s <- %s (imported by %s)\n' "$(basename "$src")" "$src" "$(basename "$file")" >> "$sources"
+        queue+=("$run_dir/$(basename "$src")")
+    done < <(objdump -p "$file" | sed -n 's/^[[:space:]]*DLL Name: //p' | tr -d '\r')
 done
 
 echo
 echo "Built into $gpu_dir and $rt_dir; runnable tree in $run_dir"
-ls -1 "$run_dir"
+echo "UCRT64 DLLs copied ($sources):"
+cat "$sources"
