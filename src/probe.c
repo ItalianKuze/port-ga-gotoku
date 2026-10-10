@@ -137,6 +137,13 @@ static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argu
     puts(entered_game ? "Original guest entry instructions executed; game initialization is incomplete." :
                         "Native libc initialization is incomplete; game entry has not run.");
     fflush(NULL);
+#ifdef _WIN32
+    /* Not _exit: it goes through ExitProcess, whose DLL detach runs while GPU, audio and guest
+     * threads still hold driver and loader state -- the process stayed listed, exited but stuck
+     * in the kernel with ~1.9 GB, and could not be killed. TerminateProcess ends it at once, as
+     * the watchdog does. */
+    TerminateProcess(GetCurrentProcess(), 20);
+#endif
     _exit(20); /* no destructors: GPU, audio and guest threads are still running */
 }
 #ifndef _WIN32
