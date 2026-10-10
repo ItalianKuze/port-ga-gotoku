@@ -37,6 +37,17 @@ fi
 
 mkdir -p "$build"
 
+# Submodules and this port's changes to FSR-Vulkan (gpu/patches/fsr-vulkan), applied once, as in
+# build.sh; 0002 adds the includes MinGW needs.
+if [[ ! -f $root/gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f $root/gpu/third_party/imgui/imgui.h ]]; then
+    git -C "$root" submodule update --init --recursive
+fi
+for patch in "$root"/gpu/patches/fsr-vulkan/*.patch; do
+    if ! git -C "$root/gpu/third_party/fsr-vulkan" apply --reverse --check "$patch" 2>/dev/null; then
+        git -C "$root/gpu/third_party/fsr-vulkan" apply "$patch"
+    fi
+done
+
 # ---------------------------------------------------------------- pass 1: GPU against a stub
 # The stub only has to satisfy the linker; it is replaced in pass 3 and never loaded.
 stub_src=$build/runtime_stub.c
