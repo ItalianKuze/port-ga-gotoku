@@ -60,6 +60,14 @@ static ABI int32_t mutex_init(GuestMutex **out, GuestAttr **attr, const char *na
     int native_protocol = protocol == 1 ? PTHREAD_PRIO_INHERIT :
                           protocol == 2 ? PTHREAD_PRIO_PROTECT : PTHREAD_PRIO_NONE;
     e = pthread_mutexattr_setprotocol(&native_attr, native_protocol);
+#ifdef _WIN32
+    /* winpthreads supports only PTHREAD_PRIO_NONE (ENOTSUP for INHERIT/PROTECT) and Windows has
+     * no priority-inheriting locks, so the guest's protocol is advisory here, as in shadPS4
+     * (kernel/threads/mutex.cpp: validated and stored, not implemented). Failing the init made
+     * Hokuto skip its CRI middleware initialization. Out-of-range protocols still fail with
+     * EINVAL in attr_protocol. */
+    if (e == ENOTSUP) e = 0;
+#endif
     if (!e) e = pthread_mutexattr_settype(&native_attr, native_type);
     if (!e) e = pthread_mutex_init(&mutex->native, &native_attr);
     pthread_mutexattr_destroy(&native_attr);
