@@ -59,6 +59,26 @@ static void note(const char *what) { printf("Runtime: %s\n",what); }
  * ignores the result. Keep the actual configuration; screenshot capture itself
  * is not implemented by this runtime. */
 static pthread_mutex_t screenshot_lock=PTHREAD_MUTEX_INITIALIZER;
+/* sceScreenShotEnable / Disable, as shadPS4: no capture exists here, so they only record the
+ * state and return OK; each is logged the first time (the game disables screenshots in some
+ * story scenes). */
+static int screenshot_enabled=1;
+static ABI int32_t screenshot_enable(void) {
+    static int logged;
+    pthread_mutex_lock(&screenshot_lock);
+    screenshot_enabled=1;
+    pthread_mutex_unlock(&screenshot_lock);
+    if (!logged++) puts("Runtime: screenshots enabled by the game (no capture; logged once)");
+    return 0;
+}
+static ABI int32_t screenshot_disable(void) {
+    static int logged;
+    pthread_mutex_lock(&screenshot_lock);
+    screenshot_enabled=0;
+    pthread_mutex_unlock(&screenshot_lock);
+    if (!logged++) puts("Runtime: screenshots disabled by the game (no capture; logged once)");
+    return 0;
+}
 static char screenshot_overlay_path[1024];
 static int32_t screenshot_overlay_x, screenshot_overlay_y;
 static ABI int32_t screenshot_set_overlay(const char *path,int32_t x,int32_t y) {
@@ -757,7 +777,7 @@ static const RuntimeExport exports[]={
     {"sceSystemServiceReceiveEvent",system_event}, {"sceSystemServiceHideSplashScreen",hide_splash},
     {"sceSystemServiceLaunchWebBrowser",launch_browser},
     {"sceScreenShotSetOverlayImage",screenshot_set_overlay},
-    {"sceScreenShotEnable",ok_void},
+    {"sceScreenShotEnable",screenshot_enable}, {"sceScreenShotDisable",screenshot_disable},
     {"sceVideoRecordingSetInfo",video_recording_set_info},
     {"sceNetInit",net_init}, {"sceNetTerm",net_term}, {"sceNetErrnoLoc",net_errno_loc},
     {"sceRudpInit",rudp_init}, {"sceRudpEnableInternalIOThread",rudp_enable_internal_io_thread},
