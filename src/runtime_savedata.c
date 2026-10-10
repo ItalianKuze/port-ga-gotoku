@@ -11,10 +11,11 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
-#ifndef _WIN32
 #include <dirent.h>
 #include <errno.h>
+#ifndef _WIN32
 #include <ftw.h>
+#endif
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -134,9 +135,32 @@ static int read_param(const char *meta, Param *p) {
     if (!stat(path,&st)) p->mtime=st.st_mtime;
     return n==1 ? 0 : -1;
 }
+#ifndef _WIN32
 static int remove_entry(const char *path, const struct stat *st, int flag, struct FTW *ftw) {
     (void)st; (void)flag; (void)ftw; return remove(path);
 }
+static void remove_tree(const char *path) { nftw(path,remove_entry,16,FTW_DEPTH|FTW_PHYS); }
+#else
+/* No nftw in MinGW: depth-first removal with opendir/readdir, as nftw(FTW_DEPTH) does. */
+static void remove_tree(const char *path) {
+    struct stat st;
+    if (stat(path,&st)) return;
+    if (S_ISDIR(st.st_mode)) {
+        DIR *d=opendir(path);
+        if (d) {
+            struct dirent *e;
+            while ((e=readdir(d))) {
+                if (!strcmp(e->d_name,".") || !strcmp(e->d_name,"..")) continue;
+                char child[1024];
+                snprintf(child,sizeof(child),"%s/%s",path,e->d_name);
+                remove_tree(child);
+            }
+            closedir(d);
+        }
+        rmdir(path);
+    } else remove(path);
+}
+#endif
 
 static ABI int32_t save_initialize(const void *param) { (void)param; initialized=1; return 0; }
 static ABI int32_t save_terminate(void) {
@@ -246,8 +270,8 @@ static ABI int32_t save_delete(const Delete *d) {
     snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,d->dir->data);
     struct stat st;
     if (stat(host,&st)) return ERR_NOT_FOUND;
-    nftw(host,remove_entry,16,FTW_DEPTH|FTW_PHYS);
-    nftw(meta,remove_entry,16,FTW_DEPTH|FTW_PHYS);
+    remove_tree(host);
+    remove_tree(meta);
     printf("Runtime: save data '%s' deleted\n",d->dir->data);
     return 0;
 }
@@ -351,8 +375,3 @@ static const RuntimeExport exports[]={
 };
 uintptr_t runtime_savedata_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
 void runtime_savedata_report(void) { printf("Runtime: save data mounts=%zu, memory writes=%zu\n",mounts_done,memory_writes); }
-#else
-void runtime_savedata_configure(const char *title) { (void)title; }
-uintptr_t runtime_savedata_resolve(const char *name) { (void)name; return 0; }
-void runtime_savedata_report(void) {}
-#endif
