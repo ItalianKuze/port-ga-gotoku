@@ -10,8 +10,9 @@
 typedef struct { int type, protocol; } GuestAttr;
 typedef struct { pthread_mutex_t native; } GuestMutex;
 static size_t created, locks, unlocks;
-static int32_t orbis_error(int e) {
+static int32_t orbis_error_at(int e, const char *import) {
     if (!e) return 0;
+    if (e == ENOTSUP) return runtime_note_enotsup(import);
     unsigned code;
     switch (e) {
     case EPERM: code=1; break;
@@ -25,6 +26,8 @@ static int32_t orbis_error(int e) {
     }
     return (int32_t)(UINT32_C(0x80020000) | code);
 }
+/* The HLE function name goes along, for the one-time ENOTSUP log. */
+#define orbis_error(e) orbis_error_at((e), __func__)
 static ABI int32_t attr_init(GuestAttr **out) {
     if (!out) return orbis_error(EINVAL);
     GuestAttr *attr = malloc(sizeof(*attr));

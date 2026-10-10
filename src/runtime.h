@@ -83,6 +83,8 @@ void runtime_content_report(void);
 typedef struct { const char *name; void *function; } RuntimeExport;
 #define RUNTIME_LOOKUP(table, nid) runtime_lookup(table, sizeof(table)/sizeof(*(table)), nid)
 const char *runtime_symbol(const char *nid);
+/* 0x8002002d (ENOTSUP) for the guest; logs the import name the first time it happens. */
+int32_t runtime_note_enotsup(const char *import);
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *nid);
 uintptr_t runtime_kernel_resolve(const char *name);
 void runtime_kernel_configure(uint32_t app_attributes, int valid);

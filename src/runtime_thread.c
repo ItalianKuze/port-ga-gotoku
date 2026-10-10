@@ -228,8 +228,9 @@ static ABI int32_t attr_set_inherit(ThreadAttr **slot,int inherit) {
 static ABI int32_t attr_set_param(ThreadAttr **slot,const int *param) {
     ThreadAttr *a=find_attr(slot);
     if (!a) return ERR(22);
-    if (!param) return ERR(45);
-    if ((a->policy == 1 || a->policy == 3) && (*param < 0x100 || *param > 0x2ff)) return ERR(45);
+    if (!param) return runtime_note_enotsup("scePthreadAttrSetschedparam");
+    if ((a->policy == 1 || a->policy == 3) && (*param < 0x100 || *param > 0x2ff))
+        return runtime_note_enotsup("scePthreadAttrSetschedparam");
     a->prio=*param; return 0;
 }
 static ABI int32_t attr_get_param(ThreadAttr **slot,int *param) {

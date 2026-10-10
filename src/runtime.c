@@ -266,6 +266,21 @@ static const struct { const char *nid, *symbol; } import_names[]={
 #include "import_names.inc"
 };
 /* Symbol name for a scoped NID, or NULL when this eboot/libc never imports it. */
+/* An option the guest asked for that this host cannot provide is the kind of difference that made
+ * Hokuto skip its CRI initialization on Windows (scePthreadMutexInit, PRIO_INHERIT): say so once
+ * per import, so the next case shows up in the log at once. */
+int32_t runtime_note_enotsup(const char *import) {
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    static const char *seen[64];
+    static size_t count;
+    int first = 1;
+    pthread_mutex_lock(&lock);
+    for (size_t i = 0; i < count; ++i) if (!strcmp(seen[i], import)) first = 0;
+    if (first && count < 64) seen[count++] = import;
+    pthread_mutex_unlock(&lock);
+    if (first) fprintf(stderr, "Runtime: %s returned ENOTSUP (0x8002002d) to the guest (logged once)\n", import);
+    return (int32_t)UINT32_C(0x8002002d);
+}
 const char *runtime_symbol(const char *nid) {
     for (size_t i=0;i<sizeof(import_names)/sizeof(*import_names);++i)
         if (!strcmp(nid,import_names[i].nid)) return import_names[i].symbol;
