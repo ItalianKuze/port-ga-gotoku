@@ -4,6 +4,10 @@
 #include <boost/container/static_vector.hpp>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstdlib>
 
 #include "common/assert.h"
 #include "common/debug.h"
@@ -112,6 +116,61 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
     ASSERT_MSG(num_physical_devices > 0, "No physical devices found");
     LOG_INFO(Render_Vulkan, "Found {} physical devices", num_physical_devices);
 
+    // bbport: every device in the log (always shown), and an explicit choice: BB_GPU_DEVICE=<part
+    // of the name> or BB_GPU_ID=<index> forces one; otherwise the sort below prefers devices with
+    // the required Vulkan version, then discrete GPUs, then not CPU, then the most device memory.
+    const auto device_type_name = [](vk::PhysicalDeviceType type) -> const char* {
+        switch (type) {
+        case vk::PhysicalDeviceType::eDiscreteGpu: return "discrete GPU";
+        case vk::PhysicalDeviceType::eIntegratedGpu: return "integrated GPU";
+        case vk::PhysicalDeviceType::eVirtualGpu: return "virtual GPU";
+        case vk::PhysicalDeviceType::eCpu: return "CPU";
+        default: return "other";
+        }
+    };
+    const auto vendor_name = [](u32 id) -> const char* {
+        switch (id) {
+        case 0x10DE: return "NVIDIA";
+        case 0x1002: return "AMD";
+        case 0x8086: return "Intel";
+        case 0x10005: return "Mesa";
+        default: return "unknown";
+        }
+    };
+    const auto driver_version = [](const vk::PhysicalDeviceProperties& p) {
+        const u32 v = p.driverVersion;
+        if (p.vendorID == 0x10DE) { // NVIDIA packs 10.8.8.6 bits
+            return fmt::format("{}.{}.{}.{}", (v >> 22) & 0x3ff, (v >> 14) & 0xff, (v >> 6) & 0xff, v & 0x3f);
+        }
+        return fmt::format("{}.{}.{}", VK_API_VERSION_MAJOR(v), VK_API_VERSION_MINOR(v), VK_API_VERSION_PATCH(v));
+    };
+    for (size_t i = 0; i < num_physical_devices; ++i) {
+        const auto p = physical_devices[i].getProperties();
+        std::printf("GPU: Vulkan device %zu: %s (%s, vendor %s 0x%04x, driver %s, Vulkan %u.%u.%u)\n", i,
+                    p.deviceName.data(), device_type_name(p.deviceType), vendor_name(p.vendorID), p.vendorID,
+                    driver_version(p).c_str(), VK_API_VERSION_MAJOR(p.apiVersion),
+                    VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion));
+    }
+    const char* reason = physical_device_index >= 0 ? "BB_GPU_ID" : "automatic (discrete GPU preferred)";
+    if (const char* wanted = std::getenv("BB_GPU_DEVICE"); wanted && *wanted) {
+        std::string needle{wanted};
+        std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) { return std::tolower(c); });
+        s32 found = -1;
+        for (size_t i = 0; i < num_physical_devices && found < 0; ++i) {
+            std::string name{physical_devices[i].getProperties().deviceName.data()};
+            std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::tolower(c); });
+            if (name.find(needle) != std::string::npos) found = s32(i);
+        }
+        if (found >= 0) { physical_device_index = found; reason = "BB_GPU_DEVICE"; }
+        else std::printf("GPU: BB_GPU_DEVICE=%s matches no device; choosing automatically\n", wanted);
+    }
+    if (physical_device_index >= s32(num_physical_devices)) {
+        std::printf("GPU: BB_GPU_ID=%d is not a device (0..%zu); choosing automatically\n", physical_device_index,
+                    num_physical_devices - 1);
+        physical_device_index = -1;
+        reason = "automatic (discrete GPU preferred)";
+    }
+
     if (physical_device_index < 0) {
         std::vector<
             std::tuple<size_t, vk::PhysicalDeviceProperties2, vk::PhysicalDeviceMemoryProperties>>
@@ -168,6 +227,12 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
         physical_device = physical_devices[physical_device_index];
     }
 
+    {
+        const auto p = physical_device.getProperties();
+        std::printf("GPU: Selected Vulkan device: %s (%s, driver %s) -- %s\n", p.deviceName.data(),
+                    device_type_name(p.deviceType), driver_version(p).c_str(), reason);
+        std::fflush(stdout);
+    }
     available_extensions = GetSupportedExtensions(physical_device);
     format_properties = GetFormatProperties(physical_device);
     properties = physical_device.getProperties();
