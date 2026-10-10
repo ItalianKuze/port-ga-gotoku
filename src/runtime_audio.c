@@ -51,10 +51,33 @@ static int initialized, sdl_ready=-1;
 static size_t buffers_out, ports_opened;
 
 static uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000000u+(uint64_t)t.tv_nsec; }
+#ifdef _WIN32
+/* winpthreads' clock_nanosleep supports only CLOCK_REALTIME (-1 for CLOCK_MONOTONIC, absolute or
+ * relative), so the loop below never ended there: the CRI audio thread spun at 100% CPU and sent
+ * no more buffers -- no sound, and title.usm (Sofdec, audio-clocked) did not advance. A
+ * high-resolution waitable timer (Windows 10 1803+) sleeps to the CLOCK_MONOTONIC deadline;
+ * Sleep() alone has ~15.6 ms granularity against a 5.33 ms buffer period. */
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+static void sleep_until(uint64_t deadline) {
+    static __thread HANDLE timer;
+    if (!timer) {
+        timer=CreateWaitableTimerExW(NULL,NULL,CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,TIMER_ALL_ACCESS);
+        if (!timer) timer=CreateWaitableTimerExW(NULL,NULL,0,TIMER_ALL_ACCESS);
+    }
+    for (uint64_t now=now_ns(); now<deadline; now=now_ns()) {
+        LARGE_INTEGER due; due.QuadPart=-(LONGLONG)((deadline-now+99)/100); /* relative, 100 ns units */
+        if (timer && SetWaitableTimer(timer,&due,0,NULL,NULL,FALSE)) WaitForSingleObject(timer,INFINITE);
+        else Sleep(1);
+    }
+}
+#else
 static void sleep_until(uint64_t deadline) {
     struct timespec t={(time_t)(deadline/1000000000u),(long)(deadline%1000000000u)};
     while (clock_nanosleep(CLOCK_MONOTONIC,TIMER_ABSTIME,&t,NULL)) {}
 }
+#endif
 static int sdl_audio(void) {
     if (sdl_ready<0) {
         const char *mode=getenv("BB_AUDIO");
