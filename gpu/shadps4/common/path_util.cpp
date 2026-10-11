@@ -85,10 +85,16 @@ static std::optional<std::filesystem::path> GetBundleParentDirectory() {
 #endif
 
 static auto UserPaths = [] {
-    // bbport: the port keeps GPU caches where BB_GPU_USER_DIR points.
+    // bbport: the port's GPU folder is BB_GPU_USER_DIR when the launcher sets it before the process
+    // starts (scripts/run-hokuto-win.sh, Avvia Hokuto.cmd): it is created if missing and always
+    // used, never silently replaced by %APPDATA%\shadPS4, which belongs to the real shadPS4.
+    // (bbgpu_init sets BB_GPU_USER_DIR too, but only after these paths are fixed.)
     const char* port_dir = std::getenv("BB_GPU_USER_DIR");
-    auto user_dir = port_dir ? std::filesystem::path(port_dir) : std::filesystem::current_path() / PORTABLE_DIR;
-    if (!std::filesystem::exists(user_dir)) {
+    auto user_dir = port_dir && *port_dir ? std::filesystem::path(port_dir)
+                                          : std::filesystem::current_path() / PORTABLE_DIR;
+    if (port_dir && *port_dir) {
+        std::filesystem::create_directories(user_dir);
+    } else if (!std::filesystem::exists(user_dir)) {
         // If it doesn't exist, use the standard path for the platform instead.
         // NOTE: On Windows we currently just create the portable directory instead.
 #ifdef __APPLE__
@@ -137,7 +143,13 @@ static auto UserPaths = [] {
     create_path(PathType::MetaDataDir, user_dir / METADATA_DIR);
     create_path(PathType::CustomTrophy, user_dir / CUSTOM_TROPHY);
     create_path(PathType::CustomConfigs, user_dir / CUSTOM_CONFIGS);
-    create_path(PathType::CacheDir, user_dir / CACHE_DIR);
+    // bbport: BB_GPU_CACHE_DIR puts the shader/pipeline cache in a folder of its own.
+    if (const char* cache_dir = std::getenv("BB_GPU_CACHE_DIR"); cache_dir && *cache_dir) {
+        std::filesystem::create_directories(cache_dir);
+        paths.insert_or_assign(PathType::CacheDir, std::filesystem::path(cache_dir));
+    } else {
+        create_path(PathType::CacheDir, user_dir / CACHE_DIR);
+    }
     create_path(PathType::FontsDir, user_dir / FONTS_DIR);
     create_path(PathType::TrophyDir, user_dir / TROPHY_DIR);
     create_path(PathType::HomeDir, user_dir / HOME_DIR);

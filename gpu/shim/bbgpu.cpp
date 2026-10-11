@@ -23,6 +23,7 @@
 #include "../bbgpu.h"
 #include "common/elf_info.h"
 #include "common/logging/log.h"
+#include "common/path_util.h"
 #include "common/rdtsc.h"
 #include "core/libraries/kernel/orbis_error.h"
 #include "core/libraries/libs.h"
@@ -259,6 +260,11 @@ static void StartProfileWriter() {
 
 extern "C" int bbgpu_init(const BbGpuConfig* config) {
     BbSettings::Load();
+    // Where the GPU library keeps its files (BB_GPU_USER_DIR / BB_GPU_CACHE_DIR, common/path_util.cpp).
+    std::printf("GPU: folders: user %s; cache %s; shader patches %s\n",
+                Common::FS::GetUserPath(Common::FS::PathType::UserDir).string().c_str(),
+                Common::FS::GetUserPath(Common::FS::PathType::CacheDir).string().c_str(),
+                (Common::FS::GetUserPath(Common::FS::PathType::ShaderDir) / "patch").string().c_str());
 #ifdef BB_PGO_GENERATE
     StartProfileWriter();
 #endif

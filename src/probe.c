@@ -831,6 +831,14 @@ int main(int argc, char **argv) {
         }
         runtime_content_configure(values);
     }
+    {
+        /* Every folder this run reads or writes, so a log shows nothing comes from elsewhere. */
+        char cwd[1024] = "";
+        if (!getcwd(cwd, sizeof(cwd))) cwd[0] = 0;
+        const char *xdg = getenv("XDG_DATA_HOME");
+        printf("Runtime: folders: boot image %s; app0 %s; saves/user %s; data (XDG_DATA_HOME) %s; cwd %s\n",
+               argv[1], app0 ? app0 : "(none)", user_dir ? user_dir : "user", xdg ? xdg : "(unset)", cwd);
+    }
     if (app0) {
         runtime_file_configure(app0, user_dir ? user_dir : "user");
         char sfo[4096], id[16]="";
