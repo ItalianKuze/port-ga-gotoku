@@ -46,3 +46,24 @@ out-win/
 *~
 .vscode/
 
+# Never in the repository: the port's data (saves, caches, settings, logs), private notes, backups,
+# game dumps and anything derived from the game.
+PortGaGotoku-data*/
+PortGaGotoku-notes/
+PortGaGotoku-backup*/
+/user/
+/bench/
+CUSA*/
+sce_sys/
+eboot.bin
+boot-linked.bin
+boot.bin
+eboot.elf
+content.bin
+*.par
+*.usm
+*.sfo
+*.pkg
+*.prx
+*.sprx
+*.self

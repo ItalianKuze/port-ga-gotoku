@@ -42,7 +42,7 @@ DEFAULTS = {
     'fullscreen': False,
     'gpu': '',            # '' = automatic (discrete GPU preferred), else the Vulkan device name
     'frame_stats': True,  # BB_FRAME_STATS: frame statistics in the log
-    'ui_language': '',    # '' = Windows' language (Italian or English)
+    'ui_language': 'en',  # 'en' (the default), 'it', or '' for Windows' language
 }
 
 

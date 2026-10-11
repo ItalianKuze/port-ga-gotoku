@@ -10,7 +10,7 @@ GPL-2.0-or-later).
 
 Roles of PortGaGotoku.exe (frozen with PyInstaller, packaging/windows/package.sh):
   (none)              the launcher window;
-  --play              the game with the saved settings, without the window (Gioca Hokuto.exe);
+  --play              the game with the saved settings, without the window (Start Hokuto.exe);
   --script FILE ARGS  a preparation script (scripts/prepare.py, ...), so no Python is needed.
 """
 import ctypes
@@ -307,7 +307,7 @@ def main():
     try:
         webview.start(private_mode=False, storage_path=str(game.DATA_DIR / 'launcher-webview'))
     except Exception as error:  # WebView2 missing or broken
-        message_box(_('The launcher window needs Microsoft Edge WebView2 Runtime ({}).\n\n"Gioca Hokuto.exe" '
+        message_box(_('The launcher window needs Microsoft Edge WebView2 Runtime ({}).\n\n"Start Hokuto.exe" '
                       'starts the game with the saved settings without this window.').format(error), True)
         return 1
     return 0

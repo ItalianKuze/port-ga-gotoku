@@ -103,9 +103,9 @@ IT = {
     'logs folder.':
         'Il gioco è ancora aperto. Chiudere comunque il launcher?\n\nIl gioco resta aperto; il suo log continua a '
         'essere scritto nella cartella dei log.',
-    'The launcher window needs Microsoft Edge WebView2 Runtime ({}).\n\n"Gioca Hokuto.exe" starts the game with the '
+    'The launcher window needs Microsoft Edge WebView2 Runtime ({}).\n\n"Start Hokuto.exe" starts the game with the '
     'saved settings without this window.':
-        'La finestra del launcher richiede Microsoft Edge WebView2 Runtime ({}).\n\n"Gioca Hokuto.exe" avvia il '
+        'La finestra del launcher richiede Microsoft Edge WebView2 Runtime ({}).\n\n"Start Hokuto.exe" avvia il '
         'gioco con le impostazioni salvate senza questa finestra.',
 }
 

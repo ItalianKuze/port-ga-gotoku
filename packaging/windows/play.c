@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * Gioca Hokuto.exe: starts Fist of the North Star: Lost Paradise with the settings saved by the
+ * Start Hokuto.exe: starts Fist of the North Star: Lost Paradise with the settings saved by the
  * launcher, without opening it: runs `PortGaGotoku.exe --play` from its own folder and waits for
  * it, so shortcuts and front ends see the game running; returns the game's exit code. Extra
  * arguments are passed on. From Supermedo's packaging/windows/play.c (bloodborne_pc v1.6). */
@@ -24,8 +24,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR arguments, int
     STARTUPINFOW startup = {.cb = sizeof(startup)};
     PROCESS_INFORMATION process;
     if (!CreateProcessW(exe, line, NULL, NULL, FALSE, 0, NULL, dir, &startup, &process)) {
-        MessageBoxW(NULL, L"PortGaGotoku.exe non trovato accanto a questo file.\n"
-                          L"PortGaGotoku.exe was not found next to this file.",
+        MessageBoxW(NULL, L"PortGaGotoku.exe was not found next to this file.",
                     L"PortGaGotoku", MB_OK | MB_ICONERROR);
         return 1;
     }

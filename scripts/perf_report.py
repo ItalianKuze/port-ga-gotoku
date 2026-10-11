@@ -78,32 +78,32 @@ def main():
 
     def v(key, unit=''):
         value = values.get(key, '?')
-        return f'{value}{unit}' if value not in ('?', '-1.000', '-1.0') else 'n/d'
+        return f'{value}{unit}' if value not in ('?', '-1.000', '-1.0') else 'n/a'
 
     out = [f'# {a.title}', '']
-    out += [f'- Data: {os.path.basename(base)[5:13]} · file: `{os.path.basename(base)}-*`',
+    out += [f'- Date: {os.path.basename(base)[5:13]} · files: `{os.path.basename(base)}-*`',
             f'- Build: {info.get("build", "?")}',
-            f'- Impostazioni: {info.get("settings", "?")}; presentazione effettiva: {info.get("present", "?")}',
+            f'- Settings: {info.get("settings", "?")}; present mode in use: {info.get("present", "?")}',
             f'- GPU: {info.get("device", values.get("gpu", "?"))}',
             f'- Controller: {info.get("gamepad", "?")}',
-            f'- Durata: {values.get("header", "?").replace("Perf summary: ", "")}']
+            f'- Length: {values.get("header", "?").replace("Perf summary: ", "")}']
     if a.scene:
-        out += ['', '## Scena', '', a.scene]
-    out += ['', '## Risultati', '',
-            '| Misura | Valore |', '|---|---|',
-            f'| FPS medio | {v("fps_avg")} |',
+        out += ['', '## Scene', '', a.scene]
+    out += ['', '## Results', '',
+            '| Measure | Value |', '|---|---|',
+            f'| Average FPS | {v("fps_avg")} |',
             f'| 1% low | {v("fps_low1")} FPS |',
-            f'| 0,1% low | {v("fps_low01")} FPS |',
-            f'| Tempo di frame p50 / p90 / p95 / p99 / p99,9 | {v("frame_ms_p50")} / {v("frame_ms_p90")} / '
+            f'| 0.1% low | {v("fps_low01")} FPS |',
+            f'| Frame time p50 / p90 / p95 / p99 / p99.9 | {v("frame_ms_p50")} / {v("frame_ms_p90")} / '
             f'{v("frame_ms_p95")} / {v("frame_ms_p99")} / {v("frame_ms_p999")} ms |',
-            f'| Frame più lungo | {v("frame_ms_max", " ms")} |',
-            f'| Frame oltre 20 ms / oltre 34 ms | {v("frames_over_20ms")} / {v("frames_over_34ms")} |',
-            f'| CPU di traduzione (thread GPU) per frame | {v("cpu_translate_ms_per_frame", " ms")} |',
-            f'| GPU occupata per frame (timestamp query) | {v("gpu_ms_per_frame", " ms")} |',
-            f'| Utilizzo GPU medio | {v("gpu_util_avg", " %")} |',
-            f'| Utilizzo CPU di sistema medio | {v("cpu_util_avg", " %")} |',
-            f'| Compilazioni di pipeline | {v("compiles")} |']
-    out += ['', '## Thread (media sulla misura, % di un core)', '',
+            f'| Longest frame | {v("frame_ms_max", " ms")} |',
+            f'| Frames over 20 ms / over 34 ms | {v("frames_over_20ms")} / {v("frames_over_34ms")} |',
+            f'| CPU translation (GPU thread) per frame | {v("cpu_translate_ms_per_frame", " ms")} |',
+            f'| GPU busy per frame (timestamp queries) | {v("gpu_ms_per_frame", " ms")} |',
+            f'| Average GPU utilisation | {v("gpu_util_avg", " %")} |',
+            f'| Average system CPU | {v("cpu_util_avg", " %")} |',
+            f'| Pipeline compiles | {v("compiles")} |']
+    out += ['', '## Threads (average over the measurement, % of one core)', '',
             '| Thread | TID | CPU |', '|---|---|---|']
     peaks = defaultdict(float)
     for row in thread_rows:
@@ -112,12 +112,12 @@ def main():
         except (KeyError, ValueError):
             pass
     for name, tid, percent in threads[:12]:
-        out.append(f'| {name} | {tid} | {percent:.1f} % (picco {peaks.get(tid, 0):.0f} %) |')
-    busy = [f'{name} ({percent:.0f}%, picco {peaks.get(tid, 0):.0f}%)' for name, tid, percent in threads if percent >= 80.0]
-    out += ['', 'Thread vicini a un core pieno (media ≥ 80%): ' + (', '.join(busy) if busy else 'nessuno') + '.']
+        out.append(f'| {name} | {tid} | {percent:.1f} % (peak {peaks.get(tid, 0):.0f} %) |')
+    busy = [f'{name} ({percent:.0f}%, peak {peaks.get(tid, 0):.0f}%)' for name, tid, percent in threads if percent >= 80.0]
+    out += ['', 'Threads near a full core (average ≥ 80%): ' + (', '.join(busy) if busy else 'none') + '.']
     if a.phases:
         frames = [(float(r['t_s']), float(r['frame_ms'])) for r in read_csv(base + '-frames.csv')]
-        out += ['', '## Fasi', '', '| Fase | Frame | FPS medio | 1% low | p50 | p99 | oltre 20 ms |',
+        out += ['', '## Phases', '', '| Phase | Frames | Average FPS | 1% low | p50 | p99 | over 20 ms |',
                 '|---|---|---|---|---|---|---|']
         for part in a.phases.split(','):
             span, name = part.split(':', 1)
@@ -140,9 +140,9 @@ def main():
                     pass
             return result
         fps = column('fps')
-        out += ['', '## Andamento per secondo', '',
-                f'FPS per secondo: min {min(fps):.1f}, mediana {statistics.median(fps):.1f}, max {max(fps):.1f} '
-                f'({len(fps)} secondi). Dettaglio in `{os.path.basename(base)}-seconds.csv`.']
+        out += ['', '## Per second', '',
+                f'FPS per second: min {min(fps):.1f}, median {statistics.median(fps):.1f}, max {max(fps):.1f} '
+                f'({len(fps)} seconds). Details in `{os.path.basename(base)}-seconds.csv`.']
     text = '\n'.join(out) + '\n'
     if a.out:
         os.makedirs(os.path.dirname(a.out) or '.', exist_ok=True)

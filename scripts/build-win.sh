@@ -32,7 +32,11 @@ lto=${BB_LTO:-ON}
 
 if [[ ${1:-} == --clean ]]; then
     echo "== clean =="
-    rm -rf "$build"
+    # Everything but the launcher's Python environment (pyenv-ui: pywebview, PyInstaller), which
+    # this script does not rebuild.
+    if [[ -d $build ]]; then
+        find "$build" -mindepth 1 -maxdepth 1 ! -name pyenv-ui -exec rm -rf {} +
+    fi
 fi
 
 mkdir -p "$build"

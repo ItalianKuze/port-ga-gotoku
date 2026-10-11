@@ -10,9 +10,6 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 namespace BbSettings {
 
@@ -163,12 +160,7 @@ void Load() {
         v.menu_language = is('r', 'u') ? MenuLanguage::Russian
                           : is('i', 't') ? MenuLanguage::Italian
                                          : MenuLanguage::English;
-#ifdef _WIN32
-        // PortGaGotoku: Windows sets no LANG; its display language decides when nothing else did.
-        if (!lang && (GetUserDefaultUILanguage() & 0x3ff) == LANG_ITALIAN) {
-            v.menu_language = MenuLanguage::Italian;
-        }
-#endif
+
     }
     if (FILE* file = std::fopen(Path(), "r")) {
         char line[256];

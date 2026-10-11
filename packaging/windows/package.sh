@@ -4,7 +4,7 @@
 #   PortGaGotoku.exe    the launcher, frozen with PyInstaller (players need no Python); it also
 #                       runs the preparation scripts (--script) and the game without its window
 #                       (--play)
-#   Gioca Hokuto.exe    starts the game with the saved settings (packaging/windows/play.c)
+#   Start Hokuto.exe    starts the game with the saved settings (packaging/windows/play.c)
 #   bin/                bb-probe.exe, bbport_runtime.dll, libbbgpu.dll and their DLLs (out-win/run)
 #   scripts/            the boot image preparation (prepare.py, link_modules.py, ...)
 # No game files and no user data are included; PortGaGotoku-data is created next to the folder.
@@ -44,13 +44,13 @@ done
     --add-data "$(cygpath -w "$PWD/launcher/ui");ui" \
     "$(cygpath -w "$PWD/launcher/pgg_main.py")"
 
-gcc -O2 -municode -mwindows -o out-win/gioca-hokuto.exe packaging/windows/play.c
+gcc -O2 -municode -mwindows -o out-win/start-hokuto.exe packaging/windows/play.c
 
 dest=out-win/stage/PortGaGotoku
 rm -rf -- out-win/stage
 mkdir -p "$dest/bin" "$dest/scripts"
 cp -r out-win/pyi-dist/PortGaGotoku/. "$dest/"
-strip -o "$dest/Gioca Hokuto.exe" out-win/gioca-hokuto.exe
+strip -o "$dest/Start Hokuto.exe" out-win/start-hokuto.exe
 # The game's executables without debug information (out-win/run keeps the symbols for crash reports).
 for file in "$run"/*; do
     case $file in
@@ -61,7 +61,7 @@ done
 cp scripts/prepare.py scripts/link_modules.py scripts/link_libc.py scripts/content_profile.py \
    scripts/game_check.py "$dest/scripts/"
 cp LICENSE "$dest/"
-cp packaging/windows/LEGGIMI.txt "$dest/"
+cp packaging/windows/README-Windows.txt "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
 
 mkdir -p dist
