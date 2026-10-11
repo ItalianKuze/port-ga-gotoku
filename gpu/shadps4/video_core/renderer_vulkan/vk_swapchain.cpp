@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include "common/assert.h"
 #include "common/logging/log.h"
@@ -226,6 +227,10 @@ void Swapchain::FindPresentMode() {
                     vk::to_string(present_mode), vk::to_string(fallback));
         present_mode = fallback;
     }
+    // bbport: the mode in use, for comparing present modes from the log.
+    std::printf("GPU: Present mode: %s (requested %s)\n", vk::to_string(present_mode).c_str(),
+                requested_mode.c_str());
+    std::fflush(stdout);
 }
 
 void Swapchain::SetSurfaceProperties() {
