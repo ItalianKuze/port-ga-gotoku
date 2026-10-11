@@ -13,8 +13,9 @@
 extern "C" std::uint64_t runtime_disabled_optimizations;
 /// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c).
 extern "C" std::uint64_t runtime_experiment_bits;
-/// Recovery point for speculative guest memory reads on this thread (runtime_memory.c).
-extern "C" __thread sigjmp_buf* runtime_fault_recover;
+/// Recovery point for speculative guest memory reads on this thread: one declaration shared with
+/// the runtime (BbRecoverBuf, BB_RECOVER_SET, BB_RECOVER_ARM).
+#include "bbport_recover.h"
 
 namespace BbToggle {
 enum : std::uint64_t {

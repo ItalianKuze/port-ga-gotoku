@@ -9,7 +9,8 @@ EXPORTS
 
     runtime_disabled_optimizations
     runtime_errno
-    runtime_fault_recover
+    runtime_recover_arm
+    runtime_setjmp
     runtime_file_translate
     runtime_heap_growths
     runtime_memory_clamp

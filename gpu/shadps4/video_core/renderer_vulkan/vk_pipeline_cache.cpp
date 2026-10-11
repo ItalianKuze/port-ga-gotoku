@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_set>
 
+#include "bbport_recover.h"
 #include "common/hash.h"
 #include "common/io_file.h"
 #include "common/path_util.h"
@@ -845,17 +846,17 @@ PipelineCache::Result PipelineCache::GetProgram(PipelineSelection& sel, HwStage 
         info.user_data = params.user_data;
         // The walk of resource tables and the fetch shader parse read guest memory through
         // pointers in the registers; ahead of the GPU thread that memory may already be
-        // reused. A fault returns here (runtime_fault_recover) and the draw is left to the GPU
+        // reused. A fault returns here (bbport_recover.h) and the draw is left to the GPU
         // thread. A jump out of the specialization leaks its partial allocations (rare).
-        sigjmp_buf recover;
-        if (sigsetjmp(recover, 0)) {
+        BbRecoverBuf recover;
+        if (BB_RECOVER_SET(recover)) {
             worker.failed = true;
             return {};
         }
-        runtime_fault_recover = &recover;
+        BB_RECOVER_ARM(&recover);
         info.RefreshFlatBuf();
         auto spec = Shader::StageSpecialization(info, runtime_info, profile, binding);
-        runtime_fault_recover = nullptr;
+        BB_RECOVER_ARM(nullptr);
         const auto it = std::ranges::find(program->modules, spec, &Program::Module::spec);
         if (it == program->modules.end()) {
             worker.failed = true;

@@ -8,7 +8,7 @@
  * and friends behind small #ifdef _WIN32 branches. This file holds only what has no portable
  * equivalent:
  *
- *   runtime_fault_recover  VEH recovery point; a CONTEXT on Windows, a sigjmp_buf elsewhere
+ *   runtime_setjmp, runtime_recover_arm  recovery points for speculative guest reads (VEH)
  *
  * The guest-memory primitives themselves are the ones from Supermedo's Windows port: the PS4 user
  * range is reserved once with a VirtualAlloc2 placeholder and carved with MapViewOfFile3, so a
@@ -19,9 +19,31 @@
 
 #include "runtime.h"
 
-/* Speculative readers of guest memory (GPU draw-preparation workers) register a recovery point
- * (probe.c's VEH): a fault on that thread restores the stored CONTEXT instead of terminating. */
-__thread CONTEXT *runtime_fault_recover;
+/* Recovery points for speculative reads of guest memory (gpu/shim/bbport_recover.h). The layout of
+ * BbRecoverBuf and runtime_setjmp are the Mrsuss60 Windows port's (runtime_host.c): rbx rbp rdi rsi
+ * r12-r15 at 0..56, rsp after the return at 64, the return address at 72, xmm6-xmm15 at 80..224,
+ * MXCSR at 240, the x87 control word at 244. The VEH restores them into the CONTEXT. */
+_Static_assert(sizeof(BbRecoverBuf) == 256 && _Alignof(BbRecoverBuf) == 16, "BbRecoverBuf layout");
+__asm__(".text\n"
+        ".globl runtime_setjmp\n"
+        ".def runtime_setjmp; .scl 2; .type 32; .endef\n"
+        ".p2align 4\n"
+        "runtime_setjmp:\n"
+        "  movq %rbx, 0(%rcx)\n  movq %rbp, 8(%rcx)\n  movq %rdi, 16(%rcx)\n  movq %rsi, 24(%rcx)\n"
+        "  movq %r12, 32(%rcx)\n  movq %r13, 40(%rcx)\n  movq %r14, 48(%rcx)\n  movq %r15, 56(%rcx)\n"
+        "  leaq 8(%rsp), %rdx\n  movq %rdx, 64(%rcx)\n  movq (%rsp), %rdx\n  movq %rdx, 72(%rcx)\n"
+        "  movups %xmm6, 80(%rcx)\n  movups %xmm7, 96(%rcx)\n  movups %xmm8, 112(%rcx)\n"
+        "  movups %xmm9, 128(%rcx)\n  movups %xmm10, 144(%rcx)\n  movups %xmm11, 160(%rcx)\n"
+        "  movups %xmm12, 176(%rcx)\n  movups %xmm13, 192(%rcx)\n  movups %xmm14, 208(%rcx)\n"
+        "  movups %xmm15, 224(%rcx)\n  stmxcsr 240(%rcx)\n  fnstcw 244(%rcx)\n"
+        "  xorl %eax, %eax\n  ret\n");
+static __thread BbRecoverBuf *recover_point;
+void runtime_recover_arm(BbRecoverBuf *buf) { recover_point = buf; }
+BbRecoverBuf *runtime_recover_take(void) {
+    BbRecoverBuf *buf = recover_point;
+    recover_point = NULL;
+    return buf;
+}
 /* BB_EXIT_TRACE=1: when the process ends through exit(), _exit() or ExitProcess(), print the
  * terminating thread's stack -- host frames as module+offset, then every stack word that points
  * into a loaded image -- so an exit that leaves no message of its own can be traced to its caller.

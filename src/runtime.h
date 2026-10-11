@@ -5,16 +5,11 @@
 #ifdef _WIN32
 #include <windows.h>
 #include "win_compat.h"
-/* Recovery point for speculative guest memory reads on this thread (probe.c VEH). Restoring the
-   stored CONTEXT is the Windows equivalent of siglongjmp back to the sigsetjmp. */
-extern __thread CONTEXT *runtime_fault_recover;
 /* Restarts the game (in-game settings menu, render resolution change). */
 void runtime_restart(void);
 #else
 #include <time.h>
 #include <setjmp.h>
-/* Recovery point for speculative guest memory reads on this thread (probe.c fault handler). */
-extern __thread sigjmp_buf *runtime_fault_recover;
 /* Restarts the game (in-game settings menu, render resolution change). */
 void runtime_restart(void);
 #endif
@@ -33,6 +28,12 @@ static inline time_t bb_timegm(struct tm *t) {
     return timegm(t);
 #endif
 }
+/* Recovery point for speculative guest memory reads, shared with libbbgpu (one declaration). */
+#include "../gpu/shim/bbport_recover.h"
+#ifdef _WIN32
+/* The VEH (probe.c) takes this thread's armed recovery point, or NULL; and counts recoveries. */
+BbRecoverBuf *runtime_recover_take(void);
+#endif
 #define ABI __attribute__((sysv_abi))
 typedef void (ABI *GuestCallback)(void);
 void runtime_start(uint64_t capabilities);

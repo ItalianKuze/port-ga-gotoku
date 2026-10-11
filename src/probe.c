@@ -284,8 +284,8 @@ static void fault(int sig, siginfo_t *info, void *context) {
  *   3. otherwise the fault is fatal and is reported before exiting.
  * Handlers rewrite registers through a glibc-layout ucontext; the changes are copied back into
  * the CONTEXT so EXCEPTION_CONTINUE_EXECUTION resumes with them. */
-extern __thread CONTEXT *runtime_fault_recover;
 static int veh_reporting;
+static volatile LONG veh_recoveries;
 
 static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
     const DWORD code = ep->ExceptionRecord->ExceptionCode;
@@ -314,12 +314,30 @@ static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
             veh_reporting = 0;
         }
     }
-    /* Speculative guest read (runtime_memory.c): resume at its recovery point. The stored
-     * CONTEXT is the longjmp target, so restoring it is the Windows equivalent of siglongjmp. */
-    if (runtime_fault_recover) {
-        CONTEXT *recover = runtime_fault_recover;
-        runtime_fault_recover = NULL;
-        *ctx = *recover;
+    /* Speculative guest read (gpu/shim/bbport_recover.h): resume at its recovery point, as if
+     * runtime_setjmp returned 1 -- the saved callee-saved registers, stack and return address go
+     * into the CONTEXT; the OS restores it on EXCEPTION_CONTINUE_EXECUTION (the Windows
+     * equivalent of siglongjmp from the Linux signal handler). */
+    BbRecoverBuf *recover = runtime_recover_take();
+    if (recover) {
+        const unsigned char *r = recover->registers;
+        memcpy(&ctx->Rbx, r + 0, 8); memcpy(&ctx->Rbp, r + 8, 8);
+        memcpy(&ctx->Rdi, r + 16, 8); memcpy(&ctx->Rsi, r + 24, 8);
+        memcpy(&ctx->R12, r + 32, 8); memcpy(&ctx->R13, r + 40, 8);
+        memcpy(&ctx->R14, r + 48, 8); memcpy(&ctx->R15, r + 56, 8);
+        memcpy(&ctx->Rsp, r + 64, 8); memcpy(&ctx->Rip, r + 72, 8);
+        M128A *xmm = &ctx->Xmm6;
+        for (int i = 0; i < 10; ++i) memcpy(&xmm[i], r + 80 + 16 * i, 16);
+        memcpy(&ctx->MxCsr, r + 240, 4); ctx->FltSave.MxCsr = ctx->MxCsr;
+        memcpy(&ctx->FltSave.ControlWord, r + 244, 2);
+        ctx->Rax = 1;
+        const LONG n = InterlockedIncrement(&veh_recoveries);
+        if (n <= 5 || n % 1000 == 0) {
+            char line[200];
+            snprintf(line, sizeof(line), "Runtime: speculative read fault recovered (#%ld): RIP %p, address %p\n",
+                     (long)n, (void *)(uintptr_t)ep->ExceptionRecord->ExceptionAddress, address);
+            DWORD w; WriteFile(GetStdHandle(STD_ERROR_HANDLE), line, (DWORD)strlen(line), &w, NULL);
+        }
         return EXCEPTION_CONTINUE_EXECUTION;
     }
     if (veh_reporting) return EXCEPTION_CONTINUE_SEARCH; /* fault inside the reporter */

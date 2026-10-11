@@ -1174,14 +1174,14 @@ void Rasterizer::RunDrawPacket(void* context, const u8* data, u32 size) {
             std::memcpy(flat.data(), snapshot.user_data,
                         std::min(snapshot.user_data_size, snapshot.flat_size) * sizeof(u32));
             // Pointers in the tables may be stale by now: a fault only skips the check.
-            sigjmp_buf recover;
-            if (sigsetjmp(recover, 0)) {
-                runtime_fault_recover = nullptr;
+            BbRecoverBuf recover;
+            if (BB_RECOVER_SET(recover)) {
+                BB_RECOVER_ARM(nullptr);
                 continue;
             }
-            runtime_fault_recover = &recover;
+            BB_RECOVER_ARM(&recover);
             srt.walker_func(snapshot.user_data, flat.data());
-            runtime_fault_recover = nullptr;
+            BB_RECOVER_ARM(nullptr);
             if (std::memcmp(flat.data(), snapshot.flat, snapshot.flat_size * sizeof(u32)) != 0) {
                 u32 first = 0, count = 0;
                 for (u32 w = 0; w < snapshot.flat_size; ++w) {
