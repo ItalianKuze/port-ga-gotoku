@@ -44,7 +44,7 @@ def log_header(path):
     info = {}
     if not path:
         return info
-    for line in open(path, encoding='utf-8', errors='replace').readlines()[:60]:
+    for line in open(path, encoding='utf-8', errors='replace').readlines()[:2000]:
         if line.startswith('== PortGaGotoku launcher, build '):
             info['build'] = line.strip('= \n')[len('PortGaGotoku launcher, build '):]
         elif line.startswith('== present mode '):
@@ -55,7 +55,7 @@ def log_header(path):
             info['device'] = line.split(':', 2)[2].strip()
         elif line.startswith('GPU: Present mode:'):
             info['present'] = line.split(':', 2)[2].strip()
-        elif line.startswith('Runtime: gamepad connected:'):
+        elif line.startswith('Runtime: gamepad connected:') and 'gamepad' not in info:
             info['gamepad'] = line.split(':', 2)[2].strip()
     return info
 
@@ -66,6 +66,7 @@ def main():
     ap.add_argument('--log', help='the game log of the same run')
     ap.add_argument('--title', default='Measurement')
     ap.add_argument('--scene', default='', help='what was played during the measurement')
+    ap.add_argument('--phases', default='', help='parts of the run, e.g. "0-60:walking,60-90:standing"')
     ap.add_argument('--out')
     a = ap.parse_args()
 
@@ -112,8 +113,23 @@ def main():
             pass
     for name, tid, percent in threads[:12]:
         out.append(f'| {name} | {tid} | {percent:.1f} % (picco {peaks.get(tid, 0):.0f} %) |')
-    saturated = [name for name, tid, percent in threads if percent >= 90.0]
-    out += ['', 'Thread al 100% (media ≥ 90%): ' + (', '.join(saturated) if saturated else 'nessuno') + '.']
+    busy = [f'{name} ({percent:.0f}%, picco {peaks.get(tid, 0):.0f}%)' for name, tid, percent in threads if percent >= 80.0]
+    out += ['', 'Thread vicini a un core pieno (media ≥ 80%): ' + (', '.join(busy) if busy else 'nessuno') + '.']
+    if a.phases:
+        frames = [(float(r['t_s']), float(r['frame_ms'])) for r in read_csv(base + '-frames.csv')]
+        out += ['', '## Fasi', '', '| Fase | Frame | FPS medio | 1% low | p50 | p99 | oltre 20 ms |',
+                '|---|---|---|---|---|---|---|']
+        for part in a.phases.split(','):
+            span, name = part.split(':', 1)
+            lo, hi = (float(x) for x in span.split('-'))
+            ms = sorted((m for t, m in frames if lo <= t < hi), reverse=True)
+            if not ms:
+                continue
+            worst = ms[:max(1, len(ms) // 100)]
+            asc = sorted(ms)
+            out.append(f'| {name} ({span} s) | {len(ms)} | {1000 * len(ms) / sum(ms):.1f} | '
+                       f'{1000 * len(worst) / sum(worst):.1f} | {asc[len(asc) // 2]:.2f} ms | '
+                       f'{asc[min(len(asc) - 1, int(len(asc) * 0.99))]:.2f} ms | {sum(m > 20 for m in ms)} |')
     if seconds:
         def column(key):
             result = []
