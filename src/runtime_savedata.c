@@ -173,6 +173,79 @@ static ABI int32_t save_terminate(void) {
     if (!initialized) return ERR_NOT_INITIALIZED;
     initialized=0; return 0;
 }
+/* Save slot backups: before the game mounts an existing slot for writing, the slot (its folder and
+ * its .sce_sys) is copied to <data>/save-backups/<dirName>-<date-time>/, <data> being the folder
+ * that holds the user folder (PortGaGotoku-data). The newest 10 per slot are kept. */
+enum { BACKUPS_KEPT=10 };
+static int copy_file(const char *from, const char *to) {
+    FILE *in=fopen(from,"rb");
+    if (!in) return -1;
+    FILE *out=fopen(to,"wb");
+    if (!out) { fclose(in); return -1; }
+    char buffer[65536]; size_t n; int bad=0;
+    while ((n=fread(buffer,1,sizeof(buffer),in))>0) if (fwrite(buffer,1,n,out)!=n) { bad=1; break; }
+    if (ferror(in)) bad=1;
+    fclose(in);
+    if (fclose(out)) bad=1;
+    return bad ? -1 : 0;
+}
+/* Copies directory from into to (created); returns the number of files, or -1. */
+static long copy_tree(const char *from, const char *to) {
+    if (make_dirs(to)) return -1;
+    DIR *d=opendir(from);
+    if (!d) return -1;
+    long files=0;
+    for (struct dirent *e; (e=readdir(d));) {
+        if (!strcmp(e->d_name,".") || !strcmp(e->d_name,"..")) continue;
+        char a[1024], b[1024]; struct stat st;
+        snprintf(a,sizeof(a),"%s/%s",from,e->d_name); snprintf(b,sizeof(b),"%s/%s",to,e->d_name);
+        if (stat(a,&st)) { files=-1; break; }
+        long n=S_ISDIR(st.st_mode) ? copy_tree(a,b) : (copy_file(a,b) ? -1 : 1);
+        if (n<0) { files=-1; break; }
+        files+=n;
+    }
+    closedir(d);
+    return files;
+}
+static int name_compare(const void *a, const void *b) { return strcmp(*(char *const *)a,*(char *const *)b); }
+/* Keeps the newest BACKUPS_KEPT backups of dir (names sort by date). */
+static void prune_backups(const char *folder, const char *dir) {
+    DIR *d=opendir(folder);
+    if (!d) return;
+    char *names[256]; size_t count=0, prefix=strlen(dir);
+    for (struct dirent *e; (e=readdir(d)) && count<256;)
+        if (!strncmp(e->d_name,dir,prefix) && e->d_name[prefix]=='-') names[count++]=strdup(e->d_name);
+    closedir(d);
+    qsort(names,count,sizeof(*names),name_compare);
+    for (size_t i=0;i+BACKUPS_KEPT<count;++i) {
+        char path[1100]; snprintf(path,sizeof(path),"%s/%s",folder,names[i]);
+        remove_tree(path);
+        printf("Runtime: save backup %s removed (keeping the newest %d)\n",names[i],BACKUPS_KEPT);
+    }
+    for (size_t i=0;i<count;++i) free(names[i]);
+}
+static void backup_slot(const char *dir, const char *host, const char *meta) {
+    char data[700]; snprintf(data,sizeof(data),"%s",runtime_file_user_dir());
+    char *slash=strrchr(data,'/'); char *back=strrchr(data,'\\');
+    if (back && (!slash || back>slash)) slash=back;
+    if (slash) *slash=0; else snprintf(data,sizeof(data),".");
+    char folder[760]; snprintf(folder,sizeof(folder),"%s/save-backups",data);
+    time_t now=time(NULL); struct tm t; localtime_r(&now,&t);
+    char target[900]; int n=0;
+    for (;;) {
+        snprintf(target,sizeof(target),"%s/%s-%04d%02d%02d-%02d%02d%02d%s%.0d",folder,dir,t.tm_year+1900,t.tm_mon+1,
+                 t.tm_mday,t.tm_hour,t.tm_min,t.tm_sec,n ? "-" : "",n);
+        struct stat st;
+        if (stat(target,&st)) break;
+        if (++n>99) { printf("Runtime: save backup of '%s' skipped (no free name)\n",dir); return; }
+    }
+    char a[1000], b[1000];
+    snprintf(a,sizeof(a),"%s/%s",target,dir); snprintf(b,sizeof(b),"%s/%s.sce_sys",target,dir);
+    const long files=copy_tree(host,a), meta_files=copy_tree(meta,b);
+    if (files<0 || meta_files<0) printf("Runtime: save backup of '%s' to %s FAILED\n",dir,target);
+    else printf("Runtime: save backup of '%s' before writing: %s (%ld files)\n",dir,target,files+meta_files);
+    prune_backups(folder,dir);
+}
 static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32_t mode, MountResult *result) {
     if (!initialized) return ERR_NOT_INITIALIZED;
     if (user<0) return ERR_INVALID_USER;
@@ -193,6 +266,7 @@ static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32
     }
     if (slot<0) { pthread_mutex_unlock(&lock); return ERR_MOUNT_FULL; }
     if (!exists && (make_dirs(host) || make_dirs(meta))) { pthread_mutex_unlock(&lock); return ERR_INTERNAL; }
+    if (exists && !(mode & MODE_RDONLY)) backup_slot(dir->data,host,meta); /* the game may write it now */
     if (!exists) { Param empty={0}; write_param(meta,&empty); }
     slots[slot].used=1;
     snprintf(slots[slot].host,sizeof(slots[slot].host),"%s",host);
