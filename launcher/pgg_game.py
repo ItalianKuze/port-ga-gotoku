@@ -266,6 +266,8 @@ def game_environment(settings):
         'BB_CONFIG': str(DATA_DIR / 'bbport.ini'),
         'BB_TIMEOUT': '0',
         'BB_PRESENT_MODE': settings['present_mode'],
+        # The in-game menu's language until one is chosen in it (bbport.ini): the launcher's.
+        'BB_MENU_LANGUAGE': settings['ui_language'] or windows_language(),
     })
     if settings['fullscreen']:
         env['BB_FULLSCREEN'] = '1'
@@ -274,6 +276,11 @@ def game_environment(settings):
     if settings['frame_stats']:
         env['BB_FRAME_STATS'] = '1'
     return env
+
+
+def windows_language():
+    import pgg_lang
+    return pgg_lang.windows_language()
 
 
 def game_command(settings):

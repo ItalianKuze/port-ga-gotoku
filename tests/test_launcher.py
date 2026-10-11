@@ -119,6 +119,8 @@ class GameFolder(unittest.TestCase):
         self.assertEqual(env['BB_CONFIG'], str(data / 'bbport.ini'))
         self.assertEqual((env['BB_PRESENT_MODE'], env['BB_FULLSCREEN'], env['BB_GPU_DEVICE']),
                          ('Mailbox', '1', 'RTX 5070'))
+        self.assertIn(env['BB_MENU_LANGUAGE'], ('it', 'en'))
+        self.assertEqual(self.game.game_environment({**settings, 'ui_language': 'en'})['BB_MENU_LANGUAGE'], 'en')
         self.assertNotIn('APPDATA', ''.join(v for k, v in env.items() if k.startswith('BB_')))
         command = self.game.game_command(settings)
         self.assertEqual(command[command.index('--timeout') + 1], '0')

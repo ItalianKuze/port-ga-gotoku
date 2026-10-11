@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
+#include "bbport_game.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -9,6 +10,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace BbSettings {
 
@@ -29,7 +33,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     if (key == "menu_language") {
         if (value == "en") v.menu_language = MenuLanguage::English;
         else if (value == "ru") v.menu_language = MenuLanguage::Russian;
-        else std::printf("Settings: unknown menu_language '%s' (expected en or ru)\n", value.c_str());
+        else if (value == "it") v.menu_language = MenuLanguage::Italian;
+        else std::printf("Settings: unknown menu_language '%s' (expected en, ru or it)\n", value.c_str());
     } else if (key == "upscaler") {
         for (int u = 0; u < UpscalerCount; ++u) {
             if (value == UpscalerName(u)) {
@@ -95,8 +100,34 @@ Values& Get() {
     return values;
 }
 
+// PortGaGotoku: the menu's Italian texts, for the entries shown on Hokuto.
+constexpr std::pair<const char*, const char*> ItalianTexts[] = {
+    {"Statistics (HUD)", "Statistiche (HUD)"},
+    {"On-screen statistics: coming in a next version", "Statistiche a schermo: in arrivo in una prossima versione"},
+    {"Game settings", "Impostazioni del gioco"},
+    {"Hokuto's own settings will be here", "Qui arriveranno le impostazioni di Hokuto"},
+    {"Other", "Altro"},
+    {"FPS counter in corner", "Contatore FPS nell'angolo"},
+    {"Close", "Chiudi"},
+    {"Settings are saved to bbport.ini", "Le impostazioni sono salvate in bbport.ini"},
+};
+
 const char* MenuText(const char* english, const char* russian) {
-    return Get().menu_language == MenuLanguage::Russian ? russian : english;
+    switch (Get().menu_language.load()) {
+    case MenuLanguage::Russian:
+        return russian;
+    case MenuLanguage::Italian:
+        if (BbGame::IsHokuto()) {
+            for (const auto& [en, it] : ItalianTexts) {
+                if (!std::strcmp(en, english)) {
+                    return it;
+                }
+            }
+        }
+        return english;
+    default:
+        return english;
+    }
 }
 
 void Load() {
@@ -116,9 +147,18 @@ void Load() {
                 }
             }
         }
-        v.menu_language = lang && (lang[0] == 'r' || lang[0] == 'R') && (lang[1] == 'u' || lang[1] == 'U')
-                              ? MenuLanguage::Russian
-                              : MenuLanguage::English;
+        const auto is = [lang](char a, char b) {
+            return lang && (lang[0] | 0x20) == a && (lang[1] | 0x20) == b;
+        };
+        v.menu_language = is('r', 'u') ? MenuLanguage::Russian
+                          : is('i', 't') ? MenuLanguage::Italian
+                                         : MenuLanguage::English;
+#ifdef _WIN32
+        // PortGaGotoku: Windows sets no LANG; its display language decides when nothing else did.
+        if (!lang && (GetUserDefaultUILanguage() & 0x3ff) == LANG_ITALIAN) {
+            v.menu_language = MenuLanguage::Italian;
+        }
+#endif
     }
     if (FILE* file = std::fopen(Path(), "r")) {
         char line[256];
@@ -209,7 +249,9 @@ void Save() {
         return std::string(text);
     };
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
-    put("menu_language", v.menu_language == MenuLanguage::Russian ? "ru" : "en");
+    put("menu_language", v.menu_language == MenuLanguage::Russian   ? "ru"
+                         : v.menu_language == MenuLanguage::Italian ? "it"
+                                                                    : "en");
     put("upscaler", UpscalerName(v.upscaler));
     put("preset", std::to_string(v.preset.load()));
     put("sharpen", flag(v.sharpen));

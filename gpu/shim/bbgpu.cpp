@@ -6,6 +6,7 @@
 #include "bbport_copy.h"
 #include <sys/resource.h>
 #include "bbport_free_check.h"
+#include "bbport_game.h"
 #include "bbport_toggles.h"
 #include <algorithm>
 #include <atomic>
@@ -273,6 +274,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     g_sdk_version = config->sdk_version;
     if (config->user_dir) setenv("BB_GPU_USER_DIR", config->user_dir, 0);
     Core::Emulator::FillElfInfo(*config);
+    BbGame::SetSerial(config->serial); // which game's menu entries and parts apply
     const std::string title = config->title ? config->title : "Bloodborne";
     const s32 width = config->width, height = config->height;
     g_window_thread = std::thread([title, width, height] {

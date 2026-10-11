@@ -11,13 +11,14 @@
 #include <string>
 
 #include <SDL3/SDL.h>
+#include "bbport_game.h"
 #include "bbport_settings.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 
-// DejaVu Sans (Cyrillic), embedded (third_party/fonts, Bitstream Vera license).
+// DejaVu Sans (Cyrillic), embedded (third_party/fonts, Bitstream Vera license), and Figtree.
 #ifdef _WIN32
 // COFF names the read-only section .rdata and has no .hidden. The explicit .section .text at the
 // end is the counterpart of ELF's .previous: without it the assembler still considers itself
@@ -29,6 +30,12 @@ asm(".section .rdata,\"dr\"\n"
     ".incbin \"" BB_FONT_PATH "\"\n"
     ".globl bb_font_ttf_end\n"
     "bb_font_ttf_end:\n"
+    ".balign 16\n"
+    ".globl bb_ui_font_ttf\n"
+    "bb_ui_font_ttf:\n"
+    ".incbin \"" BB_UI_FONT_PATH "\"\n"
+    ".globl bb_ui_font_ttf_end\n"
+    "bb_ui_font_ttf_end:\n"
     ".section .text\n");
 #else
 asm(".section .rodata\n"
@@ -40,10 +47,21 @@ asm(".section .rodata\n"
     ".hidden bb_font_ttf_end\n"
     ".global bb_font_ttf_end\n"
     "bb_font_ttf_end:\n"
+    ".balign 16\n"
+    ".hidden bb_ui_font_ttf\n"
+    ".global bb_ui_font_ttf\n"
+    "bb_ui_font_ttf:\n"
+    ".incbin \"" BB_UI_FONT_PATH "\"\n"
+    ".hidden bb_ui_font_ttf_end\n"
+    ".global bb_ui_font_ttf_end\n"
+    "bb_ui_font_ttf_end:\n"
     ".previous\n");
 #endif
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
+// PortGaGotoku: Figtree (third_party/fonts, SIL OFL 1.1), the launcher's font, for Hokuto's menu.
+extern "C" const unsigned char bb_ui_font_ttf[];
+extern "C" const unsigned char bb_ui_font_ttf_end[];
 
 extern "C" void runtime_restart(void); // bb-probe (probe.c)
 
@@ -171,6 +189,17 @@ void Hint(const char* text) {
     }
 }
 
+// PortGaGotoku: the places of the next phases on Hokuto: the statistics HUD (frame times, CPU
+// translation against GPU time) and Hokuto's own settings.
+void HokutoSections() {
+    ImGui::SeparatorText(BbSettings::MenuText("Statistics (HUD)", "Statistics (HUD)"));
+    ImGui::TextDisabled("%s", BbSettings::MenuText("On-screen statistics: coming in a next version",
+                                                   "On-screen statistics: coming in a next version"));
+    ImGui::SeparatorText(BbSettings::MenuText("Game settings", "Game settings"));
+    ImGui::TextDisabled("%s", BbSettings::MenuText("Hokuto's own settings will be here",
+                                                   "Hokuto's own settings will be here"));
+}
+
 void Menu() {
     auto& s = BbSettings::Get();
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -186,10 +215,11 @@ void Menu() {
     ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
     ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
     bool keep_open = true;
-    if (!ImGui::Begin(
-            BbSettings::MenuText("Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
-                                 "Bloodborne — настройки  (Insert / L3+R3)###bbport_settings"),
-            &keep_open, ImGuiWindowFlags_NoCollapse)) {
+    const char* title = BbGame::IsHokuto()
+                            ? "PortGaGotoku  (Insert / L3+R3)###bbport_settings"
+                            : BbSettings::MenuText("Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
+                                                   "Bloodborne — настройки  (Insert / L3+R3)###bbport_settings");
+    if (!ImGui::Begin(title, &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
@@ -204,7 +234,16 @@ void Menu() {
             dirty = true;
         }
     }
-    // Always readable, even when the rest of the menu is in Russian.
+    // Always readable, even when the rest of the menu is in Russian (or Italian, on Hokuto).
+    if (BbGame::IsHokuto()) {
+        static const char* languages[] = {"English", "Italiano"};
+        int language = s.menu_language == BbSettings::MenuLanguage::Italian ? 1 : 0;
+        if (ImGui::Combo("Language / Lingua", &language, languages, 2)) {
+            s.menu_language =
+                language == 1 ? BbSettings::MenuLanguage::Italian : BbSettings::MenuLanguage::English;
+            BbSettings::Save();
+        }
+    } else {
     static const char* languages[] = {"English", "Русский"};
     int language = s.menu_language == BbSettings::MenuLanguage::Russian ? 1 : 0;
     if (ImGui::Combo("Language", &language, languages, 2)) {
@@ -212,9 +251,14 @@ void Menu() {
             language == 1 ? BbSettings::MenuLanguage::Russian : BbSettings::MenuLanguage::English;
         BbSettings::Save();
     }
+    } // Bloodborne's languages
     ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)", "%.0f FPS  (%.1f мс)"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
 
+    // Bloodborne's graphics sections (upscaler tied to its shader 0x9a9cf8a9, output resolution,
+    // effects and debug switches from patches/Bloodborne.xml): kept for upstream updates, shown
+    // only where they act. The block is not re-indented, to keep merges from upstream simple.
+    if (BbGame::For(BbGame::Bloodborne)) {
     ImGui::SeparatorText(BbSettings::MenuText("Temporal upscaler", "Временной апскейлер"));
     const char* upscalers[] = {
         BbSettings::MenuText("Off", "Выкл"), "FSR 3.1", "FSR 4 (INT8)", "FSR 4.1.1 (INT8)",
@@ -531,6 +575,11 @@ void Menu() {
             runtime_restart();
         }
     }
+    } // BbGame::Bloodborne
+
+    if (BbGame::IsHokuto()) {
+        HokutoSections();
+    }
 
     ImGui::SeparatorText(BbSettings::MenuText("Other", "Прочее"));
     Checkbox(BbSettings::MenuText("FPS counter in corner", "Счётчик FPS в углу"), s.show_fps);
@@ -562,7 +611,8 @@ void FpsCounter() {
     const auto& s = BbSettings::Get();
     ImGui::Text(BbSettings::MenuText("%.0f FPS  %.1f ms  %s", "%.0f FPS  %.1f мс  %s"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg,
-                s.upscaler == BbSettings::UpscalerFsr3     ? "FSR 3.1"
+                !BbGame::For(BbGame::Bloodborne)               ? "" // no upscaler acts there
+                : s.upscaler == BbSettings::UpscalerFsr3     ? "FSR 3.1"
                 : s.upscaler == BbSettings::UpscalerFsr4   ? "FSR 4"
                 : s.upscaler == BbSettings::UpscalerFsr411 ? "FSR 4.1.1"
                 : s.upscaler == BbSettings::UpscalerTaa    ? "TAA"
@@ -605,6 +655,51 @@ void SetTextPrompt(bool active, const std::string& prompt, const std::string& te
     prompt_active = active;
 }
 
+// PortGaGotoku: the launcher's look (launcher/ui/app.css): dark warm ground, bone text, crimson for
+// what is on or chosen.
+static void HokutoStyle(ImGuiStyle& style) {
+    const auto rgb = [](unsigned hex, float alpha = 1.0f) {
+        return ImVec4(float((hex >> 16) & 0xff) / 255.0f, float((hex >> 8) & 0xff) / 255.0f,
+                      float(hex & 0xff) / 255.0f, alpha);
+    };
+    style.WindowRounding = 10.0f;
+    style.FrameRounding = 8.0f;
+    style.GrabRounding = 8.0f;
+    style.PopupRounding = 8.0f;
+    style.WindowPadding = ImVec2(18.0f, 16.0f);
+    style.FramePadding = ImVec2(10.0f, 6.0f);
+    style.ItemSpacing = ImVec2(10.0f, 9.0f);
+    style.WindowBorderSize = 1.0f;
+    ImVec4* c = style.Colors;
+    c[ImGuiCol_Text] = rgb(0xece3d3);
+    c[ImGuiCol_TextDisabled] = rgb(0x93877a);
+    c[ImGuiCol_WindowBg] = rgb(0x161311, 0.95f);
+    c[ImGuiCol_PopupBg] = rgb(0x161311, 0.98f);
+    c[ImGuiCol_Border] = rgb(0x2b2521);
+    c[ImGuiCol_FrameBg] = rgb(0x0f0d0c);
+    c[ImGuiCol_FrameBgHovered] = rgb(0x2c2622);
+    c[ImGuiCol_FrameBgActive] = rgb(0x3a332e);
+    c[ImGuiCol_TitleBg] = rgb(0x100e0d);
+    c[ImGuiCol_TitleBgActive] = rgb(0x1f1a17);
+    c[ImGuiCol_TitleBgCollapsed] = rgb(0x100e0d);
+    c[ImGuiCol_CheckMark] = rgb(0xffffff);
+    c[ImGuiCol_SliderGrab] = rgb(0xb3222a);
+    c[ImGuiCol_SliderGrabActive] = rgb(0xc4313a);
+    c[ImGuiCol_Button] = rgb(0x2c2622);
+    c[ImGuiCol_ButtonHovered] = rgb(0x3a332e);
+    c[ImGuiCol_ButtonActive] = rgb(0xb3222a);
+    c[ImGuiCol_Header] = rgb(0x2c2622);
+    c[ImGuiCol_HeaderHovered] = rgb(0x3a332e);
+    c[ImGuiCol_HeaderActive] = rgb(0xb3222a);
+    c[ImGuiCol_Separator] = rgb(0x2b2521);
+    c[ImGuiCol_SeparatorHovered] = rgb(0x3a332e);
+    c[ImGuiCol_SeparatorActive] = rgb(0xb3222a);
+    c[ImGuiCol_ResizeGrip] = rgb(0x2c2622);
+    c[ImGuiCol_ResizeGripHovered] = rgb(0x3a332e);
+    c[ImGuiCol_ResizeGripActive] = rgb(0xb3222a);
+    c[ImGuiCol_NavCursor] = rgb(0xcfc4b2);
+}
+
 void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) {
     std::scoped_lock lock{imgui_mutex};
     if (initialized) {
@@ -624,11 +719,19 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     style.FrameRounding = 4.0f;
     style.GrabRounding = 4.0f;
     style.Colors[ImGuiCol_WindowBg].w = 0.92f;
+    if (BbGame::IsHokuto()) {
+        HokutoStyle(style);
+    }
 
     ImFontConfig font_config;
     font_config.FontDataOwnedByAtlas = false;
+    if (BbGame::IsHokuto()) {
+        io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(bb_ui_font_ttf),
+                                       int(bb_ui_font_ttf_end - bb_ui_font_ttf), 19.0f, &font_config);
+    } else {
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(bb_font_ttf),
                                    int(bb_font_ttf_end - bb_font_ttf), 18.0f, &font_config);
+    }
 
     const vk::Instance vk_instance = instance.GetInstance();
     ImGui_ImplVulkan_LoadFunctions(

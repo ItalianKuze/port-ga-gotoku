@@ -17,7 +17,8 @@ inline bool IsFsr4(int upscaler) {
 }
 enum Preset : int { NativeAA = 0, Quality, Balanced, Performance, UltraPerformance, PresetCount };
 enum DebugView : int { DebugNone = 0, DebugReactive = 1, DebugMotion = 2, DebugViewCount };
-enum class MenuLanguage { English, Russian };
+/// Italian is offered where the menu has Italian texts (PortGaGotoku, Hokuto's entries).
+enum class MenuLanguage { English, Russian, Italian };
 
 /// Game effects switched by the community patches at start (patches.py EFFECTS): ini key,
 /// menu label, default (the game's own behaviour).
@@ -88,7 +89,8 @@ struct Values {
 };
 
 Values& Get();
-/// Localized overlay text; the Language selector itself stays in English.
+/// Localized overlay text; the Language selector itself stays in English. Italian comes from a
+/// table keyed by the English text, used only on Hokuto (English where it has no entry).
 const char* MenuText(const char* english, const char* russian);
 
 /// Reads the file, then the environment overrides. Called once at start.
