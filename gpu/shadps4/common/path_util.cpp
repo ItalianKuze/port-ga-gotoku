@@ -102,9 +102,17 @@ static auto UserPaths = [] {
             user_dir = std::filesystem::path(getenv("HOME")) / ".local" / "share" / "shadPS4";
         }
 #elif _WIN32
-        TCHAR appdata[MAX_PATH] = {0};
-        SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, appdata);
-        user_dir = std::filesystem::path(appdata) / "shadPS4";
+        // bbport: XDG_DATA_HOME (set by scripts/run-hokuto-win.sh and Avvia Hokuto.cmd to the
+        // project's data folder) is honoured as on Linux, so caches and config stay with the
+        // port's data instead of %APPDATA%\shadPS4, which belongs to the real shadPS4.
+        const char* xdg_data_home = getenv("XDG_DATA_HOME");
+        if (xdg_data_home != nullptr && strlen(xdg_data_home) > 0) {
+            user_dir = std::filesystem::path(xdg_data_home) / "shadPS4";
+        } else {
+            TCHAR appdata[MAX_PATH] = {0};
+            SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, 0, appdata);
+            user_dir = std::filesystem::path(appdata) / "shadPS4";
+        }
 #endif
     }
 
