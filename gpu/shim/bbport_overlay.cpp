@@ -887,7 +887,9 @@ bool HandleEvent(const SDL_Event& event) {
             BbSettings::Save();
             return true;
         }
-        if (down && !event.key.repeat && event.key.key == SDLK_F9) {
+        // While the pad is recorded (BB_PAD_RECORD), F9 is the recording's key.
+        static const bool pad_recording = std::getenv("BB_PAD_RECORD") && *std::getenv("BB_PAD_RECORD");
+        if (down && !event.key.repeat && event.key.key == SDLK_F9 && !pad_recording) {
             BbPerf::StartMeasurement(90);
             return true;
         }

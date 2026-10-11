@@ -305,15 +305,16 @@ def log_header(settings):
     return '\n'.join(lines) + '\n'
 
 
-def start_game(settings, log_path):
+def start_game(settings, log_path, extra_env=None):
     """Starts bb-probe with its output in log_path (the log survives the launcher). Returns
-    (process, job)."""
+    (process, job). extra_env: more variables (the benchmark's scripted input)."""
     (DATA_DIR / 'user').mkdir(parents=True, exist_ok=True)
     with open(log_path, 'w', encoding='utf-8', newline='\n') as log:
         log.write(log_header(settings))
     log = open(log_path, 'ab')
     try:
-        process = subprocess.Popen(game_command(settings), cwd=str(RUN_DIR), env=game_environment(settings),
+        process = subprocess.Popen(game_command(settings), cwd=str(RUN_DIR),
+                                   env={**game_environment(settings), **(extra_env or {})},
                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                                    creationflags=NO_WINDOW)
     finally:

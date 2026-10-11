@@ -7,6 +7,7 @@
 #include <sys/resource.h>
 #include "bbport_free_check.h"
 #include "bbport_game.h"
+#include "bbport_perf.h"
 #include "bbport_toggles.h"
 #include <algorithm>
 #include <atomic>
@@ -345,6 +346,10 @@ extern "C" int bbgpu_handle_fault(void* ucontext, void* address) {
 
 extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbGnmHooks::PatchImage(image, size);
+}
+
+extern "C" int bbgpu_perf_start(int seconds) {
+    return BbPerf::StartMeasurement(seconds) ? 1 : 0;
 }
 
 extern "C" unsigned bbgpu_symbol_count(void) {

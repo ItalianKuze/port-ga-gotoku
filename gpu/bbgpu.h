@@ -34,6 +34,9 @@ int bbgpu_overlay_captures_input(void);
 void bbgpu_patch_image(unsigned char *image, uint64_t size);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned bbgpu_symbol_count(void);
+/* PortGaGotoku: starts a performance measurement of `seconds` (gpu/shim/bbport_perf.h); 0 when one
+ * already runs. The pad's scripted input asks for it (BB_PAD_FILE token measure=N). */
+int bbgpu_perf_start(int seconds);
 #ifdef __cplusplus
 }
 #endif
