@@ -22,6 +22,8 @@ import sys
 import time
 
 TITLE_ID = 'CUSA12781'
+# The title id the game saves under (its save data title, not the disc's).
+SAVE_TITLE_ID = 'CUSA12776'
 # The dump version the port was tested with (param.sfo APP_VER).
 TESTED_VERSION = '01.00'
 PRESENT_MODES = ('Mailbox', 'Fifo', 'Immediate')
@@ -114,6 +116,38 @@ def check_game(folder):
 
 def playable(state):
     return state in ('ok', 'untested_version')
+
+
+def find_game_folder(chosen):
+    """The folder the user meant: the chosen one, or its CUSA12781 subfolder when it holds the game."""
+    folder = Path(chosen)
+    if not (folder / 'eboot.bin').is_file() and (folder / TITLE_ID / 'eboot.bin').is_file():
+        folder = folder / TITLE_ID
+    return str(folder)
+
+
+def save_slots():
+    """The game's save slots (dirName folders under user/savedata/1/CUSA12776), newest last."""
+    saves = DATA_DIR / 'user' / 'savedata' / '1' / SAVE_TITLE_ID
+    try:
+        slots = [p for p in saves.iterdir() if p.is_dir() and not p.name.endswith('.sce_sys')]
+    except OSError:
+        return []
+    return [p.name for p in sorted(slots, key=lambda p: p.stat().st_mtime)]
+
+
+def banner_data_url(folder):
+    """The game's key art from the user's dump (sce_sys/pic1.png, else pic0.png) as a data: URL;
+    never stored by the launcher. '' when there is none."""
+    import base64
+    for name in ('pic1.png', 'pic0.png'):
+        try:
+            data = (Path(folder) / 'sce_sys' / name).read_bytes()
+        except OSError:
+            continue
+        if data.startswith(b'\x89PNG'):
+            return 'data:image/png;base64,' + base64.b64encode(data).decode('ascii')
+    return ''
 
 
 # ---------------------------------------------------------------------------------------------

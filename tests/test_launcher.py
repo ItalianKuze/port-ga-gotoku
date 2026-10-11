@@ -1,4 +1,4 @@
-"""PortGaGotoku launcher: translations and the logic without a window (launcher/pgg_game.py)."""
+"""PortGaGotoku launcher: translations (pgg_lang.py against pgg_main.py and launcher/ui) and the\nlogic without a window (launcher/pgg_game.py)."""
 import ast
 import json
 import os
@@ -25,17 +25,29 @@ def write_sfo(path, fields):
                      entries + keys + values)
 
 
+def launcher_texts():
+    """Every English text the launcher shows: _('...') in pgg_main.py, t('...') in ui/app.js,
+    data-t / data-t-label in ui/index.html."""
+    import re
+    tree = ast.parse((ROOT / 'launcher' / 'pgg_main.py').read_text(encoding='utf-8'))
+    texts = {node.args[0].value for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == '_' and node.args
+             and isinstance(node.args[0], ast.Constant)}
+    script = (ROOT / 'launcher' / 'ui' / 'app.js').read_text(encoding='utf-8')
+    for literal in re.findall(r"\bt\('((?:[^'\\]|\\.)*)'\)", script):
+        texts.add(re.sub(r'\\(.)', lambda m: {'n': '\n'}.get(m.group(1), m.group(1)), literal))
+    page = (ROOT / 'launcher' / 'ui' / 'index.html').read_text(encoding='utf-8')
+    texts.update(re.findall(r'data-t(?:-label)?="([^"]*)"', page))
+    return texts
+
+
 class Translations(unittest.TestCase):
     def test_every_text_has_italian(self):
         import pgg_lang
-        tree = ast.parse((ROOT / 'launcher' / 'pgg_launcher_win.py').read_text(encoding='utf-8'))
-        texts = {node.args[0].value for node in ast.walk(tree)
-                 if isinstance(node, ast.Call) and getattr(node.func, 'id', None) == '_' and node.args
-                 and isinstance(node.args[0], ast.Constant)}
-        missing = sorted(t for t in texts if t not in pgg_lang.IT)
-        self.assertEqual(missing, [])
-        unused = sorted(t for t in pgg_lang.IT if t not in texts)
-        self.assertEqual(unused, [])
+        texts = launcher_texts()
+        self.assertGreater(len(texts), 60)
+        self.assertEqual(sorted(t for t in texts if t not in pgg_lang.IT), [])
+        self.assertEqual(sorted(t for t in pgg_lang.IT if t not in texts), [])
 
     def test_placeholders_match(self):
         import pgg_lang
@@ -123,6 +135,39 @@ class GameFolder(unittest.TestCase):
         self.assertTrue(self.game.prepared(game))
         (Path(game) / 'eboot.bin').write_bytes(b'\0' * 32)
         self.assertFalse(self.game.prepared(game))
+
+
+class Helpers(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.dir.name)
+        os.environ['BB_DATA_DIR'] = str(self.root / 'data')
+        import importlib
+        import pgg_game
+        self.game = importlib.reload(pgg_game)
+
+    def tearDown(self):
+        os.environ.pop('BB_DATA_DIR', None)
+        self.dir.cleanup()
+
+    def test_parent_folder_is_accepted(self):
+        (self.root / 'dump' / 'CUSA12781').mkdir(parents=True)
+        (self.root / 'dump' / 'CUSA12781' / 'eboot.bin').write_bytes(b'')
+        self.assertEqual(self.game.find_game_folder(str(self.root / 'dump')), str(self.root / 'dump' / 'CUSA12781'))
+        self.assertEqual(self.game.find_game_folder(str(self.root)), str(self.root))
+
+    def test_save_slots_skip_metadata(self):
+        saves = self.root / 'data' / 'user' / 'savedata' / '1' / 'CUSA12776'
+        for name in ('01', '01.sce_sys', '02', '02.sce_sys'):
+            (saves / name).mkdir(parents=True)
+        self.assertEqual(sorted(self.game.save_slots()), ['01', '02'])
+
+    def test_banner_only_png(self):
+        game = self.root / 'game' / 'sce_sys'
+        game.mkdir(parents=True)
+        self.assertEqual(self.game.banner_data_url(str(self.root / 'game')), '')
+        (game / 'pic1.png').write_bytes(b'\x89PNG\r\n\x1a\nrest')
+        self.assertTrue(self.game.banner_data_url(str(self.root / 'game')).startswith('data:image/png;base64,'))
 
 
 if __name__ == '__main__':

@@ -356,7 +356,9 @@ distributed here.
 ### PortGaGotoku (Windows, Fist of the North Star: Lost Paradise)
 
 This fork runs *Fist of the North Star: Lost Paradise* (CUSA12781) on Windows. Its Windows
-launcher (`launcher/pgg_launcher_win.py`, `pgg_game.py`, `pgg_lang.py`) and package
+launcher (`launcher/pgg_main.py`, `pgg_game.py`, `pgg_lang.py`; its window is HTML/CSS in
+`launcher/ui`, shown by [pywebview](https://pywebview.flowrl.com/) in WebView2, with the
+[Figtree](https://github.com/erikdkennedy/figtree) font, SIL OFL 1.1) and package
 (`packaging/windows/play.c`, `package.sh`) are based on **Supermedo**'s Windows launcher and
 packaging ([Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc), v1.6,
 GPL-2.0-or-later): page structure, folder picker, job object, log page, translation scheme,

@@ -1,0 +1,153 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later
+     PortGaGotoku launcher window (pywebview + WebView2). Texts are written in English and
+     translated by app.js from pgg_lang.py's table (data-t holds the English text). -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>PortGaGotoku</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="art" class="art" aria-hidden="true"></div>
+<div class="scrim" aria-hidden="true"></div>
+
+<header class="bar">
+  <div class="brand">
+    <svg class="dipper" viewBox="0 0 200 60" aria-hidden="true"><polyline points="6,8 8,40 58,52 66,18 114,22 152,28 194,52"></polyline><line x1="66" y1="18" x2="6" y2="8"></line></svg>
+    <span>PortGaGotoku</span>
+  </div>
+  <div class="tools" id="tools">
+    <button type="button" class="icon" id="open-log" data-t-label="Log">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="7" x2="19" y2="7"></line><line x1="5" y1="12" x2="19" y2="12"></line><line x1="5" y1="17" x2="13" y2="17"></line></svg>
+    </button>
+    <button type="button" class="icon" id="open-folders" data-t-label="Folders" aria-haspopup="menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
+    </button>
+    <button type="button" class="icon" id="open-settings" data-t-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="7" x2="14" y2="7"></line><line x1="18" y1="7" x2="20" y2="7"></line><circle cx="16" cy="7" r="2"></circle><line x1="4" y1="17" x2="6" y2="17"></line><line x1="10" y1="17" x2="20" y2="17"></line><circle cx="8" cy="17" r="2"></circle></svg>
+    </button>
+    <div class="menu" id="folders" role="menu" hidden>
+      <button type="button" role="menuitem" data-folder="data" data-t="Port data">Port data</button>
+      <button type="button" role="menuitem" data-folder="saves" data-t="Saves">Saves</button>
+      <button type="button" role="menuitem" data-folder="backups" data-t="Save backups">Save backups</button>
+      <button type="button" role="menuitem" data-folder="logs" data-t="Logs">Logs</button>
+      <button type="button" role="menuitem" data-folder="cache" data-t="Shader cache">Shader cache</button>
+      <button type="button" role="menuitem" data-folder="game" data-t="Game folder">Game folder</button>
+    </div>
+  </div>
+</header>
+
+<!-- Home: ready to play -->
+<main id="home" class="home" hidden>
+  <div class="titles">
+    <div class="jp">北斗が如く</div>
+    <h1>Fist of the North Star<br><span>Lost Paradise</span></h1>
+  </div>
+  <div class="actions">
+    <button type="button" class="play" id="play"><svg viewBox="0 0 16 18" aria-hidden="true"><path d="M2 1.5v15l13-7.5z"></path></svg><span id="play-label">Play</span></button>
+    <button type="button" class="ghost" id="stop" hidden data-t="Stop">Stop</button>
+    <span class="summary" id="summary"></span>
+  </div>
+  <ul class="status" id="status"></ul>
+  <p class="note" id="note"></p>
+</main>
+
+<!-- First start, or a game folder that is not the game -->
+<main id="welcome" class="welcome" hidden>
+  <div class="titles">
+    <div class="jp">北斗が如く</div>
+    <h1 data-t="Welcome">Welcome</h1>
+    <p class="lead" id="welcome-lead"></p>
+  </div>
+  <div class="pick">
+    <div class="pathrow">
+      <div class="path" id="welcome-path"></div>
+      <button type="button" class="light" id="welcome-browse" data-t="Browse…">Browse…</button>
+    </div>
+    <div class="message" id="welcome-message" role="status"></div>
+  </div>
+  <div class="actions">
+    <button type="button" class="play small" id="welcome-continue" disabled data-t="Continue">Continue</button>
+    <span class="summary" data-t="The game files are only read.">The game files are only read.</span>
+  </div>
+</main>
+
+<footer class="build" id="build"></footer>
+
+<!-- Settings panel -->
+<div class="backdrop" id="backdrop" hidden></div>
+<aside class="panel" id="settings" aria-labelledby="settings-title" hidden>
+  <div class="panel-head">
+    <h2 id="settings-title" data-t="Settings">Settings</h2>
+    <button type="button" class="icon" id="close-settings" data-t-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+    <section>
+      <h3 data-t="Display">Display</h3>
+      <div class="field">
+        <div class="label" id="pm-label" data-t="Presentation">Presentation</div>
+        <div class="segmented" role="radiogroup" aria-labelledby="pm-label" id="present-mode"></div>
+        <div class="hint" data-t="Mailbox is recommended. Fifo: classic vsync. Immediate: no vsync. All three were tried on Hokuto.">Mailbox is recommended. Fifo: classic vsync. Immediate: no vsync. All three were tried on Hokuto.</div>
+      </div>
+      <div class="row">
+        <div class="text"><label for="fullscreen" data-t="Fullscreen">Fullscreen</label><span class="hint" data-t="Alt+F4 closes the game. Alt+Tab has not been tried yet.">Alt+F4 closes the game. Alt+Tab has not been tried yet.</span></div>
+        <button type="button" class="switch" role="switch" id="fullscreen" aria-checked="false"><span></span></button>
+      </div>
+      <div class="field">
+        <label class="label" for="gpu" data-t="Graphics card">Graphics card</label>
+        <select id="gpu"></select>
+      </div>
+    </section>
+    <section>
+      <h3 data-t="Performance">Performance</h3>
+      <div class="row">
+        <div class="text"><label for="frame-stats" data-t="Frame statistics in the log">Frame statistics in the log</label><span class="hint" data-t="On-screen statistics (HUD) will come later.">On-screen statistics (HUD) will come later.</span></div>
+        <button type="button" class="switch" role="switch" id="frame-stats" aria-checked="true"><span></span></button>
+      </div>
+    </section>
+    <section>
+      <h3 data-t="Game and data">Game and data</h3>
+      <div class="row">
+        <div class="text"><span class="label" data-t="Game folder">Game folder</span><span class="hint ellipsis" id="game-path"></span></div>
+        <button type="button" class="pill" id="change-game" data-t="Change…">Change…</button>
+      </div>
+      <div class="row">
+        <div class="text"><span class="label" data-t="Port data">Port data</span><span class="hint" data-t="Saves, save backups, logs, shader cache">Saves, save backups, logs, shader cache</span></div>
+        <button type="button" class="pill" data-folder="data" data-t="Open folder">Open folder</button>
+      </div>
+      <div class="row">
+        <label class="label" for="language" data-t="Language">Language</label>
+        <select id="language" class="compact">
+          <option value="" data-t="Windows language">Windows language</option>
+          <option value="it">Italiano</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+    </section>
+  </div>
+  <div class="panel-foot"><span data-t="Settings apply from the next start of the game">Settings apply from the next start of the game</span><span id="panel-build"></span></div>
+</aside>
+
+<!-- Log drawer -->
+<section class="drawer" id="drawer" aria-labelledby="drawer-title" hidden>
+  <div class="drawer-head">
+    <svg class="alert" id="drawer-alert" viewBox="0 0 24 24" aria-hidden="true" hidden><circle cx="12" cy="12" r="9.5"></circle><line x1="12" y1="7.5" x2="12" y2="12.5"></line><circle cx="12" cy="16.2" r="0.7"></circle></svg>
+    <div class="drawer-titles">
+      <div class="drawer-title" id="drawer-title"></div>
+      <div class="hint" id="drawer-sub"></div>
+    </div>
+    <button type="button" class="pill" id="copy-log" data-t="Copy">Copy</button>
+    <button type="button" class="pill" data-folder="logs" data-t="Open logs folder">Open logs folder</button>
+    <button type="button" class="icon" id="close-log" data-t-label="Close the log">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+  </div>
+  <pre class="log" id="log" tabindex="0"></pre>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
