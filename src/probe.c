@@ -286,6 +286,19 @@ static void fault(int sig, siginfo_t *info, void *context) {
  * the CONTEXT so EXCEPTION_CONTINUE_EXECUTION resumes with them. */
 static int veh_reporting;
 static volatile LONG veh_recoveries;
+/* IsBadReadPtr deliberately faults on inaccessible memory and catches the access violation with
+ * SEH; a VEH runs before that handler. Host window hooks (e.g. DRM) call it during window
+ * creation, so a fault inside it is left to Windows instead of being reported as fatal. The
+ * function's extent comes from its unwind data; without it nothing is exempted. As in the
+ * Mrsuss60 Windows port (69b954f, src/win32_exception.h). */
+static int fault_in_read_probe(uintptr_t rip) {
+    HMODULE kernel = GetModuleHandleA("kernel32.dll");
+    FARPROC probe = kernel ? GetProcAddress(kernel, "IsBadReadPtr") : NULL;
+    if (!probe) return 0;
+    DWORD64 base = 0;
+    PRUNTIME_FUNCTION entry = RtlLookupFunctionEntry((DWORD64)(uintptr_t)probe, &base, NULL);
+    return entry && rip >= base + entry->BeginAddress && rip < base + entry->EndAddress;
+}
 
 static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
     const DWORD code = ep->ExceptionRecord->ExceptionCode;
@@ -340,6 +353,8 @@ static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
         }
         return EXCEPTION_CONTINUE_EXECUTION;
     }
+    if (code == EXCEPTION_ACCESS_VIOLATION && fault_in_read_probe((uintptr_t)ctx->Rip))
+        return EXCEPTION_CONTINUE_SEARCH; /* IsBadReadPtr's own SEH handles it */
     if (veh_reporting) return EXCEPTION_CONTINUE_SEARCH; /* fault inside the reporter */
     veh_reporting = 1;
 
