@@ -451,6 +451,10 @@ static LONG WINAPI veh(EXCEPTION_POINTERS *ep) {
     }
     if (gpu_enabled) bbgpu_dump_guest_writes(&uc);
     fflush(NULL);
+    /* Not _exit: ExitProcess runs DLL detach while GPU, audio and guest threads still hold driver
+     * and loader state, and the process stayed listed, exited but stuck in the kernel (2026-10-11,
+     * one per crash). TerminateProcess ends it at once, as the STOP path and the watchdog do. */
+    TerminateProcess(GetCurrentProcess(), 128 + (UINT)code);
     _exit(128 + (int)code);
 }
 
