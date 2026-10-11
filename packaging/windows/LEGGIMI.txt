@@ -1,0 +1,27 @@
+PortGaGotoku — Fist of the North Star: Lost Paradise (PS4, CUSA12781) su Windows
+===============================================================================
+
+Serve un dump personale del gioco (cartella CUSA12781 con eboot.bin e sce_sys). Nessun file del
+gioco è incluso. Progetto sperimentale, non affiliato a Sony, SEGA o Ryu Ga Gotoku Studio.
+
+  PortGaGotoku.exe   il launcher: cartella del gioco, opzioni, log. Al primo avvio chiede la
+                     cartella del gioco.
+  Gioca Hokuto.exe   avvia il gioco con le impostazioni salvate, senza aprire il launcher.
+
+Tutto ciò che il programma scrive (impostazioni, immagine di avvio, salvataggi, backup dei
+salvataggi, log, cache degli shader) va in PortGaGotoku-data, accanto a questa cartella.
+Nel gioco: Insert o L3+R3 apre il menu del port. Per uscire: la X della finestra (Alt+F4 a
+schermo intero); un salvataggio in corso viene prima completato.
+
+Requisiti: Windows 10/11 a 64 bit, CPU con AVX, BMI1, MOVBE, LZCNT; scheda video con Vulkan 1.3.
+Provato su una sola macchina (NVIDIA GeForce RTX 5070).
+
+Basato su bbport (github.com/deadinside28/bloodborne_pc), shadPS4 e sul launcher e il pacchetto
+Windows di Supermedo (github.com/Supermedo/bloodborne_pc). Licenza: GPL-2.0-or-later (LICENSE).
+
+-------------------------------------------------------------------------------
+English: you need your own dump of the game (folder CUSA12781 with eboot.bin and sce_sys).
+PortGaGotoku.exe is the launcher (it asks for the game folder at the first start); Gioca
+Hokuto.exe starts the game with the saved settings. Everything the program writes goes to
+PortGaGotoku-data next to this folder. Close the game with the window's X (Alt+F4 in
+fullscreen). Based on bbport, shadPS4 and Supermedo's Windows launcher; GPL-2.0-or-later.
