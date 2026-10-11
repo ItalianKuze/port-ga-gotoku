@@ -136,5 +136,7 @@ const char *runtime_file_user_dir(void);
 void runtime_savedata_configure(const char *title);
 uintptr_t runtime_savedata_resolve(const char *name);
 void runtime_savedata_report(void);
+/* BB_SAVE_TRACE=1: every sceSaveData* call and every file operation on /savedataN is logged. */
+int runtime_save_trace(void);
 void runtime_thread_attach_host(const char *name);
 #endif

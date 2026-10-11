@@ -63,6 +63,12 @@ _Static_assert(sizeof(MountResult)==64,"OrbisSaveDataMountResult layout");
 _Static_assert(sizeof(SearchCond)==64 && sizeof(SearchResult)==56,"dir name search layouts");
 
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
+int runtime_save_trace(void) {
+    static int enabled=-1;
+    if (enabled<0) { const char *e=getenv("BB_SAVE_TRACE"); enabled=e && e[0]=='1'; }
+    return enabled;
+}
+#define SAVE_TRACE(...) do { if (runtime_save_trace()) printf("SaveTrace: " __VA_ARGS__); } while (0)
 static int initialized;
 static char title_id[16]="UNKNOWN";
 static struct { int used; char host[700], meta[700]; } slots[SLOTS];
@@ -364,14 +370,87 @@ static int32_t memory_io(void *buffer, uint64_t size, int64_t offset, int write)
 static ABI int32_t memory_get(int32_t user, void *buffer, uint64_t size, int64_t offset) { (void)user; return memory_io(buffer,size,offset,0); }
 static ABI int32_t memory_set(int32_t user, void *buffer, uint64_t size, int64_t offset) { (void)user; return memory_io(buffer,size,offset,1); }
 
+/* BB_SAVE_TRACE: each export goes through a wrapper that logs its arguments and result. */
+static const char *dir_text(const DirName *d) { return d ? d->data : "(null)"; }
+static const char *title_text(const TitleId *t) { return t && t->data[0] ? t->data : "(game)"; }
+static ABI int32_t t_initialize(const void *p) { int32_t r=save_initialize(p); SAVE_TRACE("sceSaveDataInitialize = %#x\n",(unsigned)r); return r; }
+static ABI int32_t t_terminate(void) { int32_t r=save_terminate(); SAVE_TRACE("sceSaveDataTerminate = %#x\n",(unsigned)r); return r; }
+static ABI int32_t t_mount(const Mount1 *m, MountResult *res) {
+    int32_t r=save_mount(m,res);
+    SAVE_TRACE("sceSaveDataMount(user %d, title %s, dir %s, mode %#x, blocks %llu) = %#x%s%s\n",
+               m ? m->user : -1, m ? title_text(m->title) : "-", m ? dir_text(m->dir) : "-", m ? m->mode : 0,
+               m ? (unsigned long long)m->blocks : 0ull, (unsigned)r, r || !res ? "" : " -> ", r || !res ? "" : res->point.data);
+    return r;
+}
+static ABI int32_t t_mount2(const Mount2 *m, MountResult *res) {
+    int32_t r=save_mount2(m,res);
+    SAVE_TRACE("sceSaveDataMount2(user %d, dir %s, mode %#x, blocks %llu) = %#x%s%s\n",
+               m ? m->user : -1, m ? dir_text(m->dir) : "-", m ? m->mode : 0, m ? (unsigned long long)m->blocks : 0ull,
+               (unsigned)r, r || !res ? "" : " -> ", r || !res ? "" : res->point.data);
+    return r;
+}
+static ABI int32_t t_umount(const MountPoint *point) {
+    int32_t r=save_umount(point);
+    SAVE_TRACE("sceSaveDataUmount(%s) = %#x\n",point ? point->data : "(null)",(unsigned)r);
+    return r;
+}
+static ABI int32_t t_set_param(const MountPoint *point, uint32_t type, const void *buffer, uint64_t size) {
+    int32_t r=save_set_param(point,type,buffer,size);
+    const Param *pp=type==0 && buffer && size>=sizeof(Param) ? buffer : NULL;
+    SAVE_TRACE("sceSaveDataSetParam(%s, type %u, %llu bytes)%s%.60s%s = %#x\n",point ? point->data : "(null)",type,
+               (unsigned long long)size, pp ? " title \"" : "", pp ? pp->title : "", pp ? "\"" : "", (unsigned)r);
+    return r;
+}
+static ABI int32_t t_icon(const MountPoint *point, const Icon *icon) {
+    int32_t r=save_icon(point,icon);
+    SAVE_TRACE("sceSaveDataSaveIcon(%s, %llu bytes) = %#x\n",point ? point->data : "(null)",
+               icon ? (unsigned long long)icon->data_size : 0ull,(unsigned)r);
+    return r;
+}
+static ABI int32_t t_delete(const Delete *d) {
+    int32_t r=save_delete(d);
+    SAVE_TRACE("sceSaveDataDelete(user %d, title %s, dir %s) = %#x\n",d ? d->user : -1,d ? title_text(d->title) : "-",
+               d ? dir_text(d->dir) : "-",(unsigned)r);
+    return r;
+}
+static ABI int32_t t_search(const SearchCond *cond, SearchResult *res) {
+    int32_t r=save_search(cond,res);
+    if (runtime_save_trace()) {
+        printf("SaveTrace: sceSaveDataDirNameSearch(user %d, title %s, dir \"%s\", key %u, order %u) = %#x",
+               cond ? cond->user : -1, cond ? title_text(cond->title) : "-", cond && cond->dir ? cond->dir->data : "",
+               cond ? cond->key : 0, cond ? cond->order : 0, (unsigned)r);
+        if (!r && res) {
+            printf(", %u hits:",res->hits);
+            for (uint32_t i=0;i<res->set_count && res->names;++i) printf(" %s",res->names[i].data);
+        }
+        printf("\n");
+    }
+    return r;
+}
+static ABI int32_t t_memory_setup(int32_t user, uint64_t size, const Param *param) {
+    int32_t r=memory_setup(user,size,param);
+    SAVE_TRACE("sceSaveDataSetupSaveDataMemory(user %d, %llu bytes) = %#x\n",user,(unsigned long long)size,(unsigned)r);
+    return r;
+}
+static ABI int32_t t_memory_get(int32_t user, void *buffer, uint64_t size, int64_t offset) {
+    int32_t r=memory_get(user,buffer,size,offset);
+    SAVE_TRACE("sceSaveDataGetSaveDataMemory(%llu bytes at %lld) = %#x\n",(unsigned long long)size,(long long)offset,(unsigned)r);
+    return r;
+}
+static ABI int32_t t_memory_set(int32_t user, void *buffer, uint64_t size, int64_t offset) {
+    int32_t r=memory_set(user,buffer,size,offset);
+    SAVE_TRACE("sceSaveDataSetSaveDataMemory(%llu bytes at %lld) = %#x\n",(unsigned long long)size,(long long)offset,(unsigned)r);
+    return r;
+}
+
 static const RuntimeExport exports[]={
-    {"sceSaveDataInitialize",save_initialize}, {"sceSaveDataInitialize2",save_initialize},
-    {"sceSaveDataInitialize3",save_initialize}, {"sceSaveDataTerminate",save_terminate},
-    {"sceSaveDataMount",save_mount}, {"sceSaveDataMount2",save_mount2}, {"sceSaveDataUmount",save_umount},
-    {"sceSaveDataSetParam",save_set_param}, {"sceSaveDataSaveIcon",save_icon}, {"sceSaveDataDelete",save_delete},
-    {"sceSaveDataDirNameSearch",save_search},
-    {"sceSaveDataSetupSaveDataMemory",memory_setup}, {"sceSaveDataGetSaveDataMemory",memory_get},
-    {"sceSaveDataSetSaveDataMemory",memory_set},
+    {"sceSaveDataInitialize",t_initialize}, {"sceSaveDataInitialize2",t_initialize},
+    {"sceSaveDataInitialize3",t_initialize}, {"sceSaveDataTerminate",t_terminate},
+    {"sceSaveDataMount",t_mount}, {"sceSaveDataMount2",t_mount2}, {"sceSaveDataUmount",t_umount},
+    {"sceSaveDataSetParam",t_set_param}, {"sceSaveDataSaveIcon",t_icon}, {"sceSaveDataDelete",t_delete},
+    {"sceSaveDataDirNameSearch",t_search},
+    {"sceSaveDataSetupSaveDataMemory",t_memory_setup}, {"sceSaveDataGetSaveDataMemory",t_memory_get},
+    {"sceSaveDataSetSaveDataMemory",t_memory_set},
 };
 uintptr_t runtime_savedata_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
 void runtime_savedata_report(void) { printf("Runtime: save data mounts=%zu, memory writes=%zu\n",mounts_done,memory_writes); }

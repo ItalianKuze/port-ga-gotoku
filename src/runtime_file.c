@@ -176,8 +176,9 @@ static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=getenv(
 /* BB_FILE_TRACE=1: every open/stat/access with its guest path, host path and result
  * (fd or -errno), to compare file access between builds. */
 static int file_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("BB_FILE_TRACE"); v=e && e[0]=='1'; } return v; }
+static int save_path(const char *guest) { return guest && !strncmp(guest,"/savedata",9); }
 static int64_t traced(const char *op,const char *guest,const char *host,int64_t result) {
-    if (file_trace()) printf("FileTrace: %s %s -> %s = %lld\n",op,guest ? guest : "(null)",host ? host : "-",(long long)result);
+    if (file_trace() || (runtime_save_trace() && save_path(guest))) printf("FileTrace: %s %s -> %s = %lld\n",op,guest ? guest : "(null)",host ? host : "-",(long long)result);
     return result;
 }
 /* Game mounts (including linked mod overlays) are read-only. Saves use other mounts. */
@@ -244,8 +245,9 @@ static int host_fd(int fd) {
 }
 /* BB_FILE_TRACE: an operation on an open descriptor, named by the guest path it was opened as. */
 static int64_t traced_fd(const char *op,int fd,uint64_t size,int64_t offset,int64_t result) {
-    if (!file_trace()) return result;
+    if (!file_trace() && !runtime_save_trace()) return result;
     File *f=fd>=3 ? get(fd) : NULL;
+    if (!file_trace() && !(f && save_path(f->path))) return result;
     printf("FileTrace: %s fd %d (%s) size %llu off %lld = %lld\n",op,fd,f ? f->path : "?",
            (unsigned long long)size,(long long)offset,(long long)result);
     return result;
@@ -289,6 +291,7 @@ static int64_t do_write(int fd,const void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     ssize_t n=write(h,buffer,size);
+    traced_fd("write",fd,size,-1,n<0 ? -errno : n);
     if (n<0) return -errno;
     __atomic_add_fetch(&writes,1,__ATOMIC_RELAXED);
     return n;
@@ -297,7 +300,7 @@ static int64_t do_pwrite(int fd,const void *buffer,uint64_t size,int64_t offset)
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     ssize_t n=pwrite(h,buffer,size,offset);
-    return n<0 ? -errno : n;
+    return traced_fd("pwrite",fd,size,offset,n<0 ? -errno : n);
 }
 static int64_t do_lseek(int fd,int64_t offset,int whence) {
     File *f=get(fd);
@@ -362,7 +365,7 @@ static int64_t path_op(const char *guest,int op,int mode) {
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
     int r= op==0 ? mkdir(path,mode ? mode : 0755) : op==1 ? rmdir(path) : unlink(path);
-    return r ? -errno : 0;
+    return traced(op==0 ? "mkdir" : op==1 ? "rmdir" : "unlink",guest,path,r ? -errno : 0);
 }
 static int64_t do_rename(const char *from,const char *to) {
     if (game_path(from) || game_path(to)) return -EROFS;
@@ -370,7 +373,10 @@ static int64_t do_rename(const char *from,const char *to) {
     int e=translate(from,a,sizeof(a));
     if (!e) e=translate(to,b,sizeof(b));
     if (e) return -e;
-    return rename(a,b) ? -errno : 0;
+    const int64_t r=rename(a,b) ? -errno : 0;
+    if (file_trace() || (runtime_save_trace() && (save_path(from) || save_path(to))))
+        printf("FileTrace: rename %s -> %s = %lld\n",from,to,(long long)r);
+    return r;
 }
 static int64_t do_ftruncate(int fd,int64_t length) {
     int h=host_fd(fd);
@@ -382,7 +388,7 @@ static int64_t do_truncate(const char *guest,int64_t length) {
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
-    return truncate(path,length) ? -errno : 0;
+    return traced("truncate",guest,path,truncate(path,length) ? -errno : 0);
 }
 static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; return fsync(h) ? -errno : 0; }
 static int64_t do_access(const char *guest,int mode) {
