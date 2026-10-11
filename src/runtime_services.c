@@ -474,7 +474,35 @@ static ABI int32_t msg_term(void) {
     if (MSG_DIALOG->status==2) msg_close();
     return dialog_term(1);
 }
+/* SaveDataDialog, as shadPS4 (libraries/save_data/dialog/savedatadialog_ui.cpp) but without a list
+ * on screen yet: each dialog is answered the way pressing Cross at once would answer it on the PS4.
+ *   LIST: the slots the game names (items->dirName[]) that exist on disk, after a "new save" entry
+ *         when saving with newItem; the item focusPos points at is chosen (LISTHEAD/DATAHEAD the
+ *         first, LISTTAIL/DATATAIL the last, DATALTATEST the newest, DATAOLDEST the oldest, DIRNAME
+ *         the named one) and its dirName and param are returned. Loading with nothing to load is
+ *         USER_CANCELED. Before this the result never carried a dirName: every save created a new
+ *         slot and "Continue" loaded nothing (2026-10-11).
+ *   USER_MSG / SYSTEM_MSG: YES or OK (buttonId 1); dialogs without buttons (NONE, PROGRESS) stay
+ *         open until the game closes them.
+ *   ERROR_CODE: the error code is always logged, then OK.
+ *   PROGRESS_BAR: open until the game closes it (save_close). */
 typedef struct { char data[32]; } SaveDialogDirName;
+typedef struct { char data[10]; char pad[6]; } SaveDialogTitleId;
+typedef struct { const char *title; void *icon; uint64_t icon_size; uint8_t reserved[32]; } SaveDialogNewItem;
+typedef struct {
+    int32_t user, pad; const SaveDialogTitleId *title; const SaveDialogDirName *dirs; uint32_t dir_count, pad2;
+    const SaveDialogNewItem *new_item; uint32_t focus, pad3; const SaveDialogDirName *focus_dir; uint32_t style;
+    uint8_t reserved[32];
+} SaveDialogItems;
+typedef struct { uint32_t button_type, msg_type; const char *msg; uint8_t reserved[32]; } SaveDialogUserMsg;
+typedef struct { uint32_t msg_type; int32_t pad; uint64_t value; uint8_t reserved[32]; } SaveDialogSysMsg;
+typedef struct { uint32_t error_code; uint8_t reserved[32]; } SaveDialogErrorCode;
+typedef struct {
+    uint64_t base_size; uint8_t base_reserved[36]; uint32_t base_magic;
+    int32_t size; uint32_t mode, disp_type; int32_t pad;
+    void *anim; const SaveDialogItems *items; const SaveDialogUserMsg *user_msg; const SaveDialogSysMsg *sys_msg;
+    const SaveDialogErrorCode *error_code; void *progress; void *user_data; void *option; uint8_t reserved[24];
+} SaveDialogParam;
 typedef struct {
     uint32_t mode, result, button, pad;
     SaveDialogDirName *dir_name;
@@ -482,24 +510,126 @@ typedef struct {
     uint8_t reserved[32];
 } SaveDialogOutput;
 _Static_assert(sizeof(SaveDialogOutput)==72,"SaveDataDialogResult layout");
+_Static_assert(offsetof(SaveDialogParam,mode)==52 && offsetof(SaveDialogParam,items)==72 &&
+               offsetof(SaveDialogParam,user_data)==112,"OrbisSaveDataDialogParam layout");
+_Static_assert(offsetof(SaveDialogItems,dir_count)==24 && offsetof(SaveDialogItems,new_item)==32 &&
+               offsetof(SaveDialogItems,focus)==40 && offsetof(SaveDialogItems,focus_dir)==48,"SaveDialogItems layout");
 static ABI int32_t save_init(void) { return dialog_init(2); }
 static ABI int32_t save_status(void) { printf("Runtime: save_status -> %d\n", dialogs[2].status); return dialog_status(2); }
 static ABI int32_t save_term(void) { return dialog_term(2); }
-#define SAVEDATA_DIALOG_PROGRESS_BAR 5u
+enum { SAVE_LIST=1, SAVE_USER_MSG=2, SAVE_SYSTEM_MSG=3, SAVE_ERROR_CODE=4, SAVEDATA_DIALOG_PROGRESS_BAR=5 };
+enum { SAVE_TYPE_SAVE=1, SAVE_TYPE_LOAD=2, SAVE_TYPE_DELETE=3 };
 #define SAVEDATA_DIALOG_TARGET_DEFAULT 0u
-/* OrbisSaveDataDialogParam: BaseParam(48) + s32 size(4) + SaveDataDialogMode mode(4) => mode at +52 */
-static ABI int32_t save_open(const void *param) {
+/* What the last dialog answers through sceSaveDataDialogGetResult. */
+static struct { uint32_t mode, result, button; char dir[33]; int has_param; uint8_t param[1328]; void *user_data; } save_answer;
+static const char *save_type_name(uint32_t t) { return t==1 ? "save" : t==2 ? "load" : t==3 ? "delete" : "?"; }
+static void save_finish(uint32_t result, uint32_t button) {
+    save_answer.result=result; save_answer.button=button; dialogs[2].status=3; /* FINISHED */
+}
+/* The LIST dialog's choice: index into the shown list (new item first), as shadPS4 focuses it. */
+static void save_list_answer(const SaveDialogParam *p) {
+    const SaveDialogItems *it=p->items;
+    if (!it) { printf("Runtime: SaveDataDialog LIST without items; cancelled\n"); save_finish(1,0); return; }
+    const char *title=it->title && it->title->data[0] ? it->title->data : NULL;
+    enum { MAX_ITEMS=64 };
+    struct { char dir[33]; int64_t mtime; } list[MAX_ITEMS];
+    int count=0;
+    const int new_item = p->disp_type==SAVE_TYPE_SAVE && it->new_item;
+    char names[512]=""; size_t used=0;
+    for (uint32_t i=0;i<it->dir_count && it->dirs && count<MAX_ITEMS;++i) {
+        char name[33]; memcpy(name,it->dirs[i].data,32); name[32]=0;
+        int64_t mtime=0;
+        const int exists=name[0] && runtime_savedata_slot(it->user,title,name,NULL,&mtime);
+        if (used<sizeof(names)-40) used+=(size_t)snprintf(names+used,sizeof(names)-used," %s%s",name[0] ? name : "\"\"",exists ? "" : "(none)");
+        if (!exists) continue;
+        memcpy(list[count].dir,name,sizeof(name)); list[count].mtime=mtime; ++count;
+    }
+    static const char *focus_names[]={"LISTHEAD","LISTTAIL","DATAHEAD","DATATAIL","DATALATEST","DATAOLDEST","DIRNAME"};
+    char focus_dir[33]=""; if (it->focus_dir) { memcpy(focus_dir,it->focus_dir->data,32); focus_dir[32]=0; }
+    printf("Runtime: SaveDataDialog LIST (%s, title %s): slots%s; new item %s; focus %s%s%s\n",
+           save_type_name(p->disp_type),title ? title : "(game)",names[0] ? names : " (none)",new_item ? "yes" : "no",
+           it->focus<7 ? focus_names[it->focus] : "?",it->focus==6 ? " " : "",it->focus==6 ? focus_dir : "");
+    /* Shown order: new item (dirName "") first, then the existing slots. */
+    const int total=count+new_item;
+    int choice=-1; /* -1: the new item; otherwise index into list */
+    if (total==0) {
+        printf("Runtime: SaveDataDialog: nothing to %s; cancelled\n",save_type_name(p->disp_type));
+        save_finish(1,0); /* USER_CANCELED */
+        return;
+    }
+    switch (it->focus) {
+    case 0: case 2: choice=new_item ? -1 : 0; break;                        /* LISTHEAD, DATAHEAD */
+    case 1: case 3: choice=count ? count-1 : -1; break;                     /* LISTTAIL, DATATAIL */
+    case 4: case 5: {                                                        /* newest / oldest */
+        choice=new_item && !count ? -1 : 0;
+        for (int i=1;i<count;++i)
+            if (it->focus==4 ? list[i].mtime>list[choice].mtime : list[i].mtime<list[choice].mtime) choice=i;
+        break;
+    }
+    case 6:                                                                  /* DIRNAME */
+        choice=new_item ? -1 : 0;
+        for (int i=0;i<count;++i) if (!strcmp(list[i].dir,focus_dir)) choice=i;
+        break;
+    default: choice=new_item ? -1 : 0; break;
+    }
+    save_answer.has_param=0; save_answer.dir[0]=0;
+    if (choice<0) {
+        printf("Runtime: SaveDataDialog answered: new save (the game names the new slot when it mounts it)\n");
+    } else {
+        memcpy(save_answer.dir,list[choice].dir,sizeof(save_answer.dir));
+        save_answer.has_param=runtime_savedata_slot(it->user,title,list[choice].dir,save_answer.param,NULL);
+        printf("Runtime: SaveDataDialog answered: %s slot %s\n",
+               p->disp_type==SAVE_TYPE_SAVE ? "overwrite" : p->disp_type==SAVE_TYPE_LOAD ? "load" : "delete",list[choice].dir);
+    }
+    save_finish(0,1); /* OK, buttonId OK */
+}
+static ABI int32_t save_open(const SaveDialogParam *p) {
     if (!dialogs[2].initialized) return DIALOG_NOT_INITIALIZED;
-    if (!param) return (int32_t)0x80B8000D; /* CommonDialog ARG_NULL */
-    uint32_t mode = *(const uint32_t *)((const char *)param + 52);
-    dialogs[2].mode = mode;
+    if (!p) return (int32_t)0x80B8000D; /* CommonDialog ARG_NULL */
+    dialogs[2].mode = p->mode;
     dialogs[2].progress = 0;
-    if (mode == SAVEDATA_DIALOG_PROGRESS_BAR) {
+    memset(&save_answer,0,sizeof(save_answer));
+    save_answer.mode=p->mode; save_answer.user_data=p->user_data;
+    switch (p->mode) {
+    case SAVEDATA_DIALOG_PROGRESS_BAR:
         dialogs[2].status = 2; /* RUNNING */
         printf("Runtime: SaveDataDialog opened (PROGRESS_BAR)\n");
-    } else {
-        dialogs[2].status = 3; /* FINISHED */
-        printf("Runtime: SaveDataDialog opened; completed immediately (mode=%u)\n", mode);
+        break;
+    case SAVE_LIST:
+        save_list_answer(p);
+        break;
+    case SAVE_USER_MSG: {
+        const SaveDialogUserMsg *m=p->user_msg;
+        char text[201]=""; if (m && m->msg) snprintf(text,sizeof(text),"%s",m->msg);
+        for (char *c=text;*c;++c) if (*c=='\n' || *c=='\r') *c=' ';
+        const uint32_t buttons=m ? m->button_type : 0;
+        printf("Runtime: SaveDataDialog USER_MSG (%s, buttons %s, %s): \"%s\"\n",save_type_name(p->disp_type),
+               buttons==0 ? "OK" : buttons==1 ? "YESNO" : buttons==2 ? "NONE" : buttons==3 ? "OKCANCEL" : "?",
+               m && m->msg_type ? "error" : "normal",text);
+        if (buttons==2) { dialogs[2].status=2; puts("Runtime: SaveDataDialog has no buttons: open until the game closes it"); }
+        else { save_finish(0,1); printf("Runtime: SaveDataDialog answered: %s\n",buttons==1 ? "YES" : "OK"); }
+        break;
+    }
+    case SAVE_SYSTEM_MSG: {
+        const uint32_t type=p->sys_msg ? p->sys_msg->msg_type : 0;
+        static const char *types[]={"?","NODATA","CONFIRM","OVERWRITE","NOSPACE","PROGRESS","FILE_CORRUPTED","FINISHED",
+                                    "NOSPACE_CONTINUABLE","?","CORRUPTED_AND_DELETED","CORRUPTED_AND_CREATED","?",
+                                    "CORRUPTED_AND_RESTORE","TOTAL_SIZE_EXCEEDED"};
+        printf("Runtime: SaveDataDialog SYSTEM_MSG (%s): %s (value %llu)\n",save_type_name(p->disp_type),
+               type<15 ? types[type] : "?",p->sys_msg ? (unsigned long long)p->sys_msg->value : 0ull);
+        if (type==5) { dialogs[2].status=2; puts("Runtime: SaveDataDialog progress message: open until the game closes it"); }
+        else { save_finish(0,1); printf("Runtime: SaveDataDialog answered: %s\n",type==2 || type==3 ? "YES" : "OK"); }
+        break;
+    }
+    case SAVE_ERROR_CODE:
+        printf("Runtime: SaveDataDialog ERROR_CODE (%s): error 0x%08X; answered OK\n",save_type_name(p->disp_type),
+               p->error_code ? p->error_code->error_code : 0u);
+        save_finish(0,1);
+        break;
+    default:
+        printf("Runtime: SaveDataDialog opened with mode %u; answered OK\n",p->mode);
+        save_finish(0,1);
+        break;
     }
     return ORBIS_OK;
 }
@@ -529,9 +659,12 @@ static ABI int32_t save_result(SaveDialogOutput *result) {
     printf("Runtime: save_result called (status=%d)\n", dialogs[2].status);
     if (dialogs[2].status!=3) return (int32_t)0x80B80005; /* NOT_FINISHED */
     if (!result) return (int32_t)0x80B8000D; /* ARG_NULL */
-    /* Match shadPS4's default SaveDialogResult after Open: OK, no selected slot. */
-    result->mode=0; result->result=0; result->button=0; result->user_data=NULL;
-    if (result->dir_name) memset(result->dir_name,0,sizeof(*result->dir_name));
+    /* As shadPS4's SaveDialogResult::CopyTo: mode, result, buttonId, the chosen dirName (empty for a
+     * new save) and its param when the slot has one. */
+    result->mode=save_answer.mode; result->result=save_answer.result; result->button=save_answer.button;
+    result->user_data=save_answer.user_data;
+    if (result->dir_name) { memset(result->dir_name,0,sizeof(*result->dir_name)); memcpy(result->dir_name->data,save_answer.dir,strnlen(save_answer.dir,32)); }
+    if (result->param && save_answer.has_param) memcpy(result->param,save_answer.param,sizeof(save_answer.param));
     return ORBIS_OK;
 }
 static ABI int32_t profile_result(void *result) { if (result) memset(result,0,4); return 0; }

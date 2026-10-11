@@ -281,6 +281,20 @@ static ABI int32_t save_delete(const Delete *d) {
     printf("Runtime: save data '%s' deleted\n",d->dir->data);
     return 0;
 }
+int runtime_savedata_slot(int32_t user, const char *title, const char *dir, void *param, int64_t *mtime) {
+    if (!dir || !valid_name(dir,32)) return 0;
+    char base[600], host[640], meta[680];
+    root(user,title,base,sizeof(base));
+    snprintf(host,sizeof(host),"%s/%s",base,dir);
+    snprintf(meta,sizeof(meta),"%s/%s.sce_sys",base,dir);
+    struct stat st;
+    if (stat(host,&st) || !S_ISDIR(st.st_mode)) return 0;
+    Param p;
+    if (read_param(meta,&p)) return 0; /* shadPS4 lists only slots with their param.sfo */
+    if (param) memcpy(param,&p,sizeof(p));
+    if (mtime) *mtime=p.mtime;
+    return 1;
+}
 /* SQL-LIKE pattern: % any run, _ one character. */
 static int like(const char *s, const char *p) {
     if (!*p) return !*s;
