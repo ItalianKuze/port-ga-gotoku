@@ -12,6 +12,7 @@
 
 #include <SDL3/SDL.h>
 #include "bbport_game.h"
+#include "bbport_perf.h"
 #include "bbport_settings.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
@@ -191,10 +192,20 @@ void Hint(const char* text) {
 
 // PortGaGotoku: the places of the next phases on Hokuto: the statistics HUD (frame times, CPU
 // translation against GPU time) and Hokuto's own settings.
-void HokutoSections() {
+void HokutoSections(BbSettings::Values& s) {
     ImGui::SeparatorText(BbSettings::MenuText("Statistics (HUD)", "Statistics (HUD)"));
-    ImGui::TextDisabled("%s", BbSettings::MenuText("On-screen statistics: coming in a next version",
-                                                   "On-screen statistics: coming in a next version"));
+    Checkbox(BbSettings::MenuText("Show statistics (F11)", "Show statistics (F11)"), s.show_hud);
+    if (const auto [done, length] = BbPerf::MeasurementProgress(); done < 0.0f) {
+        if (ImGui::Button(BbSettings::MenuText("Start measurement (90 s, F9)", "Start measurement (90 s, F9)"))) {
+            BbPerf::StartMeasurement(90);
+        }
+        Hint(BbSettings::MenuText(
+            "Records 90 s of frame times, CPU and GPU time and thread load into the logs folder (perf-*.csv).",
+            "Records 90 s of frame times, CPU and GPU time and thread load into the logs folder (perf-*.csv)."));
+    } else {
+        ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f),
+                           BbSettings::MenuText("Measuring: %.0f / %d s", "Measuring: %.0f / %d s"), done, length);
+    }
     ImGui::SeparatorText(BbSettings::MenuText("Game settings", "Game settings"));
     ImGui::TextDisabled("%s", BbSettings::MenuText("Hokuto's own settings will be here",
                                                    "Hokuto's own settings will be here"));
@@ -578,7 +589,7 @@ void Menu() {
     } // BbGame::Bloodborne
 
     if (BbGame::IsHokuto()) {
-        HokutoSections();
+        HokutoSections(s);
     }
 
     ImGui::SeparatorText(BbSettings::MenuText("Other", "Прочее"));
@@ -617,6 +628,75 @@ void FpsCounter() {
                 : s.upscaler == BbSettings::UpscalerFsr411 ? "FSR 4.1.1"
                 : s.upscaler == BbSettings::UpscalerTaa    ? "TAA"
                                                            : "");
+    ImGui::End();
+}
+
+// PortGaGotoku: the statistics HUD (F11 or the menu), top left. bbport_perf gathers the values.
+void HudOverlay() {
+    const BbPerf::Snapshot p = BbPerf::GetSnapshot();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float pad = 12.0f * base_scale;
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + pad, viewport->WorkPos.y + pad), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.78f);
+    ImGui::Begin("##bb_hud", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
+    const ImVec4 strong(0.965f, 0.937f, 0.894f, 1.0f), muted(0.66f, 0.62f, 0.55f, 1.0f);
+    const ImVec4 warn(0.89f, 0.70f, 0.35f, 1.0f), bad(0.95f, 0.65f, 0.61f, 1.0f);
+    ImGui::TextColored(strong, "%.0f FPS", p.fps);
+    ImGui::SameLine();
+    ImGui::TextColored(muted, "%.1f ms   1%% low %.0f", p.frame_ms, p.low1_fps);
+    if (!p.frame_history.empty()) {
+        float worst = 0.0f;
+        for (float v : p.frame_history) {
+            worst = std::max(worst, v);
+        }
+        char label[32];
+        std::snprintf(label, sizeof(label), "max %.1f ms", worst);
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.70f, 0.13f, 0.16f, 1.0f));
+        ImGui::PlotLines("##frametimes", p.frame_history.data(), int(p.frame_history.size()), 0, label, 0.0f,
+                         std::max(40.0f, worst * 1.1f), ImVec2(260.0f * base_scale, 46.0f * base_scale));
+        ImGui::PopStyleColor();
+    }
+    char cpu[24] = "n/a", gpu[24] = "n/a";
+    if (p.cpu_translate_ms >= 0.0f) std::snprintf(cpu, sizeof(cpu), "%.2f ms", p.cpu_translate_ms);
+    if (p.gpu_ms >= 0.0f) std::snprintf(gpu, sizeof(gpu), "%.2f ms", p.gpu_ms);
+    ImGui::Text(BbSettings::MenuText("CPU translation %s  GPU %s", "CPU translation %s  GPU %s"), cpu, gpu);
+    if (p.gpu_util >= 0.0f) {
+        ImGui::Text("GPU %.0f%%  VRAM %.0f / %.0f MB", p.gpu_util, p.vram_used_mb, p.vram_budget_mb);
+    } else {
+        ImGui::Text("VRAM %.0f / %.0f MB", p.vram_used_mb, p.vram_budget_mb);
+    }
+    ImGui::Text("CPU %.0f%%  RAM %.1f / %.1f GB", p.cpu_util, p.ram_used_gb, p.ram_total_gb);
+    ImGui::TextColored(p.compiles_last_5s ? warn : ImGui::GetStyleColorVec4(ImGuiCol_Text),
+                       BbSettings::MenuText("Pipeline compiles: %u in 5 s, %llu total",
+                                            "Pipeline compiles: %u in 5 s, %llu total"),
+                       p.compiles_last_5s, static_cast<unsigned long long>(p.compiles_total));
+    if (!p.top_threads.empty()) {
+        ImGui::TextColored(muted, "%s", BbSettings::MenuText("Busiest threads:", "Busiest threads:"));
+        for (const auto& t : p.top_threads) {
+            ImGui::TextColored(t.percent >= 90.0f ? bad : muted, "  %3.0f%%  %s", t.percent, t.name.c_str());
+        }
+    }
+    ImGui::TextColored(muted, "%s", p.gpu_name.c_str());
+    if (const auto [done, length] = BbPerf::MeasurementProgress(); done >= 0.0f) {
+        ImGui::TextColored(warn, BbSettings::MenuText("REC %.0f / %d s", "REC %.0f / %d s"), done, length);
+    }
+    ImGui::End();
+}
+
+// While a measurement records with the HUD hidden: a small REC label in the corner.
+void RecordingLabel() {
+    const auto [done, length] = BbPerf::MeasurementProgress();
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float pad = 12.0f * base_scale;
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + pad, viewport->WorkPos.y + pad), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    ImGui::Begin("##bb_rec", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f), BbSettings::MenuText("REC %.0f / %d s", "REC %.0f / %d s"),
+                       done, length);
     ImGui::End();
 }
 
@@ -765,6 +845,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
         return;
     }
     initialized = true;
+    BbPerf::Init(instance);
     std::printf("Overlay: menu ready (Insert or L3+R3)\n");
 }
 
@@ -797,6 +878,17 @@ bool HandleEvent(const SDL_Event& event) {
         if (down && !event.key.repeat &&
             (event.key.key == SDLK_INSERT || (is_open && event.key.key == SDLK_ESCAPE))) {
             SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
+            return true;
+        }
+        // PortGaGotoku: F11 shows or hides the statistics HUD, F9 starts a 90 s measurement.
+        if (down && !event.key.repeat && event.key.key == SDLK_F11) {
+            auto& settings = BbSettings::Get();
+            settings.show_hud = !settings.show_hud.load();
+            BbSettings::Save();
+            return true;
+        }
+        if (down && !event.key.repeat && event.key.key == SDLK_F9) {
+            BbPerf::StartMeasurement(90);
             return true;
         }
         if (!is_open) {
@@ -874,7 +966,8 @@ bool HandleEvent(const SDL_Event& event) {
 }
 
 bool Visible() {
-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps);
+    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || BbSettings::Get().show_hud ||
+                           BbPerf::MeasurementProgress().first >= 0.0f);
 }
 
 bool MenuOpen() {
@@ -894,6 +987,8 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     if (ms > 0.0f && ms < 1000.0f) {
         frame_ms_avg = frame_ms_avg == 0.0f ? ms : frame_ms_avg * 0.95f + ms * 0.05f;
     }
+    BbPerf::SetHudVisible(BbSettings::Get().show_hud);
+    BbPerf::OnPresent(ms);
     if (!Visible()) {
         return;
     }
@@ -915,8 +1010,13 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     if (menu_open) {
         Menu();
     }
-    if (BbSettings::Get().show_fps && !menu_open) {
+    if (BbSettings::Get().show_hud && !menu_open) {
+        HudOverlay();
+    } else if (BbSettings::Get().show_fps && !menu_open) {
         FpsCounter();
+    }
+    if (!BbSettings::Get().show_hud && !menu_open && BbPerf::MeasurementProgress().first >= 0.0f) {
+        RecordingLabel();
     }
     if (prompt_active && !menu_open) {
         TextPrompt();

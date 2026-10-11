@@ -63,6 +63,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.debug_view = std::clamp(i, 0, DebugViewCount - 1);
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
+    } else if (key == "show_hud") {
+        v.show_hud = i != 0;
     } else if (key == "menu_pos") {
         float x = -1.0f, y = -1.0f;
         if (std::sscanf(value.c_str(), "%f,%f", &x, &y) == 2 && x >= 0.0f && x <= 1.0f && y >= 0.0f &&
@@ -103,7 +105,15 @@ Values& Get() {
 // PortGaGotoku: the menu's Italian texts, for the entries shown on Hokuto.
 constexpr std::pair<const char*, const char*> ItalianTexts[] = {
     {"Statistics (HUD)", "Statistiche (HUD)"},
-    {"On-screen statistics: coming in a next version", "Statistiche a schermo: in arrivo in una prossima versione"},
+    {"Show statistics (F11)", "Mostra le statistiche (F11)"},
+    {"Start measurement (90 s, F9)", "Avvia la misura (90 s, F9)"},
+    {"Records 90 s of frame times, CPU and GPU time and thread load into the logs folder (perf-*.csv).",
+     "Registra 90 s di tempi dei frame, tempo CPU e GPU e carico dei thread nella cartella dei log (perf-*.csv)."},
+    {"Measuring: %.0f / %d s", "Misura in corso: %.0f / %d s"},
+    {"CPU translation %s  GPU %s", "CPU traduzione %s  GPU %s"},
+    {"Pipeline compiles: %u in 5 s, %llu total", "Compilazioni pipeline: %u in 5 s, %llu in tutto"},
+    {"Busiest threads:", "Thread più carichi:"},
+    {"REC %.0f / %d s", "REC %.0f / %d s"},
     {"Game settings", "Impostazioni del gioco"},
     {"Hokuto's own settings will be here", "Qui arriveranno le impostazioni di Hokuto"},
     {"Other", "Altro"},
@@ -264,6 +274,7 @@ void Save() {
     put("reactive_max", fixed(v.reactive_max, 2));
     put("debug_view", std::to_string(v.debug_view.load()));
     put("show_fps", flag(v.show_fps));
+    put("show_hud", flag(v.show_hud));
     put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
     put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));
     // Read by patches.py at start.

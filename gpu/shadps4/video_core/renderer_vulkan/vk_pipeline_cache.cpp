@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "bbport_perf.h"
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -367,6 +368,7 @@ struct CompileTimer {
                                    std::chrono::steady_clock::now() - start)
                                    .count());
         ++g_bb_compiles;
+        ++BbPerf::compiles_total; // PortGaGotoku: statistics HUD and measurement (never reset)
     }
 };
 } // namespace

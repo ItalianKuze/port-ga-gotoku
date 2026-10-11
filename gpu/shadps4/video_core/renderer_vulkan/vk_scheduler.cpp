@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "bbport_perf.h"
 #include <thread>
 #include <algorithm>
 #include <cstdio>
@@ -947,8 +948,9 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
     // Guest memory copies into staging read by this submission (copy threads).
     WaitHostCopies();
     resume_rendering = false;
-    // bbport: the segments' command buffers in stream order (the recording threads are idle).
-    std::array<vk::CommandBuffer, MaxSegments> cmdbufs;
+    // bbport: the segments' command buffers in stream order (the recording threads are idle);
+    // two more for PortGaGotoku's GPU timestamps (BbPerf::WrapSubmission).
+    std::array<vk::CommandBuffer, MaxSegments + 2> cmdbufs;
     u32 num_cmdbufs = 0;
     if (workers.empty()) {
         cmdbufs[num_cmdbufs++] = current_cmdbuf;
@@ -964,6 +966,7 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
     for (u32 i = 0; i < num_cmdbufs; ++i) {
         Check(cmdbufs[i].end());
     }
+    num_cmdbufs = BbPerf::WrapSubmission(cmdbufs.data(), num_cmdbufs, u32(cmdbufs.size()));
 
     const vk::Semaphore timeline = work_semaphore.Handle();
     info.AddSignal(timeline, signal_value);
@@ -1038,7 +1041,7 @@ void Scheduler::SubmitAsync(SubmitInfo& info) {
     // with the other submissions and after the copies and signals queued before it).
     RecordOrdered([this, submitted = batch, info = std::move(info), signal_value]() mutable {
         BbCopy::WaitAsync();
-        std::array<vk::CommandBuffer, MaxSegments> cmdbufs;
+        std::array<vk::CommandBuffer, MaxSegments + 2> cmdbufs; // + PortGaGotoku's GPU timestamps
         u32 num_cmdbufs = 0;
         for (u32 i = 0; i < MaxSegments; ++i) {
             if (submitted->segments[i]) {
@@ -1047,6 +1050,7 @@ void Scheduler::SubmitAsync(SubmitInfo& info) {
         }
         recorded_segments.fetch_add(num_cmdbufs, std::memory_order_relaxed);
         recorded_submissions.fetch_add(1, std::memory_order_relaxed);
+        num_cmdbufs = BbPerf::WrapSubmission(cmdbufs.data(), num_cmdbufs, u32(cmdbufs.size()));
         static constexpr std::array<vk::PipelineStageFlags, 4> wait_stage_masks = {
             vk::PipelineStageFlagBits::eAllCommands,
             vk::PipelineStageFlagBits::eColorAttachmentOutput,
