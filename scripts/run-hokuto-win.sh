@@ -21,6 +21,9 @@ timeout_s=${BB_TIMEOUT:-30}
 
 mkdir -p "$data/user"
 export XDG_DATA_HOME="$data"
+# The GPU library's folders in the data folder, not %APPDATA%\shadPS4 (the real shadPS4's):
+# its user folder and the shader/pipeline cache (<data>/cache/<serial>).
+export BB_GPU_USER_DIR="$data/gpu" BB_GPU_CACHE_DIR="$data/cache"
 
 cd "$run" || exit 1
 echo "== launching (game=$game) =="
