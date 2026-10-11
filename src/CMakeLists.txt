@@ -67,6 +67,11 @@ target_include_directories(bbport_runtime PRIVATE
 # address conversions.
 target_link_libraries(bbport_runtime PRIVATE bcrypt advapi32 ws2_32)
 
+# The build's version and commit (scripts/build-win.sh), printed first in every log.
+if (BB_BUILD_ID)
+    target_compile_definitions(bbport_runtime PRIVATE BB_BUILD_ID="${BB_BUILD_ID}")
+endif()
+
 target_compile_definitions(bbport_runtime PRIVATE
     WIN32_LEAN_AND_MEAN
     NOMINMAX

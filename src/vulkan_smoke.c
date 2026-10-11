@@ -60,3 +60,33 @@ int vulkan_smoke(void) {
     vkFreeMemory(device, allocation, NULL); vkDestroyDevice(device, NULL); vkDestroyInstance(instance, NULL);
     return ok ? 0 : 1;
 }
+
+/* bb-probe --devices: the Vulkan devices (index as BB_GPU_ID, name as BB_GPU_DEVICE matches it)
+ * and the connected gamepads, one per line, for the launcher. Nothing of the game is loaded. */
+void runtime_pad_list(void);
+int probe_devices(void) {
+    VkApplicationInfo app = {.sType=VK_STRUCTURE_TYPE_APPLICATION_INFO, .pApplicationName="bbport devices", .apiVersion=VK_API_VERSION_1_0};
+    VkInstanceCreateInfo ici = {.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, .pApplicationInfo=&app};
+    VkInstance instance;
+    if (vkCreateInstance(&ici, NULL, &instance) == VK_SUCCESS) {
+        uint32_t count = 0;
+        vkEnumeratePhysicalDevices(instance, &count, NULL);
+        VkPhysicalDevice *devices = count ? calloc(count, sizeof(*devices)) : NULL;
+        if (devices && vkEnumeratePhysicalDevices(instance, &count, devices) == VK_SUCCESS) {
+            for (uint32_t i = 0; i < count; ++i) {
+                VkPhysicalDeviceProperties p; vkGetPhysicalDeviceProperties(devices[i], &p);
+                const char *type = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? "discrete" :
+                                   p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? "integrated" :
+                                   p.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU ? "cpu" : "other";
+                printf("Device: vulkan %u %s %s\n", i, type, p.deviceName);
+            }
+        }
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+    } else {
+        printf("Device: vulkan none\n");
+    }
+    runtime_pad_list();
+    fflush(stdout);
+    return 0;
+}

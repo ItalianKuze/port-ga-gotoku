@@ -37,6 +37,15 @@ fi
 
 mkdir -p "$build"
 
+# The build's identity, printed first in every log and shown by the launcher: the version in
+# VERSION, the commit, "+changes" when the working tree differs from it (submodules aside: the
+# fsr-vulkan patches are always applied), and the build date.
+version=$(tr -d '[:space:]' < "$root/VERSION")
+commit=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)
+git -C "$root" diff --quiet --ignore-submodules HEAD 2>/dev/null || commit+="+changes"
+build_id="$version ($commit, $(date +%Y-%m-%d))"
+echo "== build $build_id =="
+
 # Submodules and this port's changes to FSR-Vulkan (gpu/patches/fsr-vulkan), applied once, as in
 # build.sh; 0002 adds the includes MinGW needs.
 if [[ ! -f $root/gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f $root/gpu/third_party/imgui/imgui.h ]]; then
@@ -69,7 +78,7 @@ ninja -C "$gpu_dir" bbgpu
 echo "== pass 2: bbport_runtime.dll against libbbgpu =="
 cmake -S "$root/src" -B "$rt_dir" -G Ninja \
     -DCMAKE_BUILD_TYPE="$build_type" \
-    -DBBPORT_GPU_LIB="$gpu_dir/libbbgpu.dll.a" >/dev/null
+    -DBBPORT_GPU_LIB="$gpu_dir/libbbgpu.dll.a" -DBB_BUILD_ID="$build_id" >/dev/null
 ninja -C "$rt_dir"
 
 # ---------------------------------------------------------------- pass 3: relink the GPU
@@ -92,6 +101,7 @@ find "$run_dir" -mindepth 1 -delete
 cp -f "$gpu_dir/libbbgpu.dll" "$run_dir/"
 cp -f "$rt_dir/bbport_runtime.dll" "$run_dir/"
 cp -f "$rt_dir/bb-probe.exe" "$run_dir/"
+printf '%s\n' "$build_id" > "$run_dir/build-info.txt"
 
 # Runtime DLLs from the MSYS2 UCRT64 prefix, found recursively from the import tables (what
 # ntldd -R reports, limited to that prefix). Windows' own DLLs (System32, api-ms-win-*, ucrtbase)

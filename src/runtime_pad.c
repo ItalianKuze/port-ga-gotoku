@@ -593,4 +593,14 @@ static const RuntimeExport exports[]={
     {"scePadSetMotionSensorState",pad_ok_handle_flag},
 };
 uintptr_t runtime_pad_resolve(const char *name) { return RUNTIME_LOOKUP(exports,name); }
+void runtime_pad_list(void) {
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) { printf("Device: gamepad none (SDL: %s)\n",SDL_GetError()); return; }
+    SDL_UpdateGamepads();
+    int count=0;
+    SDL_JoystickID *ids=SDL_GetGamepads(&count);
+    for (int i=0;ids && i<count;++i) { const char *name=SDL_GetGamepadNameForID(ids[i]); printf("Device: gamepad %s\n",name ? name : "(no name)"); }
+    if (!count) printf("Device: gamepad none\n");
+    SDL_free(ids);
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+}
 void runtime_pad_report(void) { printf("Runtime: pad reads=%zu, gamepad=%s\n",reads,gamepad ? SDL_GetGamepadName(gamepad) : "none"); }

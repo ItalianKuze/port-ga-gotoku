@@ -42,6 +42,7 @@ static uint64_t module_count;
 static int entered_game;
 static int gpu_enabled;
 int vulkan_smoke(void);
+int probe_devices(void);
 #ifdef _WIN32
 static PVOID veh_handle;
 static HANDLE watchdog_thread;
@@ -792,7 +793,11 @@ int main(int argc, char **argv) {
     mallopt(M_ARENA_MAX,1);
     mallopt(M_MMAP_THRESHOLD,32*1024*1024);
 #endif
+#ifdef BB_BUILD_ID
+    printf("PortGaGotoku %s\n", BB_BUILD_ID);
+#endif
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();
+    if (argc == 2 && !strcmp(argv[1], "--devices")) return probe_devices();
 #ifdef _WIN32
     /* The PS4 user range must be reserved before anything lands in it: the guest image is mapped
      * at an address inside [USER_MIN,USER_MAX), and Vulkan drivers take their allocations from
