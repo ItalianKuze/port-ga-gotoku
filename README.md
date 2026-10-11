@@ -352,3 +352,14 @@ FSR 4 v07 provider), AMD FidelityFX SDK (MIT), [LibAtrac9](https://github.com/Th
 FSR 4.1.1 assets). Game patches by Kyo, Lance McDonald, auser1337, illusion, emoose and other
 community members (`patches/Bloodborne.xml`). AMD's FSR 4 DLLs and model data are not
 distributed here.
+
+### PortGaGotoku (Windows, Fist of the North Star: Lost Paradise)
+
+This fork runs *Fist of the North Star: Lost Paradise* (CUSA12781) on Windows. Its Windows
+launcher (`launcher/pgg_launcher_win.py`, `pgg_game.py`, `pgg_lang.py`) and package
+(`packaging/windows/play.c`, `package.sh`) are based on **Supermedo**'s Windows launcher and
+packaging ([Supermedo/bloodborne_pc](https://github.com/Supermedo/bloodborne_pc), v1.6,
+GPL-2.0-or-later): page structure, folder picker, job object, log page, translation scheme,
+frozen executable roles and the direct-play executable. Windows fixes also draw on
+[Mrsuss60/bloodborne_pc_windows_port](https://github.com/Mrsuss60/bloodborne_pc_windows_port)
+(fault recovery layout) and on shadPS4's library implementations.
