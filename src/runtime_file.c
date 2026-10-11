@@ -373,7 +373,18 @@ static int64_t do_rename(const char *from,const char *to) {
     int e=translate(from,a,sizeof(a));
     if (!e) e=translate(to,b,sizeof(b));
     if (e) return -e;
+#ifdef _WIN32
+    /* rename() fails on Windows when the destination exists (POSIX replaces it), which breaks the
+     * usual write-then-rename save pattern. As in the Mrsuss60 port: MoveFileExA replacing it. */
+    int64_t r=0;
+    if (!MoveFileExA(a,b,MOVEFILE_REPLACE_EXISTING|MOVEFILE_COPY_ALLOWED)) {
+        const DWORD w=GetLastError();
+        r = w==ERROR_FILE_NOT_FOUND || w==ERROR_PATH_NOT_FOUND ? -ENOENT : w==ERROR_ACCESS_DENIED ? -EACCES
+          : w==ERROR_ALREADY_EXISTS || w==ERROR_FILE_EXISTS ? -EEXIST : w==ERROR_SHARING_VIOLATION ? -EBUSY : -EIO;
+    }
+#else
     const int64_t r=rename(a,b) ? -errno : 0;
+#endif
     if (file_trace() || (runtime_save_trace() && (save_path(from) || save_path(to))))
         printf("FileTrace: rename %s -> %s = %lld\n",from,to,(long long)r);
     return r;
