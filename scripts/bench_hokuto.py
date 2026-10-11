@@ -120,8 +120,12 @@ def wait_gameplay(log, process):
 
 
 def write_pad(path, text):
-    # Windows' stat has whole seconds: the runtime sees a change only in a new second.
-    path.write_text(text, encoding='ascii')
+    # Windows' stat has whole seconds: the runtime sees a change only in a new second, and it must
+    # never read the file half written (it would not read it again in the same second): a whole
+    # new file replaces the old one.
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(text, encoding='ascii')
+    os.replace(temporary, path)
     time.sleep(1.2)
 
 
