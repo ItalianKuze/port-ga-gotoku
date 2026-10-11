@@ -227,6 +227,17 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     return fd;
 }
 static int64_t traced_fd(const char *op,int fd,uint64_t size,int64_t offset,int64_t result);
+int runtime_file_open_saves(char *first, size_t size) {
+    int count=0;
+    if (first && size) first[0]=0;
+    pthread_mutex_lock(&lock);
+    for (int i=3;i<MAX_FILES;++i)
+        if (files[i].used && !strncmp(files[i].path,"/savedata",9)) {
+            if (!count++ && first && size) snprintf(first,size,"%s",files[i].path);
+        }
+    pthread_mutex_unlock(&lock);
+    return count;
+}
 static int64_t do_close(int fd) {
     if (fd>=0 && fd<3) return 0;
     traced_fd("close",fd,0,0,0);

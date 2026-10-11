@@ -8,6 +8,7 @@
 runtime_disabled_optimizations
 runtime_errno
 runtime_recover_arm
+runtime_quit
 runtime_setjmp
 runtime_file_translate
 runtime_heap_growths

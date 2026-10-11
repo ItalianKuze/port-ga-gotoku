@@ -34,6 +34,8 @@
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 
 extern "C" {
+// runtime.c
+[[noreturn]] void runtime_quit(int code, const char* why);
 // runtime_memory.c
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
 int runtime_memory_write_backing(uintptr_t address, const void* data, uint64_t size);
@@ -286,8 +288,14 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
+#ifdef _WIN32
+        // The runtime lets save writes finish, prints its report and ends the process without
+        // DLL detach (std::_Exit went through ExitProcess, which hung on Windows).
+        runtime_quit(0, "window closed by the user");
+#else
         std::fflush(stdout);
         std::_Exit(0);
+#endif
     });
     g_window_thread.detach();
     {

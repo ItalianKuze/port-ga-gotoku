@@ -71,7 +71,7 @@ int runtime_save_trace(void) {
 #define SAVE_TRACE(...) do { if (runtime_save_trace()) printf("SaveTrace: " __VA_ARGS__); } while (0)
 static int initialized;
 static char title_id[16]="UNKNOWN";
-static struct { int used; char host[700], meta[700]; } slots[SLOTS];
+static struct { int used, writable; char host[700], meta[700], dir[33]; } slots[SLOTS];
 static char memory_path[720];
 static uint64_t memory_size;
 static size_t mounts_done, memory_writes;
@@ -269,6 +269,8 @@ static int32_t mount(int32_t user, const char *title, const DirName *dir, uint32
     if (exists && !(mode & MODE_RDONLY)) backup_slot(dir->data,host,meta); /* the game may write it now */
     if (!exists) { Param empty={0}; write_param(meta,&empty); }
     slots[slot].used=1;
+    slots[slot].writable=!(mode & MODE_RDONLY);
+    memcpy(slots[slot].dir,dir->data,32); slots[slot].dir[32]=0;
     snprintf(slots[slot].host,sizeof(slots[slot].host),"%s",host);
     snprintf(slots[slot].meta,sizeof(slots[slot].meta),"%s",meta);
     memset(result,0,sizeof(*result));
@@ -354,6 +356,15 @@ static ABI int32_t save_delete(const Delete *d) {
     remove_tree(meta);
     printf("Runtime: save data '%s' deleted\n",d->dir->data);
     return 0;
+}
+int runtime_savedata_writable_mounts(char *first, size_t size) {
+    int count=0;
+    if (first && size) first[0]=0;
+    pthread_mutex_lock(&lock);
+    for (int i=0;i<SLOTS;++i)
+        if (slots[i].used && slots[i].writable && !count++ && first && size) snprintf(first,size,"%s",slots[i].dir);
+    pthread_mutex_unlock(&lock);
+    return count;
 }
 int runtime_savedata_slot(int32_t user, const char *title, const char *dir, void *param, int64_t *mtime) {
     if (!dir || !valid_name(dir,32)) return 0;

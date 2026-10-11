@@ -8,6 +8,8 @@
 #include <stdatomic.h>
 #include <sched.h>
 #include <pthread.h>
+#include <time.h>
+#include <unistd.h>
 
 typedef struct {
     union { GuestCallback plain; void (ABI *with_arg)(void *); } callback;
@@ -82,6 +84,40 @@ void runtime_start(uint64_t flags) {
     fclose(random);
 #endif
     stack_canary &= ~UINT64_C(255);
+}
+void runtime_quit(int code, const char *why) {
+    printf("Runtime: quitting (%s)\n", why);
+    /* A save in progress (the game mounts a slot for writing, writes its files, unmounts it) is
+     * allowed to finish: at most 5 s, polled every 50 ms. */
+    for (int waited=0;;waited+=50) {
+        char file[512], slot[40];
+        const int files=runtime_file_open_saves(file,sizeof(file)), slots=runtime_savedata_writable_mounts(slot,sizeof(slot));
+        if (!files && !slots) {
+            if (waited) printf("Runtime: save data writes finished after %d ms\n", waited);
+            break;
+        }
+        if (!waited)
+            printf("Runtime: waiting for save data writes before quitting: %d open file(s)%s%s, %d slot(s) mounted for writing%s%s\n",
+                   files, files ? ", first " : "", files ? file : "", slots, slots ? ", first " : "", slots ? slot : "");
+        if (waited>=5000) {
+            printf("Runtime: WARNING: quitting with save data writes still in progress (%d open file(s), %d slot(s) mounted for writing); the save may be incomplete\n",
+                   files, slots);
+            break;
+        }
+#ifdef _WIN32
+        Sleep(50);
+#else
+        struct timespec nap={0,50000000}; nanosleep(&nap,NULL);
+#endif
+    }
+    runtime_report();
+    fflush(NULL);
+#ifdef _WIN32
+    /* Not ExitProcess: its DLL detach runs while GPU, audio and guest threads still hold driver
+     * and loader state, and the game hung on closing its window (2026-10-11). */
+    TerminateProcess(GetCurrentProcess(), (UINT)code);
+#endif
+    _exit(code);
 }
 void runtime_report(void) {
     printf("Runtime: _init_env=%zu, atexit=%zu, __cxa_atexit=%zu, registered handlers=%zu\n",

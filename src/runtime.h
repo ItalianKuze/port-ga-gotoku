@@ -39,6 +39,14 @@ typedef void (ABI *GuestCallback)(void);
 void runtime_start(uint64_t capabilities);
 uintptr_t runtime_resolve(const char *name, int is_data);
 void runtime_report(void);
+/* Ends the process for a normal quit (the window closed): waits up to 5 s for save data writes
+ * (open /savedataN files, slots mounted for writing) to finish, prints the report, then exits
+ * with code without running DLL detach (TerminateProcess on Windows). */
+__attribute__((noreturn)) void runtime_quit(int code, const char *why);
+/* Open guest files under /savedataN: their number; the first path goes to first. */
+int runtime_file_open_saves(char *first, size_t size);
+/* Save slots mounted for writing: their number; the first dirName goes to first. */
+int runtime_savedata_writable_mounts(char *first, size_t size);
 void runtime_finalize(void *dso);
 uintptr_t runtime_mutex_resolve(const char *name);
 void runtime_mutex_report(void);
