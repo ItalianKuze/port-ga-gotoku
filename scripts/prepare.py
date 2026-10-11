@@ -151,7 +151,7 @@ def inspect_libc(path):
 
 
 class GameCheckError(Exception):
-    """Game files bbport does not run (game_check.py)."""
+    """Game files PortGaGotoku does not run (game_check.py)."""
 
 
 def prepare(game, out, experimental_elf=False):
@@ -171,9 +171,11 @@ def prepare(game, out, experimental_elf=False):
         if p['filesz'] > p['memsz']:
             raise ValueError('segment file size exceeds memory size')
         image[p['vaddr']:p['vaddr'] + p['filesz']] = span(elf, p['offset'], p['filesz'])
-    # bbport: only the supported executable runs (game_check.py); others fail in the game's code.
-    if not is_raw_elf and (found := game_check.problem(game, hashlib.sha256(image).hexdigest())):
+    # Only the supported game (game_check.py, CUSA12781 by its param.sfo).
+    if (found := game_check.problem(game)):
         raise GameCheckError(game_check.explain(*found))
+    if (note := game_check.warning(game)):
+        print(f'Warning: {note}')
     dp = next(p for p in ph if p['type'] == 2)
     dyn = []
     for pos in range(dp['offset'], dp['offset'] + dp['filesz'], 16):
@@ -290,7 +292,7 @@ if __name__ == '__main__':
     parser.add_argument('game', type=Path)
     parser.add_argument('--out', type=Path, default=Path(__file__).resolve().parent.parent / 'out')
     parser.add_argument('--experimental-elf', action='store_true',
-                        help='allow an already extracted ELF and skip the Bloodborne identity check')
+                        help='allow an already extracted ELF (decrypted dumps)')
     args = parser.parse_args()
     try:
         prepare(args.game, args.out, experimental_elf=args.experimental_elf)

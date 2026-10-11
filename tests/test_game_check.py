@@ -4,7 +4,6 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 import game_check
 from test_prepare import fixture
@@ -41,31 +40,31 @@ class GameCheckTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_base_game_without_the_update(self):
-        self.assertEqual(game_check.problem(self.game('CUSA03173', '01.00')),
-                         ('missing_update', 'CUSA03173', '01.00'))
+    def test_hokuto_passes(self):
+        self.assertIsNone(game_check.problem(self.game('CUSA12781', '01.00')))
+        self.assertIsNone(game_check.warning(self.game('CUSA12781', '01.00')))
 
-    def test_update_metadata_with_an_old_executable(self):
-        self.assertEqual(game_check.problem(self.game('CUSA03173', '01.09'))[0], 'wrong_eboot')
+    def test_other_version_only_warns(self):
+        game = self.game('CUSA12781', '01.02')
+        self.assertIsNone(game_check.problem(game))
+        self.assertIn('01.02', game_check.warning(game))
 
-    def test_other_edition(self):
-        self.assertEqual(game_check.problem(self.game('CUSA00207', '01.09'))[0], 'other_title')
+    def test_other_title(self):
+        self.assertEqual(game_check.problem(self.game('CUSA03173', '01.09')),
+                         ('other_title', 'CUSA03173', '01.09'))
 
-    def test_unreadable_executable(self):
-        self.assertEqual(game_check.problem(self.game('CUSA03173', '01.09', b'junk'))[0], 'unreadable')
-
-    def test_supported_image_passes(self):
-        game = self.game('CUSA03173', '01.09')
-        with mock.patch.object(game_check, 'SUPPORTED_IMAGE', game_check.image_sha256(game)):
-            self.assertIsNone(game_check.problem(game))
+    def test_no_param_sfo(self):
+        path = Path(self.tmp.name)
+        (path / 'eboot.bin').write_bytes(b'x')
+        self.assertEqual(game_check.problem(path)[0], 'unreadable')
 
     def test_skip_switch(self):
         os.environ['BB_SKIP_GAME_CHECK'] = '1'
         self.assertIsNone(game_check.problem(self.game('CUSA03173', '01.00')))
 
     def test_every_problem_is_explained(self):
-        for kind in ('missing_update', 'wrong_eboot', 'other_title', 'unreadable'):
-            self.assertIn('CUSA', game_check.explain(kind, 'CUSA03173', '01.00'))
+        for kind in ('other_title', 'unreadable'):
+            self.assertIn('CUSA12781', game_check.explain(kind, 'CUSA03173', '01.00'))
 
 
 if __name__ == '__main__':

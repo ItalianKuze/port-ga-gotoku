@@ -14,7 +14,6 @@
 #include "bbport_sections.h"
 #include "bbport_free_check.h"
 #include "bbport_guest_memory.h"
-#include "bbport_guest_hooks.h"
 #include "common/alignment.h"
 #include "core/memory.h"
 #include "video_core/amdgpu/liverpool.h"
@@ -487,10 +486,8 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         std::printf("Guest memory: the PC memory model is off with this driver; the GPU uses copies "
                     "in VRAM (as BB_GUEST_IN_PLACE=0)\n");
     }
-    if (GuestInPlace()) {
-        static BufferCache* hooked_cache = this;
-        BbGuestHooks::Install([](u64 address, u64 size) { hooked_cache->NoteFreshRange(address, size); });
-    }
+    // PortGaGotoku: bbport's hooks in Bloodborne's code (its allocators announcing fresh ranges in
+    // the PC memory model) are removed; the write traps catch what nobody announces.
     const std::array<u32, 2> families = {instance.GetGraphicsQueueFamilyIndex(),
                                          instance.GetReadbackQueueFamilyIndex()};
     const bool shared = bool(instance.GetReadbackQueue()); // as Buffer creates the arenas

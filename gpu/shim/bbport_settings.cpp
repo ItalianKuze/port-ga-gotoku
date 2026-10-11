@@ -73,20 +73,12 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.fsr4_auto_exposure = i != 0;
     } else if (key == "fsr4_invert_jitter") {
         v.fsr4_invert_jitter = i != 0;
-    } else if (key == "model_lod") {
-        v.model_lod = std::clamp(i, -2, 2);
     } else if (key == "live_resolution") {
         v.live_resolution = value == "auto" ? -1 : std::clamp(i, 0, 1);
     } else if (key == "output_res") {
         for (int r = 0; r < OutputCount; ++r) {
             if (value == std::to_string(OutputWidths[r]) + "x" + std::to_string(OutputHeights[r])) {
                 v.output_res = r;
-            }
-        }
-    } else {
-        for (int e = 0; e < EffectCount; ++e) {
-            if (key == Effects[e].key) {
-                v.effects[e] = i != 0;
             }
         }
     }
@@ -139,9 +131,6 @@ const char* MenuText(const char* english, const char* russian) {
 
 void Load() {
     auto& v = Get();
-    for (int e = 0; e < EffectCount; ++e) {
-        v.effects[e] = Effects[e].default_on;
-    }
     // bbport: the menu's language until one is chosen in it (menu_language in bbport.ini): the
     // launcher's (BB_MENU_LANGUAGE), else the system's, as the launcher picks its own.
     {
@@ -197,10 +186,6 @@ void Load() {
     v.startup_preset = v.preset;
     v.startup_upscaler = v.upscaler;
     v.startup_object_motion = v.object_motion;
-    for (int e = 0; e < EffectCount; ++e) {
-        v.startup_effects[e] = v.effects[e];
-    }
-    v.startup_model_lod = v.model_lod;
     v.startup_output_res = v.output_res;
     v.startup_live_resolution = v.live_resolution;
 }
@@ -269,11 +254,6 @@ void Save() {
     put("show_hud", flag(v.show_hud));
     put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
     put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));
-    // Read by patches.py at start.
-    for (int e = 0; e < EffectCount; ++e) {
-        put(Effects[e].key, flag(v.effects[e]));
-    }
-    put("model_lod", std::to_string(v.model_lod.load()));
     put("output_res", std::to_string(OutputWidths[v.output_res]) + "x" +
                           std::to_string(OutputHeights[v.output_res]));
     // Read by run.sh at start.

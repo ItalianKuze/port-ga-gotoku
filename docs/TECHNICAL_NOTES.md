@@ -59,10 +59,13 @@ on Windows, and why. Useful to whoever continues the work, and to upstream where
   launcher puts both in `PortGaGotoku-data`; `bbport.ini` too (`BB_CONFIG`).
 - **Vulkan device**: every device is listed with the reason for the choice; `BB_GPU_DEVICE` (part of the
   name) or `BB_GPU_ID` forces one (a laptop with an AMD iGPU and an NVIDIA dGPU loads both ICDs).
-- **Game profile**: `gpu/shim/bbport_game.*` maps the TITLE_ID to a game. The in-game menu shows
-  Bloodborne's entries (upscaler tied to its shader, effects and patches from `patches/Bloodborne.xml`)
-  only on Bloodborne; on Hokuto it shows the language (English / Italian), the FPS counter, the
-  statistics HUD and the measurement. Unknown titles see everything, as upstream.
+- **Game profile**: `gpu/shim/bbport_game.*` maps the TITLE_ID to a game (Hokuto only). The in-game
+  menu shows the language (English / Italian), the FPS counter, the statistics HUD and the
+  measurement. bbport's Bloodborne-specific parts were removed from this fork: `patches/Bloodborne.xml`
+  with `scripts/patches.py` and `scripts/mods.py`, the hooks in Bloodborne's code
+  (`bbport_guest_hooks`), the menu's Bloodborne entries and patch effects, the save "sound hack", the
+  Linux launcher and AppImage packaging, the FSR 4 asset tools. `scripts/game_check.py` accepts only
+  CUSA12781 (another version than 01.00 is a warning).
 - **Statistics HUD and measurement** (`gpu/shim/bbport_perf.*`): FPS, 1% low, frame-time graph, CPU time
   of the GPU command thread, GPU busy time from timestamp queries around every submission, GPU
   utilisation (NVML / PDH), VRAM, CPU, RAM, pipeline compiles, the busiest threads. A measurement (F9,

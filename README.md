@@ -27,8 +27,9 @@ the frame rate drops below 60 FPS while walking through busy areas (the GPU comm
 CPU-bound), a flicker on the soldiers' hoods at the gate of Eden, and only one machine has been
 tested.
 
-The Bloodborne code of bbport is still in the tree (for updates from upstream); a game profile
-chosen from the TITLE_ID hides what applies to Bloodborne only.
+bbport's Bloodborne-specific parts (its patches and mods, hooks in Bloodborne's code, its menu
+entries, launcher and Linux packaging) are not in this fork; the renderer, runtime and tools they
+were built on are.
 
 ## Requirements
 
@@ -81,7 +82,7 @@ carry their scope: `[common]` (all platforms) or `[windows]`. Benchmarks:
 project was developed with the help of an AI coding assistant, under the direction and testing of its
 maintainer.
 
-bbport's own documents (Bloodborne, upstream history) are kept under `docs/` as they were.
+bbport's own documents (Bloodborne, upstream history) are kept in `docs/upstream-bbport/`.
 
 ## Credits
 

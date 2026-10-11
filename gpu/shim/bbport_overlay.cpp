@@ -64,7 +64,6 @@ extern "C" const unsigned char bb_font_ttf_end[];
 extern "C" const unsigned char bb_ui_font_ttf[];
 extern "C" const unsigned char bb_ui_font_ttf_end[];
 
-extern "C" void runtime_restart(void); // bb-probe (probe.c)
 
 namespace BbOverlay {
 
@@ -226,11 +225,7 @@ void Menu() {
     ImGui::SetNextWindowPos(pos, ImGuiCond_Appearing);
     ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
     bool keep_open = true;
-    const char* title = BbGame::IsHokuto()
-                            ? "PortGaGotoku  (Insert / L3+R3)###bbport_settings"
-                            : BbSettings::MenuText("Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
-                                                   "Bloodborne — настройки  (Insert / L3+R3)###bbport_settings");
-    if (!ImGui::Begin(title, &keep_open, ImGuiWindowFlags_NoCollapse)) {
+    if (!ImGui::Begin("PortGaGotoku  (Insert / L3+R3)###bbport_settings", &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
     }
@@ -245,352 +240,18 @@ void Menu() {
             dirty = true;
         }
     }
-    // Always readable, even when the rest of the menu is in Russian (or Italian, on Hokuto).
-    if (BbGame::IsHokuto()) {
-        static const char* languages[] = {"English", "Italiano"};
-        int language = s.menu_language == BbSettings::MenuLanguage::Italian ? 1 : 0;
-        if (ImGui::Combo("Language / Lingua", &language, languages, 2)) {
-            s.menu_language =
-                language == 1 ? BbSettings::MenuLanguage::Italian : BbSettings::MenuLanguage::English;
-            BbSettings::Save();
-        }
-    } else {
-    static const char* languages[] = {"English", "Русский"};
-    int language = s.menu_language == BbSettings::MenuLanguage::Russian ? 1 : 0;
-    if (ImGui::Combo("Language", &language, languages, 2)) {
-        s.menu_language =
-            language == 1 ? BbSettings::MenuLanguage::Russian : BbSettings::MenuLanguage::English;
+    // Always readable, whatever the menu's language.
+    static const char* languages[] = {"English", "Italiano"};
+    int language = s.menu_language == BbSettings::MenuLanguage::Italian ? 1 : 0;
+    if (ImGui::Combo("Language / Lingua", &language, languages, 2)) {
+        s.menu_language = language == 1 ? BbSettings::MenuLanguage::Italian : BbSettings::MenuLanguage::English;
         BbSettings::Save();
     }
-    } // Bloodborne's languages
     ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)", "%.0f FPS  (%.1f мс)"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
 
-    // Bloodborne's graphics sections (upscaler tied to its shader 0x9a9cf8a9, output resolution,
-    // effects and debug switches from patches/Bloodborne.xml): kept for upstream updates, shown
-    // only where they act. The block is not re-indented, to keep merges from upstream simple.
-    if (BbGame::For(BbGame::Bloodborne)) {
-    ImGui::SeparatorText(BbSettings::MenuText("Temporal upscaler", "Временной апскейлер"));
-    const char* upscalers[] = {
-        BbSettings::MenuText("Off", "Выкл"), "FSR 3.1", "FSR 4 (INT8)", "FSR 4.1.1 (INT8)",
-        BbSettings::MenuText("TAA (native anti-aliasing)", "TAA (нативное сглаживание)")};
-    static const char* later[] = {"DLSS", "XeSS"};
-    int upscaler = s.upscaler;
-    if (ImGui::BeginCombo(BbSettings::MenuText("Upscaler", "Апскейлер"), upscalers[upscaler])) {
-        for (int i = 0; i < BbSettings::UpscalerCount; ++i) {
-            const bool supported = i == BbSettings::UpscalerFsr4     ? s.fsr4_supported.load()
-                                   : i == BbSettings::UpscalerFsr411 ? s.fsr411_supported.load()
-                                                                     : true;
-            ImGui::BeginDisabled(!supported);
-            if (ImGui::Selectable(upscalers[i], i == upscaler)) {
-                Store(s.upscaler, i, true);
-            }
-            ImGui::EndDisabled();
-            if (!supported) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", BbSettings::MenuText("— not supported by this GPU",
-                                                         "— не поддерживается видеокартой"));
-            }
-        }
-        for (const char* name : later) {
-            ImGui::BeginDisabled();
-            ImGui::Selectable(name, false);
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", BbSettings::MenuText("— in development", "— в работе"));
-        }
-        ImGui::EndCombo();
-    }
-    if (const char* problem = s.fsr4_problem.load()) {
-        ImGui::PushTextWrapPos();
-        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.3f, 1.0f),
-                           BbSettings::MenuText("FSR 4 unavailable: %s", "FSR 4 недоступен: %s"),
-                           problem);
-        if (!BbSettings::IsFsr4(s.upscaler))
-            ImGui::TextUnformatted(BbSettings::MenuText(
-                "The mode selected above is active. You can select FSR 4 again.",
-                "Активен режим, выбранный выше. FSR 4 можно выбрать снова."));
-        ImGui::PopTextWrapPos();
-    }
-    if (BbSettings::IsFsr4(s.upscaler)) {
-        if (s.upscaler == BbSettings::UpscalerFsr411) {
-            Hint(BbSettings::MenuText(
-                "FSR 4.1.1 in INT8 mode: the model from AMD's 4.1.1 DLL, reproduced in Vulkan "
-                "(output matches the DLL). One model for Native through Performance and another "
-                "for Ultra Performance. Assets: tools/fsr4cap/build_assets.sh (requires the DLL "
-                "and Proton).",
-                "FSR 4.1.1 в режиме INT8: модель из DLL AMD 4.1.1, воспроизведённая в Vulkan "
-                "(результат совпадает с DLL). Одна модель для Native..Performance и отдельная "
-                "для Ultra Performance. Ассеты: tools/fsr4cap/build_assets.sh (нужны DLL и "
-                "Proton)."));
-        } else {
-            Hint(BbSettings::MenuText(
-                "FSR 4 in INT8 mode (v07 model from AMD FidelityFX SDK sources). Higher quality "
-                "than FSR 3.1, but the pass is more demanding. Changing the preset rebuilds the "
-                "model (a brief pause). Assets: tools/fetch_fsr4_assets.sh.",
-                "FSR 4 в режиме INT8 (модель v07 из исходников AMD FidelityFX SDK). Качество выше, "
-                "чем у FSR 3.1, но проход тяжелее. Смена пресета пересобирает модель (короткая "
-                "пауза). Ассеты: tools/fetch_fsr4_assets.sh."));
-        }
-        Checkbox(BbSettings::MenuText("FSR 4: auto exposure", "FSR 4: авто-экспозиция"),
-                 s.fsr4_auto_exposure);
-        Checkbox(BbSettings::MenuText("FSR 4: invert jitter sign", "FSR 4: обратный знак jitter"),
-                 s.fsr4_invert_jitter);
-        Hint(BbSettings::MenuText(
-            "For diagnosing ghosting: the FSR 4 network normalizes color by exposure and uses "
-            "it to decide when to discard previous frames. Changes apply immediately, without a "
-            "restart.",
-            "Проверка при гостинге: сеть FSR 4 нормирует цвет по экспозиции и по ней решает, "
-            "когда отбросить прошлые кадры. Меняются сразу, без перезапуска."));
-    }
-    const bool upscaler_on = s.upscaler != BbSettings::UpscalerOff;
-    const bool taa = s.upscaler == BbSettings::UpscalerTaa;
-    ImGui::BeginDisabled(!upscaler_on);
-    ImGui::BeginDisabled(taa);
-    int preset = taa ? BbSettings::NativeAA : s.preset.load();
-    char preset_label[64];
-    std::snprintf(preset_label, sizeof(preset_label), "%s (x%.1f)", BbSettings::PresetName(preset),
-                  BbSettings::PresetScale(preset));
-    if (ImGui::BeginCombo(BbSettings::MenuText("Preset", "Пресет"), preset_label)) {
-        for (int i = 0; i < BbSettings::PresetCount; ++i) {
-            char label[64];
-            const float scale = BbSettings::PresetScale(i);
-            const int output = s.output_res;
-            std::snprintf(
-                label, sizeof(label),
-                BbSettings::MenuText("%s (x%.1f, render %dx%d)", "%s (x%.1f, рендер %dx%d)"),
-                BbSettings::PresetName(i), scale,
-                int(std::lround(BbSettings::OutputWidths[output] / scale / 2) * 2),
-                int(std::lround(BbSettings::OutputHeights[output] / scale / 2) * 2));
-            if (ImGui::Selectable(label, i == preset)) {
-                Store(s.preset, i, true);
-            }
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::EndDisabled();
-    if (taa) {
-        ImGui::TextWrapped("%s", BbSettings::MenuText(
-            "TAA anti-aliases the scene at output resolution, without an FSR model or upscaling. "
-            "Your saved FSR preset is restored when you select FSR.",
-            "TAA сглаживает сцену в разрешении вывода, без модели FSR и апскейлинга. "
-            "Сохранённый пресет FSR восстановится при выборе FSR."));
-    }
-    ImGui::Text(
-        BbSettings::MenuText("Active scene render: %d x %d", "Активный рендер сцены: %d x %d"),
-        s.active_render_width.load(), s.active_render_height.load());
-    if (BbSettings::FixedRenderSession()) {
-        ImGui::Text(BbSettings::MenuText("Startup preset: %s", "Пресет при запуске: %s"),
-                    BbSettings::PresetName(s.startup_preset));
-        if (const char* automatic = std::getenv("BB_AUTO_RENDER_RES");
-            automatic && automatic[0] == '1') {
-            Hint(BbSettings::MenuText(
-                "When output is not 1080p, the entire game renders at the preset resolution "
-                "(startup patch): "
-                "this is fastest on Steam Deck and weaker GPUs. Preset or output resolution "
-                "changes "
-                "require a restart. Enable Live resolution changes below to change them without "
-                "restarting (post-processing then stays at 1080p, which is slower).",
-                "При выводе не 1080p вся игра рисуется в разрешении пресета (патч при запуске): "
-                "это быстрее всего на Steam Deck и слабых GPU. Смена пресета или разрешения "
-                "вывода — после перезапуска. Пункт «Смена разрешения на лету» ниже включает "
-                "смену без перезапуска (постобработка тогда остаётся в 1080p, медленнее)."));
-        } else {
-            Hint(BbSettings::MenuText(
-                "BB_RENDER_RES fixes the scene size at startup. Remove this explicit environment "
-                "variable to change resolution and presets without restarting the game.",
-                "BB_RENDER_RES фиксирует размер сцены при запуске. Уберите эту явную переменную "
-                "для смены разрешения и пресетов без перезапуска игры."));
-        }
-    } else {
-        Hint(BbSettings::MenuText(
-            "Native AA: FSR acts as anti-aliasing. Other presets reduce the scene render "
-            "resolution "
-            "relative to the output. The UI renders at output resolution. "
-            "The preset applies from the next frame without restarting the game.",
-            "Native AA: FSR работает как сглаживание. Остальные пресеты уменьшают разрешение "
-            "отрисовки сцены относительно вывода. Интерфейс рисуется в разрешении вывода. "
-            "Пресет применяется со следующего кадра без перезапуска игры."));
-    }
-    Checkbox(BbSettings::MenuText("Sharpening (RCAS)", "Резкость (RCAS)"), s.sharpen);
-    ImGui::BeginDisabled(!s.sharpen);
-    Slider(BbSettings::MenuText("Sharpness", "Сила резкости"), s.sharpness, 0.0f, 2.0f);
-    Hint(BbSettings::MenuText(
-        "Up to 1: the upscaler's own sharpening (RCAS). Above 1 adds another RCAS pass. "
-        "Ctrl+click the slider to enter an exact value.",
-        "До 1 — резкость самого апскейлера (RCAS). Выше 1 добавляется ещё один проход RCAS. "
-        "Ctrl+клик по ползунку — ввести точное значение."));
-    ImGui::EndDisabled();
-    Checkbox(BbSettings::MenuText("Subpixel jitter", "Субпиксельный сдвиг (jitter)"), s.jitter);
-    Hint(BbSettings::MenuText(
-        "Each frame shifts the scene by a fraction of a pixel, letting the upscaler reconstruct "
-        "more detail from multiple frames. Without it, only history-based anti-aliasing remains.",
-        "Каждый кадр сцена сдвигается на долю пикселя, и апскейлер собирает из нескольких "
-        "кадров больше деталей. Без него получается только сглаживание по истории."));
 
-    ImGui::SeparatorText(BbSettings::MenuText("Reactive mask", "Маска реактивности"));
-    ImGui::BeginDisabled(taa);
-    Checkbox(BbSettings::MenuText("Enable mask", "Включить маску"), s.reactive);
-    Hint(BbSettings::IsFsr4(s.upscaler)
-             ? BbSettings::MenuText(
-                   "Marks transparent effects (haze, light, water, particles). FSR 4 takes no "
-                   "mask itself: its output is blended with the current frame there, so the "
-                   "effects do not drag previous frames along.",
-                   "Помечает прозрачные эффекты (дымку, свет, воду, частицы). FSR 4 сам маску не "
-                   "принимает: там его результат смешивается с текущим кадром, и эффекты не "
-                   "тянут за собой прошлые кадры.")
-             : BbSettings::MenuText(
-                   "Marks transparent effects (particles, haze) so the upscaler relies less on "
-                   "previous frames. Reduces trails behind effects, but shimmering returns "
-                   "underneath them.",
-                   "Помечает прозрачные эффекты (частицы, дымку), чтобы апскейлер меньше "
-                   "опирался на прошлые кадры. Меньше шлейфов за эффектами, но под ними "
-                   "возвращается дрожание."));
-    ImGui::BeginDisabled(!s.reactive);
-    Slider(BbSettings::MenuText("Scale", "Масштаб"), s.reactive_scale, 0.0f, 4.0f);
-    Slider(BbSettings::MenuText("Threshold", "Порог"), s.reactive_threshold, 0.0f, 1.0f);
-    Slider(BbSettings::MenuText("Maximum", "Максимум"), s.reactive_max, 0.0f, 1.0f);
-    bool show_mask = s.debug_view == BbSettings::DebugReactive;
-    if (ImGui::Checkbox(BbSettings::MenuText("Show mask (debug)", "Показать маску (отладка)"),
-                        &show_mask)) {
-        s.debug_view = show_mask ? BbSettings::DebugReactive : BbSettings::DebugNone;
-    }
-    ImGui::EndDisabled();
-    ImGui::EndDisabled();
-    Checkbox(BbSettings::MenuText("Character motion vectors", "Векторы движения персонажей"),
-             s.object_motion);
-    Hint(BbSettings::MenuText(
-        "Accurate vectors for animated objects: clothing and weapons break up less "
-        "during movement. The static scene does not get an additional pass. "
-        "Changes apply after restarting the game.",
-        "Точные векторы для анимированных объектов: одежда и оружие меньше рассыпаются "
-        "при движении. Статичная сцена не получает дополнительный проход. "
-        "Изменение применяется после перезапуска игры."));
-    bool show_motion = s.debug_view == BbSettings::DebugMotion;
-    if (ImGui::Checkbox(BbSettings::MenuText("Show motion vectors (debug)",
-                                             "Показать векторы движения (отладка)"),
-                        &show_motion)) {
-        s.debug_view = show_motion ? BbSettings::DebugMotion : BbSettings::DebugNone;
-    }
-    Hint(BbSettings::MenuText(
-        "Red/green: horizontal/vertical motion (8 pixels = full brightness). "
-        "Blue: the pixel received an accurate object vector, not just camera motion. "
-        "The upscaler treats a moving object with no blue or red/green as "
-        "stationary, causing trails.",
-        "Красный/зелёный: движение по горизонтали/вертикали (8 пикселей = полная яркость). "
-        "Синий: пиксель получил точный вектор объекта, а не только движение камеры. "
-        "Движущийся предмет без синего и без красного/зелёного апскейлер считает "
-        "неподвижным, отсюда шлейф."));
-    ImGui::EndDisabled(); // upscaler off
-
-    ImGui::SeparatorText(BbSettings::MenuText("Output resolution", "Разрешение вывода"));
-    static const char* outputs[] = {"1280 x 720", "1920 x 1080", "2560 x 1440", "3840 x 2160"};
-    int output = s.output_res;
-    if (ImGui::BeginCombo(BbSettings::MenuText("Output resolution", "Разрешение вывода"),
-                          outputs[output])) {
-        for (int i = 0; i < BbSettings::OutputCount; ++i) {
-            if (ImGui::Selectable(outputs[i], i == output)) {
-                Store(s.output_res, i, true);
-            }
-        }
-        ImGui::EndCombo();
-    }
-    if (BbSettings::FixedRenderSession()) {
-        Hint(BbSettings::MenuText(
-            "Size of the final frame and UI. The preset sets the scene size relative to "
-            "the output: 4K Performance = 1920x1080. Applies after restarting the game.",
-            "Размер готового кадра и интерфейса. Пресет задаёт размер сцены относительно "
-            "вывода: 4K Performance = 1920x1080. Применяется после перезапуска игры."));
-    } else {
-        Hint(BbSettings::MenuText(
-            "The final frame and UI size changes at the next frame boundary. "
-            "The preset sets the scene size relative to the output: 4K Performance = 1920x1080. "
-            "Changing the size resets FSR history and may cause a brief pause.",
-            "Размер готового кадра и интерфейса меняется на границе следующего кадра. "
-            "Пресет задаёт размер сцены относительно вывода: 4K Performance = 1920x1080. "
-            "Смена размера сбрасывает историю FSR и может вызвать короткую паузу."));
-    }
-    const char* live_modes[] = {BbSettings::MenuText("Auto (based on GPU)", "Авто (по видеокарте)"),
-                                BbSettings::MenuText("Off (faster)", "Выключена (быстрее)"),
-                                BbSettings::MenuText("On", "Включена")};
-    int live = s.live_resolution + 1;
-    if (ImGui::BeginCombo(
-            BbSettings::MenuText("Live resolution changes", "Смена разрешения на лету"),
-            live_modes[live])) {
-        for (int i = 0; i < 3; ++i) {
-            if (ImGui::Selectable(live_modes[i], i == live)) {
-                Store(s.live_resolution, i - 1, true);
-            }
-        }
-        ImGui::EndCombo();
-    }
-    Hint(BbSettings::MenuText(
-        "On: output resolution and preset change without restarting, but game post-processing "
-        "stays at 1080p, which is noticeably slower on Steam Deck and older GPUs. "
-        "Off: everything renders at the preset resolution, and changes require a restart. Auto "
-        "enables this on powerful discrete GPUs. Applies after restarting the game.",
-        "Включена: разрешение вывода и пресет меняются без перезапуска, но постобработка игры "
-        "остаётся в 1080p — на Steam Deck и старых видеокартах это заметно медленнее. "
-        "Выключена: всё рисуется в разрешении пресета, смена — через перезапуск. Авто включает "
-        "её на мощных дискретных видеокартах. Применяется после перезапуска игры."));
-    ImGui::SeparatorText(BbSettings::MenuText("Game effects (restart required)",
-                                              "Эффекты игры (после перезапуска)"));
-    const char* lods[] = {BbSettings::MenuText("Highest (-2)", "Максимальная (-2)"),
-                          BbSettings::MenuText("Game default", "Как в игре"),
-                          BbSettings::MenuText("Lower (1)", "Ниже (1)"),
-                          BbSettings::MenuText("Lowest (2)", "Минимальная (2)")};
-    static constexpr int lod_values[] = {-2, 0, 1, 2};
-    int lod_index = 1;
-    for (int i = 0; i < 4; ++i) {
-        if (lod_values[i] == s.model_lod) lod_index = i;
-    }
-    if (ImGui::BeginCombo(BbSettings::MenuText("Model detail", "Детализация моделей"),
-                          lods[lod_index])) {
-        for (int i = 0; i < 4; ++i) {
-            if (ImGui::Selectable(lods[i], i == lod_index)) {
-                Store(s.model_lod, lod_values[i], true);
-            }
-        }
-        ImGui::EndCombo();
-    }
-    for (int e = 0; e < BbSettings::EffectCount; ++e) {
-        const auto& effect = BbSettings::Effects[e];
-        Checkbox(BbSettings::MenuText(effect.label, effect.label_ru), s.effects[e]);
-    }
-    Hint(BbSettings::MenuText(
-        "Effects are enabled and disabled by game patches at startup (patches/Bloodborne.xml). "
-        "Motion blur and shadows from dynamic lights place a significant load on the GPU.",
-        "Эффекты включаются и выключаются патчами игры при запуске (patches/Bloodborne.xml). "
-        "Размытие в движении и тени от динамических источников заметно нагружают GPU."));
-    Hint(BbSettings::MenuText(
-        "Free camera: hold Cross and press L3 (keyboard: Space + Z). "
-        "Debug menu: left touchpad / Tab. Requires DbgFont14h.ccm and DbgFont14h.tpf "
-        "in dvdroot_ps4/font from Nexus mod #253. Right touchpad: Backspace.",
-        "Свободная камера: удерживайте Cross и нажимайте L3 (клавиатура: Space + Z). "
-        "Debug menu: левый touchpad / Tab. Нужны DbgFont14h.ccm и DbgFont14h.tpf "
-        "в dvdroot_ps4/font из мода Nexus #253. Правый touchpad: Backspace."));
-
-    bool restart =
-        s.object_motion != s.startup_object_motion || s.model_lod != s.startup_model_lod ||
-        s.live_resolution != s.startup_live_resolution || BbSettings::ResolutionNeedsRestart();
-    for (int e = 0; e < BbSettings::EffectCount; ++e) {
-        restart |= s.effects[e] != s.startup_effects[e];
-    }
-    if (restart) {
-        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
-                           BbSettings::MenuText("Changes apply after restarting the game",
-                                                "Изменения применятся после перезапуска игры"));
-        if (ImGui::Button(
-                BbSettings::MenuText("Apply and restart game", "Применить и перезапустить игру"))) {
-            BbSettings::Save();
-            runtime_restart();
-        }
-    }
-    } // BbGame::Bloodborne
-
-    if (BbGame::IsHokuto()) {
-        HokutoSections(s);
-    }
+    HokutoSections(s);
 
     ImGui::SeparatorText(BbSettings::MenuText("Other", "Прочее"));
     Checkbox(BbSettings::MenuText("FPS counter in corner", "Счётчик FPS в углу"), s.show_fps);
@@ -619,15 +280,7 @@ void FpsCounter() {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
                      ImGuiWindowFlags_NoFocusOnAppearing);
-    const auto& s = BbSettings::Get();
-    ImGui::Text(BbSettings::MenuText("%.0f FPS  %.1f ms  %s", "%.0f FPS  %.1f мс  %s"),
-                frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg,
-                !BbGame::For(BbGame::Bloodborne)               ? "" // no upscaler acts there
-                : s.upscaler == BbSettings::UpscalerFsr3     ? "FSR 3.1"
-                : s.upscaler == BbSettings::UpscalerFsr4   ? "FSR 4"
-                : s.upscaler == BbSettings::UpscalerFsr411 ? "FSR 4.1.1"
-                : s.upscaler == BbSettings::UpscalerTaa    ? "TAA"
-                                                           : "");
+    ImGui::Text("%.0f FPS  %.1f ms", frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
     ImGui::End();
 }
 
