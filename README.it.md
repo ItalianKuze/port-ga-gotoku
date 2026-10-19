@@ -28,9 +28,26 @@ Sperimentale, giocabile sull'unica macchina su cui è stato provato (Windows 11,
 Funziona: loghi, schermata del titolo e menu, audio, filmati, gameplay (esplorazione e combattimento),
 controller e tastiera, salvataggio e caricamento (Continua), il launcher, il menu in gioco, l'HUD delle
 statistiche. Problemi noti e prossimi passi: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md),
-in inglese. In breve: in cammino nelle zone affollate il frame rate scende sotto i 60 FPS (il thread
-dei comandi GPU è al limite della CPU), uno sfarfallio sul cappuccio dei soldati alla porta di Eden, e
-una sola macchina provata.
+in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; uno sfarfallio sul cappuccio dei
+soldati alla porta di Eden (non verificato); una sola macchina provata.
+
+## Download
+
+1. Scarica lo `.zip` dell'ultima release da [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases)
+   ed estrailo in una cartella in cui puoi scrivere (non `Programmi`).
+2. Controlla i [requisiti](README.md#requirements) (Windows 10/11 a 64 bit, CPU con AVX, BMI1, MOVBE,
+   LZCNT e POPCNT, scheda video Vulkan 1.3, WebView2) e tieni pronto il tuo dump del gioco.
+3. Avvia `PortGaGotoku.exe`. Al primo avvio chiede la cartella del gioco: scegli la cartella CUSA12781
+   (quella con `eboot.bin` e `sce_sys`). Il launcher la controlla, prepara l'immagine di avvio (i file
+   del gioco vengono solo letti) e avvia il gioco. In seguito `Start Hokuto.exe` avvia direttamente il
+   gioco con le impostazioni salvate.
+4. Gli eseguibili non sono firmati e il launcher è impacchettato con PyInstaller: SmartScreen o un
+   antivirus potrebbero segnalarli.
+
+I log sono in `PortGaGotoku-data\logs\`, accanto alla cartella estratta. Per segnalare un problema apri
+una [issue](https://github.com/ItalianKuze/port-ga-gotoku/issues/new/choose) con il modulo di
+segnalazione e allega il log della sessione. I log possono contenere il tuo nome utente di Windows (nei
+percorsi dei file): puoi sostituirlo prima di allegarli.
 
 ## Requisiti, compilazione e avvio
 

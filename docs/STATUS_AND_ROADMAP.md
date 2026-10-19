@@ -7,23 +7,15 @@ Works: logos, title screen, menus, audio, movies, gameplay (exploration, combat 
 launcher (game folder check, boot image preparation, settings, log, stop), the in-game menu, the
 statistics HUD, the automatic benchmark.
 
-Measured (90 s, warm shader cache, Mailbox, window):
-
-| Scene | FPS | 1% low | CPU of the GPU command thread | GPU busy |
-|---|---|---|---|---|
-| standing outside the city | 60.0 | 55 | ~8 ms per frame | ~3.5 ms |
-| walking towards the gate of Eden | 48–54 | 20–25 | 12–17 ms per frame | 5–7 ms |
+Frame rate: 60 FPS standing, about 60 while walking with occasional drops (after the fix to the
+optimization toggles read by the GPU library on Windows). Not yet re-measured with the benchmark.
 
 ## Known issues
 
-- **Frame rate while walking**: drops to 30 (and 20) FPS frames in busy areas. The thread
-  `shadPS4:GpuCommandProcessor` (translating the game's GPU commands and handing the work to the
-  recording threads) reaches a full core: about 7 µs per draw, 1100–3700 draws per frame while walking.
-  The GPU is busy about a third of the time; the system CPU is mostly idle. Not the shaders (no compiles
-  during the measurement) and not the present mode.
-- **Flicker on the soldiers' hoods at the gate of Eden**: to compare with the PS4; possible causes are
-  depth precision (z-fighting), the material shader, or the texture / render-target cache. RenderDoc
-  capture planned.
+- **Occasional frame rate drops while walking** in busy areas: to measure with the benchmark.
+- **Flicker on the soldiers' hoods at the gate of Eden** (not verified after the toggle fix): to compare
+  with the PS4; possible causes are depth precision (z-fighting), the material shader, or the texture /
+  render-target cache. RenderDoc capture planned.
 - Movies play at 30 FPS (probably as encoded); occasional audio crackle; about 1 s of delay on some
   tutorial prompts. To compare with the PS4.
 - Only one machine tested. Fullscreen with Alt+Tab, the launcher's Stop button and the package's first

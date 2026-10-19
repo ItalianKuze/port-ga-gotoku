@@ -30,9 +30,8 @@ Experimental, playable on the one machine it was tested on (Windows 11, NVIDIA G
 What works: logos, title screen and menus, audio, movies, gameplay (exploration and combat),
 gamepad and keyboard, saving and loading (Continue), the launcher, the in-game menu, the statistics
 HUD. Known issues and next steps: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md). In short:
-the frame rate drops below 60 FPS while walking through busy areas (the GPU command thread is
-CPU-bound), a flicker on the soldiers' hoods at the gate of Eden, and only one machine has been
-tested.
+about 60 FPS while walking, with occasional drops; a flicker on the soldiers' hoods at the gate of
+Eden (not verified); only one machine has been tested.
 
 bbport's Bloodborne-specific parts (its patches and mods, hooks in Bloodborne's code, its menu
 entries, launcher and Linux packaging) are not in this fork; the renderer, runtime and tools they
@@ -46,6 +45,23 @@ were built on are.
 - Microsoft Edge WebView2 Runtime for the launcher's window (part of Windows 11).
 - Your own dump of Fist of the North Star: Lost Paradise, CUSA12781, version 01.00 (the only one
   tested).
+
+## Download
+
+1. Download the `.zip` of the latest release from [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases)
+   and extract it to a folder you can write to (not `Program Files`).
+2. Check the [requirements](#requirements) above and have your dump of the game ready.
+3. Start `PortGaGotoku.exe`. At the first start it asks for the game folder: choose the CUSA12781
+   folder (the one with `eboot.bin` and `sce_sys`). The launcher checks it, prepares the boot image
+   (the game files are only read) and starts the game. Later, `Start Hokuto.exe` starts the game
+   directly with the saved settings.
+4. The executables are not signed and the launcher is frozen with PyInstaller: Windows SmartScreen or
+   an antivirus may warn about them.
+
+Logs are in `PortGaGotoku-data\logs\`, next to the extracted folder (see [Data folder](#data-folder)).
+To report a problem, open an [issue](https://github.com/ItalianKuze/port-ga-gotoku/issues/new/choose)
+with the bug report form and attach the log of the run. Logs can contain your Windows user name (in
+file paths): you can replace it before attaching them.
 
 ## Build and run
 
