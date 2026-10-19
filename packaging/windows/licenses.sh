@@ -73,6 +73,7 @@ for package in $(printf '%s\n' "${!packages[@]}" | sort); do
 done
 
 # ------------------------------------------------------------------ the launcher's Python
+msys2_rows=$(wc -l < "$rows")
 "$python" - "$lic/python" packaging/windows/licenses/python <<'EOF' | tr -d '\r' >> "$rows"
 import importlib.metadata as md, pathlib, shutil, sys
 from packaging.requirements import Requirement
@@ -134,7 +135,7 @@ while IFS='|' read -r name version license _; do
         echo "pypi $name $version" >> "$sources_list"
         in_sources[$name]=1
     fi
-done < "$rows"
+done < <(tail -n +$((msys2_rows + 1)) "$rows")
 # pywebview ships Microsoft's WebView2 SDK DLLs; the wheel has no license file for them, the NuGet
 # package of the same version has (packaging/windows/licenses/webview2, from 1.0.3856.49).
 webview2=$(printf '%s\n' "$dest"/_internal/webview/lib/Microsoft.Web.WebView2.Core.dll | head -1)
