@@ -30,6 +30,11 @@ export PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig
 build_type=${BB_BUILD_TYPE:-RelWithDebInfo}
 lto=${BB_LTO:-ON}
 
+# The source tree's location stays out of the binaries: __FILE__ (log messages, asserts) and the
+# debug information name files relative to it. CMake hands gcc Windows paths (C:/...).
+prefix_map="-ffile-prefix-map=$(cygpath -m "$root")=. -ffile-prefix-map=$root=."
+flags=(-DCMAKE_C_FLAGS="$prefix_map" -DCMAKE_CXX_FLAGS="$prefix_map")
+
 if [[ ${1:-} == --clean ]]; then
     echo "== clean =="
     # Everything but the launcher's Python environment (pyenv-ui: pywebview, PyInstaller), which
@@ -74,14 +79,14 @@ gcc -shared -o "$build/libbbport_runtime_stub.dll" \
 
 echo "== pass 1: libbbgpu.dll against the runtime stub =="
 cmake -S "$root/gpu" -B "$gpu_dir" -G Ninja \
-    -DCMAKE_BUILD_TYPE="$build_type" -DBB_LTO="$lto" -DBB_PGO=off \
+    -DCMAKE_BUILD_TYPE="$build_type" -DBB_LTO="$lto" -DBB_PGO=off "${flags[@]}" \
     -DBBPORT_RUNTIME_LIB="$build/libbbport_runtime_stub.dll.a" >/dev/null
 ninja -C "$gpu_dir" bbgpu
 
 # ---------------------------------------------------------------- pass 2: the real runtime
 echo "== pass 2: bbport_runtime.dll against libbbgpu =="
 cmake -S "$root/src" -B "$rt_dir" -G Ninja \
-    -DCMAKE_BUILD_TYPE="$build_type" \
+    -DCMAKE_BUILD_TYPE="$build_type" "${flags[@]}" \
     -DBBPORT_GPU_LIB="$gpu_dir/libbbgpu.dll.a" -DBB_BUILD_ID="$build_id" >/dev/null
 ninja -C "$rt_dir"
 
@@ -90,7 +95,7 @@ ninja -C "$rt_dir"
 # named without it, so the .a and the .dll have different stems here.
 echo "== pass 3: relink libbbgpu.dll against the real runtime =="
 cmake -S "$root/gpu" -B "$gpu_dir" -G Ninja \
-    -DCMAKE_BUILD_TYPE="$build_type" -DBB_LTO="$lto" -DBB_PGO=off \
+    -DCMAKE_BUILD_TYPE="$build_type" -DBB_LTO="$lto" -DBB_PGO=off "${flags[@]}" \
     -DBBPORT_RUNTIME_LIB="$rt_dir/libbbport_runtime.dll.a" >/dev/null
 ninja -C "$gpu_dir" bbgpu
 
