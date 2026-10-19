@@ -2,8 +2,13 @@
 
 [English](README.md) · **Italiano**
 
+> **Nota:** "nativo" si riferisce solo alla CPU: il codice x86 del gioco gira direttamente sulla CPU,
+> mentre le librerie di sistema PS4 sono reimplementate (HLE). La grafica è tradotta in Vulkan tramite il
+> video core di shadPS4 incluso nel repo (`gpu/shadps4`). Non è una ricompilazione completa né una
+> riscrittura del renderer.
+
 PortGaGotoku fa girare *Fist of the North Star: Lost Paradise* (*Hokuto ga Gotoku*, PlayStation 4,
-CUSA12781) in modo nativo su Windows, "come un port". È un fork di
+CUSA12781) su Windows, "come un port". È un fork di
 [bbport](https://github.com/deadinside28/bloodborne_pc), il port nativo per PC di Bloodborne di
 deadinside28: il codice x86-64 del gioco gira direttamente sulla CPU, un runtime sostituisce le librerie
 di sistema della PS4 e la grafica viene tradotta in Vulkan da un renderer derivato da
@@ -14,6 +19,8 @@ di sistema della PS4 e la grafica viene tradotta in Vulkan da un renderer deriva
 > Studio, Sony Interactive Entertainment o dai detentori dei diritti di Fist of the North Star.
 
 ## Stato
+
+**Early alpha, sviluppato lentamente nel tempo libero.** Aspettati bug; nessuna data di rilascio.
 
 Sperimentale, giocabile sull'unica macchina su cui è stato provato (Windows 11, NVIDIA GeForce RTX
 5070, controller 8BitDo in modalità XInput).
