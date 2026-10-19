@@ -10,7 +10,9 @@
 
 #include "bbport_setjmp_compat.h"
 
-extern "C" std::uint64_t runtime_disabled_optimizations;
+/// The live toggle mask (runtime_memory.c). A function, not the variable: on Windows an imported
+/// variable without dllimport resolves to the import thunk's code bytes, not to the data.
+extern "C" std::uint64_t runtime_get_disabled_optimizations(void);
 /// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c).
 extern "C" std::uint64_t runtime_experiment_bits;
 /// Recovery point for speculative guest memory reads on this thread: one declaration shared with
@@ -94,7 +96,7 @@ enum : std::uint64_t {
     // Bits 20-29 are used as raw debug toggles by the camera/object motion and the upscaler.
 };
 inline bool Disabled(std::uint64_t bit) {
-    return (__atomic_load_n(&runtime_disabled_optimizations, __ATOMIC_RELAXED) & bit) != 0;
+    return (runtime_get_disabled_optimizations() & bit) != 0;
 }
 /// A temporary experiment switched on by bit `bit` of the second number in BB_TOGGLE_FILE.
 inline bool Experiment(std::uint64_t bit) {

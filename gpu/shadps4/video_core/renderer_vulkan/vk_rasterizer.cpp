@@ -74,10 +74,14 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
     memory->SetRasterizer(this);
 
     GpuProfiler::Init(instance, scheduler);
-    if (DrawPipeWanted()) {
+    const bool draw_pipe_wanted = DrawPipeWanted();
+    if (draw_pipe_wanted) {
         constant_ring = std::make_unique<ConstantRing>(instance, scheduler);
         draw_pipe = std::make_unique<DrawPipe>(&RunDrawPacket, this);
     }
+    std::printf("GPU: draw pipeline requested=%d allocated=%d disabled=%d (toggle mask %llu)\n",
+                draw_pipe_wanted, bool(draw_pipe), BbToggle::Disabled(BbToggle::DrawPipeline),
+                static_cast<unsigned long long>(runtime_get_disabled_optimizations()));
     // bbport: this thread joins the texture binding helper before it changes image state.
     runtime.SetImageAccessHook(&JoinBindHelper, this);
     scheduler.SetSubmitCallback([this](Vulkan::SubmitInfo& info) {

@@ -7,7 +7,7 @@ EXPORTS
     bbport_main
     runtime_thread_adopt_slot
 
-    runtime_disabled_optimizations
+    runtime_get_disabled_optimizations
     runtime_errno
     runtime_recover_arm
     runtime_quit

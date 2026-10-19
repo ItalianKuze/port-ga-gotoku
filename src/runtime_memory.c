@@ -1081,6 +1081,10 @@ void *runtime_low_map(size_t size, int prot) {
  * 1073741824 the lock-free UpdateImage path for clean, tracked images. */
 /* Bits 32 and up: the draw pipeline and related GPU thread work (gpu/shim/bbport_toggles.h). */
 uint64_t runtime_disabled_optimizations;
+/* Read the live toggle mask through a function instead of importing writable data across PE DLLs. */
+uint64_t runtime_get_disabled_optimizations(void) {
+    return __atomic_load_n(&runtime_disabled_optimizations, __ATOMIC_ACQUIRE);
+}
 /* bbport: a second number in BB_TOGGLE_FILE: temporary experiment bits (BbToggle::Experiment). */
 uint64_t runtime_experiment_bits;
 /* Speculative readers of guest memory (GPU draw-preparation workers) register a recovery
