@@ -8,6 +8,7 @@ EXPORTS
     runtime_thread_adopt_slot
 
     runtime_get_disabled_optimizations
+    runtime_get_experiment_bits
     runtime_errno
     runtime_recover_arm
     runtime_quit
@@ -31,7 +32,7 @@ EXPORTS
     runtime_process_time_counter
     runtime_process_time_us
     runtime_restart
-    runtime_restarting
+    runtime_is_restarting
     runtime_sleep_stats
     runtime_thread_attach_host
     runtime_tsc_frequency

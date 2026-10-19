@@ -13,8 +13,9 @@
 /// The live toggle mask (runtime_memory.c). A function, not the variable: on Windows an imported
 /// variable without dllimport resolves to the import thunk's code bytes, not to the data.
 extern "C" std::uint64_t runtime_get_disabled_optimizations(void);
-/// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c).
-extern "C" std::uint64_t runtime_experiment_bits;
+/// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c), read through
+/// a function for the same reason.
+extern "C" std::uint64_t runtime_get_experiment_bits(void);
 /// Recovery point for speculative guest memory reads on this thread: one declaration shared with
 /// the runtime (BbRecoverBuf, BB_RECOVER_SET, BB_RECOVER_ARM).
 #include "bbport_recover.h"
@@ -100,7 +101,7 @@ inline bool Disabled(std::uint64_t bit) {
 }
 /// A temporary experiment switched on by bit `bit` of the second number in BB_TOGGLE_FILE.
 inline bool Experiment(std::uint64_t bit) {
-    return (__atomic_load_n(&runtime_experiment_bits, __ATOMIC_RELAXED) & bit) != 0;
+    return (runtime_get_experiment_bits() & bit) != 0;
 }
 } // namespace BbToggle
 

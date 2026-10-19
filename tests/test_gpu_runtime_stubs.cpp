@@ -8,7 +8,8 @@
 extern "C" {
 thread_local sigjmp_buf* runtime_fault_recover = nullptr;
 uint64_t runtime_get_disabled_optimizations() { return 0; }
-uint64_t runtime_experiment_bits = 0;
+uint64_t runtime_get_experiment_bits() { return 0; }
+int runtime_is_restarting() { return 0; }
 uint64_t runtime_tsc_frequency() { return 1000000000; }
 int runtime_file_translate(const char*, char*, size_t) { std::abort(); }
 uint64_t runtime_memory_clamp(uintptr_t, uint64_t) { std::abort(); }

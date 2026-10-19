@@ -1087,6 +1087,9 @@ uint64_t runtime_get_disabled_optimizations(void) {
 }
 /* bbport: a second number in BB_TOGGLE_FILE: temporary experiment bits (BbToggle::Experiment). */
 uint64_t runtime_experiment_bits;
+uint64_t runtime_get_experiment_bits(void) {
+    return __atomic_load_n(&runtime_experiment_bits, __ATOMIC_ACQUIRE);
+}
 /* Speculative readers of guest memory (GPU draw-preparation workers) register a recovery
  * point: a fault on that thread jumps back to it instead of terminating (probe.c). */
 #ifndef _WIN32

@@ -761,6 +761,11 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
  * applied at start). Descriptors are closed first so the old GPU device and its memory are
  * released before the new process opens its own. */
 volatile int runtime_restarting;
+/* The GPU module reads the flag through this function: a variable imported across PE DLLs
+ * without dllimport would resolve to the import stub's code bytes. */
+int runtime_is_restarting(void) {
+    return runtime_restarting;
+}
 void runtime_restart(void) {
     fflush(NULL);
     puts("Runtime: restarting through run.sh");

@@ -12,10 +12,18 @@
 
 // bb-probe (probe.c): set while the port restarts itself through run.sh. The device fd is closed
 // before exec; Vulkan calls failing then are not errors: this thread waits for the exec instead.
-extern "C" __attribute__((weak)) volatile int runtime_restarting; // absent in the tests
+// A function, not the variable: a variable imported across PE DLLs resolves to the import stub.
+#ifdef _WIN32
+// Not weak here: MinGW does not resolve a weak reference from an import library (it becomes 0).
+extern "C" int runtime_is_restarting(void);
+static bool restarting() { return runtime_is_restarting() != 0; }
+#else
+extern "C" __attribute__((weak)) int runtime_is_restarting(void); // absent in the tests
+static bool restarting() { return runtime_is_restarting && runtime_is_restarting(); }
+#endif
 
 void assert_fail_impl() {
-    if (&runtime_restarting && runtime_restarting) {
+    if (restarting()) {
         for (;;) {
 #ifdef _WIN32
             Sleep(INFINITE);
