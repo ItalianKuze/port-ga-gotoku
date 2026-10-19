@@ -70,7 +70,7 @@ Windows, MSYS2 UCRT64 shell: [docs/BUILDING.md](docs/BUILDING.md). In short:
 ```sh
 bash scripts/build-win.sh                     # out-win/run: bb-probe.exe and its DLLs
 out-win/pyenv-ui/Scripts/pythonw.exe launcher/pgg_main.py   # the launcher, from the sources
-bash packaging/windows/package.sh             # or a package: dist/PortGaGotoku.zip
+bash packaging/windows/package.sh             # or a package: dist/PortGaGotoku-<version>.zip
 ```
 
 The launcher asks for the game folder at the first start, checks it (eboot.bin, TITLE_ID

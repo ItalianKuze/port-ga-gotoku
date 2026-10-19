@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-or-later
 # PortGaGotoku: the third-party notices of the Windows package (called by package.sh).
-#   licenses.sh <package folder> <python of the launcher's venv>
+#   licenses.sh <package folder> <python of the launcher's venv> <sources list>
 # Writes <package folder>/THIRD_PARTY_NOTICES.txt and <package folder>/licenses/:
 #   msys2/<package>/    the UCRT64 packages the DLLs in bin/ come from (pacman), with the license
 #                       files they install; packages that install none use the texts taken from their
@@ -9,13 +9,22 @@
 #   python/<project>/   CPython, PyInstaller (its bootloader is in PortGaGotoku.exe), pywebview and
 #                       its requirements, frozen into the launcher (packaging/windows/licenses/python/
 #                       for a project whose wheel has no license file)
+#   webview2/           Microsoft's WebView2 SDK DLLs shipped by pywebview (license from the NuGet
+#                       package, packaging/windows/licenses/webview2/)
 #   source/<name>/      the components compiled into bbport_runtime.dll and libbbgpu.dll
+# <sources list> gets one line per GPL/LGPL component ("msys2 <pkgbase> <version>" or
+# "pypi <project> <version>"): sources.sh puts their source packages in the third-party sources zip.
 # Packaging stops if a DLL's package or a package's license text cannot be found.
 set -euo pipefail
 cd -- "$(dirname -- "$0")/../.."
 dest=$1
 python=$2
-[[ -d $dest/bin && -x $python ]] || { echo "usage: licenses.sh <package folder> <venv python>" >&2; exit 1; }
+sources_list=$3
+[[ -d $dest/bin && -x $python && -n $sources_list ]] || {
+    echo "usage: licenses.sh <package folder> <venv python> <sources list>" >&2; exit 1; }
+sources_zip=PortGaGotoku-$(tr -d '[:space:]' < VERSION)-third-party-sources.zip
+: > "$sources_list"
+declare -A in_sources=()
 lic=$dest/licenses
 notices=$dest/THIRD_PARTY_NOTICES.txt
 rm -rf -- "$lic"
@@ -39,6 +48,12 @@ for package in $(printf '%s\n' "${!packages[@]}" | sort); do
     license=$(sed -n 's/^Licenses *: //p' <<< "$info" | sed 's/spdx://g; s/  */ /g')
     url=$(sed -n 's/^URL *: //p' <<< "$info")
     base=$(sed -n '/^%BASE%$/{n;p;q}' "/var/lib/pacman/local/$package-$version/desc")
+    # pacman says GPL-2.0; libjbig's sources (jbig.c, jbig85.c, jbig_ar.c) say "version 2 or later".
+    [[ $short == jbigkit ]] && license='GPL-2.0-or-later (libjbig source headers; MSYS2 metadata: GPL-2.0)'
+    if [[ $license == *GPL* ]]; then
+        grep -qx "msys2 $base $version" "$sources_list" || echo "msys2 $base $version" >> "$sources_list"
+        in_sources[$short]=1
+    fi
     mkdir -p "$lic/msys2/$short"
     copied=0
     while read -r path; do
@@ -114,13 +129,23 @@ v = sys.version_info
 print(f'CPython|{v.major}.{v.minor}.{v.micro}|PSF-2.0 (bundled components: see LICENSE.txt)|https://www.python.org/'
       f'|https://www.python.org/downloads/source/|_internal\\ (python{v.major}{v.minor}.dll, standard library)')
 EOF
-# pywebview ships Microsoft's WebView2 SDK DLLs, which have no license file in the wheel.
-webview2=$(printf '%s\n' "$dest"/_internal/webview/lib/Microsoft.Web.WebView2.*.dll | head -1)
+while IFS='|' read -r name version license _; do
+    if [[ $license == *GPL* ]]; then
+        echo "pypi $name $version" >> "$sources_list"
+        in_sources[$name]=1
+    fi
+done < "$rows"
+# pywebview ships Microsoft's WebView2 SDK DLLs; the wheel has no license file for them, the NuGet
+# package of the same version has (packaging/windows/licenses/webview2, from 1.0.3856.49).
+webview2=$(printf '%s\n' "$dest"/_internal/webview/lib/Microsoft.Web.WebView2.Core.dll | head -1)
 if [[ -f $webview2 ]]; then
-    printf '%s|%s|%s|%s|%s|%s\n' 'Microsoft Edge WebView2 SDK' 'as shipped by pywebview' \
-        'Microsoft WebView2 SDK license (BSD-style)' 'https://www.nuget.org/packages/Microsoft.Web.WebView2' \
-        'binary only; license: https://www.nuget.org/packages/Microsoft.Web.WebView2/License' \
-        '_internal\webview\lib\Microsoft.Web.WebView2.*.dll' >> "$rows"
+    version=$(strings -el "$webview2" | sed -n '/^ProductVersion$/{n;p;q}')
+    mkdir -p "$lic/webview2"
+    cp packaging/windows/licenses/webview2/* "$lic/webview2/"
+    printf '%s|%s|%s|%s|%s|%s\n' 'Microsoft Edge WebView2 SDK' "${version:-unknown}" BSD-3-Clause \
+        https://github.com/MicrosoftEdge/WebView2Feedback \
+        "binary only, https://www.nuget.org/packages/Microsoft.Web.WebView2/${version}" \
+        '_internal\webview\lib\Microsoft.Web.WebView2.*.dll, WebView2Loader.dll' >> "$rows"
 fi
 
 # ------------------------------------------------------------------ compiled from this repository
@@ -161,10 +186,16 @@ source_component 'DejaVu Sans font' in-tree 'Bitstream-Vera' https://dejavu-font
     echo
     echo 'Some components below are GPL-3.0-or-later or Apache-2.0 (FFmpeg is built with --enable-gpl'
     echo '--enable-version3), so the combination is distributed under the terms of GPL-3.0, which'
-    echo 'PortGaGotoku'"'"'s GPL-2.0-or-later permits. The license texts are in licenses\. The source of'
-    echo 'every MSYS2 package is at its "Source" link (the exact version shipped here).'
+    echo 'PortGaGotoku'"'"'s GPL-2.0-or-later permits; the source of PortGaGotoku itself stays'
+    echo 'GPL-2.0-or-later. The license texts are in licenses\.'
+    echo
+    echo "Source code: the source packages of every GPL and LGPL component below, at the exact version"
+    echo "in this package, are in $sources_zip, published with this package"
+    echo '(https://github.com/ItalianKuze/port-ga-gotoku/releases). The "Source" link of each component'
+    echo 'points to the same source online.'
     echo
     while IFS='|' read -r name version license home source files; do
+        [[ -n ${in_sources[$name]:-} ]] && source+=", also in $sources_zip"
         echo "$name $version"
         echo "    License:  $license"
         echo "    Project:  $home"

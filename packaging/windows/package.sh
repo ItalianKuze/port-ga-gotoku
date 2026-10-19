@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-or-later
-# PortGaGotoku: builds dist/PortGaGotoku/ (and dist/PortGaGotoku.zip) from the Windows build:
+# PortGaGotoku: builds dist/PortGaGotoku-<VERSION>.zip from the Windows build (staged in
+# out-win/stage/PortGaGotoku), with dist/PortGaGotoku-<VERSION>-third-party-sources.zip (sources.sh):
 #   PortGaGotoku.exe    the launcher, frozen with PyInstaller (players need no Python); it also
 #                       runs the preparation scripts (--script) and the game without its window
 #                       (--play)
@@ -64,15 +65,17 @@ cp scripts/prepare.py scripts/link_modules.py scripts/link_libc.py scripts/conte
 cp LICENSE "$dest/"
 cp packaging/windows/README-Windows.txt "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
-bash packaging/windows/licenses.sh "$dest" "$venv/Scripts/python.exe"
+version=$(tr -d '[:space:]' < VERSION)
+package=dist/PortGaGotoku-$version.zip
+bash packaging/windows/licenses.sh "$dest" "$venv/Scripts/python.exe" out-win/stage/third-party-sources.txt
 
 mkdir -p dist
-rm -f dist/PortGaGotoku.zip
+rm -f "$package"
 # Python's zipfile rather than Windows PowerShell's Compress-Archive, which writes the entries'
 # paths with backslashes (other unzip tools then make files named "PortGaGotoku\bin\...").
-(cd out-win/stage && "../../$venv/Scripts/python.exe" - <<'EOF'
-import os, zipfile
-with zipfile.ZipFile('../../dist/PortGaGotoku.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+(cd out-win/stage && "../../$venv/Scripts/python.exe" - "../../$package" <<'EOF'
+import os, sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
     for root, dirs, files in os.walk('PortGaGotoku'):
         dirs.sort()
         for name in sorted(files):
@@ -80,4 +83,6 @@ with zipfile.ZipFile('../../dist/PortGaGotoku.zip', 'w', zipfile.ZIP_DEFLATED, c
             z.write(path, path.replace(os.sep, '/'))
 EOF
 )
-du -sh "$dest" dist/PortGaGotoku.zip
+bash packaging/windows/sources.sh out-win/stage/third-party-sources.txt "$venv/Scripts/python.exe" \
+    "dist/PortGaGotoku-$version-third-party-sources.zip"
+du -sh "$dest" "$package" "dist/PortGaGotoku-$version-third-party-sources.zip"

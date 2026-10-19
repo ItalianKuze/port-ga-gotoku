@@ -38,7 +38,8 @@
    `PortGaGotoku-data/out` (`scripts/prepare.py`, `link_modules.py`, `content_profile.py`; the game
    files are only read) and starts the game.
 
-5. A package that needs no Python (`dist/PortGaGotoku.zip`, about 70 MB):
+5. A package that needs no Python (`dist/PortGaGotoku-<version>.zip`, about 70 MB, and the
+   third-party sources zip next to it):
 
    ```sh
    bash packaging/windows/package.sh
