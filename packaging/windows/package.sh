@@ -68,6 +68,16 @@ bash packaging/windows/licenses.sh "$dest" "$venv/Scripts/python.exe"
 
 mkdir -p dist
 rm -f dist/PortGaGotoku.zip
-(cd out-win/stage && powershell -NoProfile -Command \
-    "Compress-Archive -Path PortGaGotoku -DestinationPath ../../dist/PortGaGotoku.zip")
+# Python's zipfile rather than Windows PowerShell's Compress-Archive, which writes the entries'
+# paths with backslashes (other unzip tools then make files named "PortGaGotoku\bin\...").
+(cd out-win/stage && "../../$venv/Scripts/python.exe" - <<'EOF'
+import os, zipfile
+with zipfile.ZipFile('../../dist/PortGaGotoku.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+    for root, dirs, files in os.walk('PortGaGotoku'):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(root, name)
+            z.write(path, path.replace(os.sep, '/'))
+EOF
+)
 du -sh "$dest" dist/PortGaGotoku.zip
