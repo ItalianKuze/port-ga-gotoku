@@ -7,6 +7,7 @@
 #   Start Hokuto.exe    starts the game with the saved settings (packaging/windows/play.c)
 #   bin/                bb-probe.exe, bbport_runtime.dll, libbbgpu.dll and their DLLs (out-win/run)
 #   scripts/            the boot image preparation (prepare.py, link_modules.py, ...)
+#   THIRD_PARTY_NOTICES.txt, licenses/   the third-party components and their licenses (licenses.sh)
 # No game files and no user data are included; PortGaGotoku-data is created next to the folder.
 # After Supermedo's packaging/windows/package.sh (bloodborne_pc v1.6).
 #
@@ -63,6 +64,7 @@ cp scripts/prepare.py scripts/link_modules.py scripts/link_libc.py scripts/conte
 cp LICENSE "$dest/"
 cp packaging/windows/README-Windows.txt "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
+bash packaging/windows/licenses.sh "$dest" "$venv/Scripts/python.exe"
 
 mkdir -p dist
 rm -f dist/PortGaGotoku.zip
