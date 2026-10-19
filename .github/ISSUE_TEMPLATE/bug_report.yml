@@ -1,0 +1,74 @@
+name: Bug report
+description: Something does not work in the port (launcher, game, performance).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing PortGaGotoku. This is an unofficial project: please do not report its problems
+        to shadPS4 or bbport. No game files can be shared here.
+
+        **Logs can contain your Windows user name** (it is part of the file paths).
+        If you prefer, replace it before attaching the log.
+  - type: input
+    id: version
+    attributes:
+      label: Port version
+      description: The release you downloaded, or the commit in `bin\build-info.txt`.
+      placeholder: v0.1.0-alpha
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows
+      description: Edition and version (Win+R, `winver`).
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: cpu
+    attributes:
+      label: CPU
+      placeholder: AMD Ryzen 7 7800X3D
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver version
+      placeholder: NVIDIA GeForce RTX 5070, driver 581.57
+    validations:
+      required: true
+  - type: input
+    id: controller
+    attributes:
+      label: Controller
+      description: Model and mode (XInput, DualShock 4, DualSense...), or keyboard only.
+      placeholder: Xbox Wireless Controller (XInput)
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start PortGaGotoku.exe
+        2. Continue the save at chapter ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Drag the log of the run here (`PortGaGotoku-data\logs\`, next to the extracted folder; the
+        launcher's log page shows the latest one).
+    validations:
+      required: true
