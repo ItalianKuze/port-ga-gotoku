@@ -50,6 +50,8 @@ for package in $(printf '%s\n' "${!packages[@]}" | sort); do
     base=$(sed -n '/^%BASE%$/{n;p;q}' "/var/lib/pacman/local/$package-$version/desc")
     # pacman says GPL-2.0; libjbig's sources (jbig.c, jbig85.c, jbig_ar.c) say "version 2 or later".
     [[ $short == jbigkit ]] && license='GPL-2.0-or-later (libjbig source headers; MSYS2 metadata: GPL-2.0)'
+    # pacman says "custom"; x264's COPYING and source headers are GPL-2.0-or-later.
+    [[ $short == libx264 ]] && license='GPL-2.0-or-later (x264 source headers; MSYS2 metadata: custom)'
     if [[ $license == *GPL* ]]; then
         grep -qx "msys2 $base $version" "$sources_list" || echo "msys2 $base $version" >> "$sources_list"
         in_sources[$short]=1
