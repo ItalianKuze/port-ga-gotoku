@@ -505,7 +505,7 @@ void Scheduler::KickRecording(bool force) {
         MaybeSplit();
     }
     // Batches of tens of KiB keep the queue handoff cheap relative to the work it carries.
-    if (!force && full_chunks.empty() && record_chunk->Size() < 32 * 1024) {
+    if (!force && full_chunks.empty() && CurrentChunk().Size() < 32 * 1024) {
         return;
     }
     HandOver();
@@ -517,7 +517,7 @@ void Scheduler::MaybeSplit() {
         return;
     }
     // Cutting inside a render pass closes and reopens it: only after a longer stretch.
-    const size_t bytes = segment_bytes + record_chunk->Size();
+    const size_t bytes = segment_bytes + CurrentChunk().Size();
     if (bytes < (is_rendering ? 2 * split_bytes : split_bytes)) {
         return;
     }
@@ -566,6 +566,11 @@ void Scheduler::HandOver() {
     if (!commands && !ordered) {
         return;
     }
+    // The chunks that take the current ones' places, taken first (AcquireChunk locks
+    // recorder_mutex) and swapped in below: record_chunk and ordered_chunk are never null, not
+    // even for a fault handler recording on this thread meanwhile (issue #100 upstream).
+    std::unique_ptr<RecordChunk> next_record = record_chunk->Empty() ? nullptr : AcquireChunk();
+    std::unique_ptr<RecordChunk> next_ordered = ordered_chunk->Empty() ? nullptr : AcquireChunk();
     Worker& worker = *workers[current_segment % workers.size()];
     bool wake = false;
     {
@@ -577,11 +582,12 @@ void Scheduler::HandOver() {
                 worker.queue.push_back(std::move(chunk));
                 ++batch->handed[current_segment];
             }
-            if (!record_chunk->Empty()) {
-                segment_bytes += record_chunk->Size();
-                record_chunk->segment = current_segment;
-                record_chunk->batch = batch;
-                worker.queue.push_back(std::move(record_chunk));
+            if (next_record) {
+                record_chunk.swap(next_record); // next_record: the chunk handed over
+                segment_bytes += next_record->Size();
+                next_record->segment = current_segment;
+                next_record->batch = batch;
+                worker.queue.push_back(std::move(next_record));
                 ++batch->handed[current_segment];
             }
             worker.queued.store(worker.queue.size(), std::memory_order_release);
@@ -598,8 +604,9 @@ void Scheduler::HandOver() {
             for (auto& chunk : ordered_full) {
                 queue(std::move(chunk));
             }
-            if (!ordered_chunk->Empty()) {
-                queue(std::move(ordered_chunk));
+            if (next_ordered) {
+                ordered_chunk.swap(next_ordered); // next_ordered: the chunk handed over
+                queue(std::move(next_ordered));
             }
             ordered_queued.store(ordered_queue.size(), std::memory_order_release);
             // Any thread may run them; the current segment's thread is woken for them (when it
@@ -616,12 +623,6 @@ void Scheduler::HandOver() {
     // A busy thread picks the new chunks up by itself: waking it is a syscall per draw.
     if (wake) {
         worker.cv.notify_one();
-    }
-    if (!record_chunk) {
-        record_chunk = AcquireChunk();
-    }
-    if (!ordered_chunk) {
-        ordered_chunk = AcquireChunk();
     }
 }
 
@@ -678,7 +679,7 @@ void Scheduler::EnterDirectMode() {
         }
         // A segment nothing was handed to yet is not begun: it becomes the direct one.
         const bool untouched =
-            batch->handed[current_segment] == 0 && full_chunks.empty() && record_chunk->Empty();
+            batch->handed[current_segment] == 0 && full_chunks.empty() && CurrentChunk().Empty();
         if (!untouched) {
             // Its recording thread ends the segment's command buffer (the pool is that thread's).
             Record([](vk::CommandBuffer cmdbuf) { Check(cmdbuf.end()); });
