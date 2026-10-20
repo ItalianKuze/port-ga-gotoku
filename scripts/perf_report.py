@@ -13,6 +13,7 @@ import argparse
 import csv
 import os
 import statistics
+import sys
 from collections import defaultdict
 
 
@@ -147,6 +148,9 @@ def main():
     if a.out:
         os.makedirs(os.path.dirname(a.out) or '.', exist_ok=True)
         open(a.out, 'w', encoding='utf-8').write(text)
+    # A console or pipe in a legacy code page (cp1252) cannot encode every character of the report
+    # (≥, ×): those are replaced there instead of failing after the report was written.
+    sys.stdout.reconfigure(errors='replace')
     print(text)
 
 
