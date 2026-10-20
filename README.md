@@ -20,6 +20,12 @@ libraries, and the graphics are translated to Vulkan by a renderer derived from
 > Star. It is not related to shadPS4 either: please do not ask about it on shadPS4's channels, nor
 > on bbport's (its issues are not upstream's).
 
+![Kenshiro fighting in the first area](docs/screenshots/combat-rush-combos.jpg)
+*Combat in the first area (window mode, statistics HUD at the top right).*
+
+![The PortGaGotoku launcher](docs/screenshots/launcher-main-window.jpg)
+*The launcher.*
+
 ## Status
 
 **Early alpha, developed slowly in my spare time.** Expect bugs; no release schedule.

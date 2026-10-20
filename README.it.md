@@ -18,6 +18,12 @@ di sistema della PS4 e la grafica viene tradotta in Vulkan da un renderer deriva
 > `eboot.bin` e `sce_sys`). Progetto non ufficiale, non affiliato né approvato da SEGA, Ryu Ga Gotoku
 > Studio, Sony Interactive Entertainment o dai detentori dei diritti di Fist of the North Star.
 
+![Kenshiro combatte nella prima zona](docs/screenshots/combat-rush-combos.jpg)
+*Combattimento nella prima zona (in finestra, HUD delle statistiche in alto a destra).*
+
+![Il launcher di PortGaGotoku](docs/screenshots/launcher-main-window.jpg)
+*Il launcher.*
+
 ## Stato
 
 **Early alpha, sviluppato lentamente nel tempo libero.** Aspettati bug; nessuna data di rilascio.
