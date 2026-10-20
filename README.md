@@ -109,6 +109,9 @@ bbport's own documents (Bloodborne, upstream history) are kept in `docs/upstream
 
 ## Credits
 
+Started as a fork of bbport by deadinside28 (https://github.com/deadinside28/bloodborne_pc),
+GPL-2.0-or-later.
+
 - **deadinside28** — [bbport](https://github.com/deadinside28/bloodborne_pc), the base of everything
   here: runtime, loader, renderer, tools.
 - **shadPS4** — [shadPS4](https://github.com/shadps4-emu/shadPS4): the video core and shader
