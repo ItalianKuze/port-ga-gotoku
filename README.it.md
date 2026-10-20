@@ -2,6 +2,8 @@
 
 [English](README.md) · **Italiano**
 
+**[Download: ultima release](https://github.com/ItalianKuze/port-ga-gotoku/releases)**
+
 > **Nota:** "nativo" si riferisce solo alla CPU: il codice x86 del gioco gira direttamente sulla CPU,
 > mentre le librerie di sistema PS4 sono reimplementate (HLE). La grafica è tradotta in Vulkan tramite il
 > video core di shadPS4 incluso nel repo (`gpu/shadps4`). Non è una ricompilazione completa né una
@@ -34,8 +36,7 @@ Sperimentale, giocabile sull'unica macchina su cui è stato provato (Windows 11,
 Funziona: loghi, schermata del titolo e menu, audio, filmati, gameplay (esplorazione e combattimento),
 controller e tastiera, salvataggio e caricamento (Continua), il launcher, il menu in gioco, l'HUD delle
 statistiche. Problemi noti e prossimi passi: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md),
-in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; uno sfarfallio sul cappuccio dei
-soldati alla porta di Eden (non verificato); una sola macchina provata.
+in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; una sola macchina provata.
 
 ## Download
 

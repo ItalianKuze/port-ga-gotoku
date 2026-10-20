@@ -9,13 +9,11 @@ statistics HUD, the automatic benchmark.
 
 Frame rate: 60 FPS standing, about 60 while walking with occasional drops (after the fix to the
 optimization toggles read by the GPU library on Windows). Not yet re-measured with the benchmark.
+The flicker on the soldiers' hoods at the gate of Eden is fixed (verified in game).
 
 ## Known issues
 
 - **Occasional frame rate drops while walking** in busy areas: to measure with the benchmark.
-- **Flicker on the soldiers' hoods at the gate of Eden** (not verified after the toggle fix): to compare
-  with the PS4; possible causes are depth precision (z-fighting), the material shader, or the texture /
-  render-target cache. RenderDoc capture planned.
 - Movies play at 30 FPS (probably as encoded); occasional audio crackle; about 1 s of delay on some
   tutorial prompts. To compare with the PS4.
 - Only one machine tested. Fullscreen with Alt+Tab, the launcher's Stop button and the package's first

@@ -2,6 +2,8 @@
 
 **English** · [Italiano](README.it.md)
 
+**[Download: latest release](https://github.com/ItalianKuze/port-ga-gotoku/releases)**
+
 > **Note:** "native" refers only to the CPU side: the game's x86 code runs directly on the host CPU,
 > while PS4 system libraries are reimplemented (HLE). Graphics are translated to Vulkan through the
 > shadPS4 video core included in this repo (`gpu/shadps4`). This is not a full recompilation or a
@@ -36,8 +38,7 @@ Experimental, playable on the one machine it was tested on (Windows 11, NVIDIA G
 What works: logos, title screen and menus, audio, movies, gameplay (exploration and combat),
 gamepad and keyboard, saving and loading (Continue), the launcher, the in-game menu, the statistics
 HUD. Known issues and next steps: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md). In short:
-about 60 FPS while walking, with occasional drops; a flicker on the soldiers' hoods at the gate of
-Eden (not verified); only one machine has been tested.
+about 60 FPS while walking, with occasional drops; only one machine has been tested.
 
 bbport's Bloodborne-specific parts (its patches and mods, hooks in Bloodborne's code, its menu
 entries, launcher and Linux packaging) are not in this fork; the renderer, runtime and tools they
