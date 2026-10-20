@@ -236,8 +236,9 @@ private:
     using CmdBuffer = std::pair<std::span<const u32>, std::span<const u32>>;
     CmdBuffer CopyCmdBuffers(std::span<const u32> dcb, std::span<const u32> ccb);
     /// bbport: a submission's command buffers copied when the guest submits them
-    /// (BB_COPY_GPU_BUFFERS): the guest reused their memory before the GPU thread decoded
-    /// them ("PM4 type 0" from zeros or the next frame's commands, while an area loads).
+    /// (BB_COPY_GPU_BUFFERS, on by default; 0: decoded in place): the guest reused their memory
+    /// before the GPU thread decoded them ("PM4 type 0" from zeros or the next frame's commands,
+    /// while an area loads).
     struct SubmittedCopy {
         std::vector<u32> data; ///< dcb, then ccb
         const u32* guest_dcb{};
