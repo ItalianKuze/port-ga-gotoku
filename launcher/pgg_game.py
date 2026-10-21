@@ -13,6 +13,7 @@ Folders:
              (save-backups/), logs (logs/), shader cache (cache/), GPU library folder (gpu/).
 """
 import ctypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -316,10 +317,30 @@ def new_log_path(suffix=''):
     return logs / time.strftime(f'hokuto-%Y%m%d-%H%M%S{suffix}.log')
 
 
+def game_identity(folder):
+    """TITLE_ID, APP_VER and eboot.bin's SHA-256 of the game in `folder`, for the log: which
+    version a log comes from. '?' for what cannot be read."""
+    try:
+        info = read_sfo(Path(folder) / 'sce_sys' / 'param.sfo')
+    except (OSError, ValueError, IndexError):
+        info = {}
+    digest = hashlib.sha256()
+    try:
+        with open(Path(folder) / 'eboot.bin', 'rb') as eboot:
+            for block in iter(lambda: eboot.read(1 << 20), b''):
+                digest.update(block)
+        eboot_sha256 = digest.hexdigest()
+    except OSError:
+        eboot_sha256 = '?'
+    return info.get('TITLE_ID', '?'), info.get('APP_VER', '?'), eboot_sha256
+
+
 def log_header(settings):
     """The first lines of every log written by the launcher."""
+    title_id, version, eboot_sha256 = game_identity(settings['game_dir'])
     lines = [f'== PortGaGotoku launcher, build {build_id() or "unknown"} ==',
              f'== game {settings["game_dir"]} ==',
+             f'== game {title_id} version {version}, eboot.bin sha256 {eboot_sha256} ==',
              f'== present mode {settings["present_mode"]}, fullscreen {"on" if settings["fullscreen"] else "off"}, '
              f'GPU {settings["gpu"] or "automatic"}, frame statistics {"on" if settings["frame_stats"] else "off"} ==',
              f'== data {DATA_DIR} ==']

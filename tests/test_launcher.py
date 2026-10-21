@@ -132,6 +132,15 @@ class GameFolder(unittest.TestCase):
         self.assertEqual(command[command.index('--timeout') + 1], '0')
         self.assertEqual(command[command.index('--app0') + 1], settings['game_dir'])
 
+    def test_log_header_names_the_version(self):
+        import hashlib
+        game = self.folder(title='CUSA10053', version='01.02')
+        header = self.game.log_header({**self.game.DEFAULTS, 'game_dir': game})
+        self.assertIn(f'== game CUSA10053 version 01.02, eboot.bin sha256 {hashlib.sha256(bytes(16)).hexdigest()} ==',
+                      header)
+        self.assertIn('== game ? version ?, eboot.bin sha256 ? ==',
+                      self.game.log_header({**self.game.DEFAULTS, 'game_dir': str(self.root / 'nowhere')}))
+
     def test_prepared_needs_a_matching_stamp(self):
         game = self.folder()
         out = Path(os.environ['BB_DATA_DIR']) / 'out'
