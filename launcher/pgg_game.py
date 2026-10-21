@@ -22,7 +22,8 @@ import sys
 import time
 
 TITLE_ID = 'CUSA12781'
-# The title id the game saves under (its save data title, not the disc's).
+# The title id the game saves under (its save data title, not the disc's): param.sfo's
+# INSTALL_DIR_SAVEDATA (save_title_id()); this one when param.sfo cannot be read.
 SAVE_TITLE_ID = 'CUSA12776'
 # The dump version the port was tested with (param.sfo APP_VER).
 TESTED_VERSION = '01.00'
@@ -133,9 +134,20 @@ def find_game_folder(chosen):
     return str(folder)
 
 
-def save_slots():
-    """The game's save slots (dirName folders under user/savedata/1/CUSA12776), newest last."""
-    saves = DATA_DIR / 'user' / 'savedata' / '1' / SAVE_TITLE_ID
+def save_title_id(folder):
+    """The title id the game in `folder` saves under, as the runtime chooses it (src/probe.c):
+    param.sfo's INSTALL_DIR_SAVEDATA, else its TITLE_ID; SAVE_TITLE_ID without a readable param.sfo."""
+    try:
+        info = read_sfo(Path(folder) / 'sce_sys' / 'param.sfo')
+    except (OSError, ValueError, IndexError):
+        return SAVE_TITLE_ID
+    return info.get('INSTALL_DIR_SAVEDATA') or info.get('TITLE_ID') or SAVE_TITLE_ID
+
+
+def save_slots(folder):
+    """The save slots of the game in `folder` (dirName folders under user/savedata/1/<save title
+    id>, CUSA12776 for CUSA12781), newest last."""
+    saves = DATA_DIR / 'user' / 'savedata' / '1' / save_title_id(folder)
     try:
         slots = [p for p in saves.iterdir() if p.is_dir() and not p.name.endswith('.sce_sys')]
     except OSError:

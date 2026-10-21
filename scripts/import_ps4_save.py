@@ -9,16 +9,18 @@ bbport keeps a slot as two sibling folders (src/runtime_savedata.c):
     <data>/user/savedata/<user>/<title>/<slot>/          the game's files
     <data>/user/savedata/<user>/<title>/<slot>.sce_sys/  param.bin (Param, 1328 bytes), icon0.png
 For Hokuto: <title> = CUSA12776 (save title id, not CUSA12781), <user> = 1, game slots 01, 02, ...
-and 99 (system data).
+and 99 (system data). Without --title, <title> is the game's INSTALL_DIR_SAVEDATA (else TITLE_ID) from
+the param.sfo of --game, or of the game folder in <data>/launcher.json; CUSA12776 when there is none.
 
 Without --apply nothing is written: the script prints what it would do. With --apply it refuses to run
 while the game is running, copies an existing slot to <data>/save-backups/<slot>-import-<date-time>/
 (same layout as the runtime backups), copies the files, writes param.bin and verifies every copied
 file by SHA-256. It never deletes the old slot's files outside the slot being replaced.
 """
-import argparse, datetime, hashlib, os, shutil, struct, subprocess, sys
+import argparse, datetime, hashlib, json, os, shutil, struct, subprocess, sys
 
 PARAM = struct.Struct("<128s128s1024sIiq32s")  # Param in runtime_savedata.c
+DEFAULT_TITLE = "CUSA12776"  # Hokuto CUSA12781's save title id
 assert PARAM.size == 1328
 
 
@@ -44,6 +46,20 @@ def sha(path):
     return h.hexdigest()
 
 
+def save_title(game, data):
+    """The title id the game saves under (as src/probe.c): INSTALL_DIR_SAVEDATA, else TITLE_ID, of
+    the game's param.sfo; the game folder is `game`, else the launcher's (<data>/launcher.json)."""
+    if not game:
+        try:
+            with open(os.path.join(data, "launcher.json"), encoding="utf-8") as f:
+                game = json.load(f).get("game_dir", "")
+        except (OSError, ValueError):
+            game = ""
+    sfo_path = os.path.join(game, "sce_sys", "param.sfo") if game else ""
+    sfo = read_sfo(sfo_path) if sfo_path and os.path.isfile(sfo_path) else {}
+    return sfo.get("INSTALL_DIR_SAVEDATA") or sfo.get("TITLE_ID") or DEFAULT_TITLE
+
+
 def game_running():
     if os.name != "nt":
         return False
@@ -56,10 +72,12 @@ def main():
     ap.add_argument("export", help="folder exported by Apollo (contains sce_sys/param.sfo)")
     ap.add_argument("--data", required=True, help="PortGaGotoku-data folder")
     ap.add_argument("--slot", help="target slot (default: SAVEDATA_DIRECTORY from param.sfo)")
-    ap.add_argument("--title", default="CUSA12776")
+    ap.add_argument("--title", help="save title id (default: from the game's param.sfo, else CUSA12776)")
+    ap.add_argument("--game", help="game folder for --title (default: the launcher's, from <data>/launcher.json)")
     ap.add_argument("--user", default="1")
     ap.add_argument("--apply", action="store_true", help="write (default: only show the plan)")
     a = ap.parse_args()
+    a.title = a.title or save_title(a.game, a.data)
 
     sfo_path = os.path.join(a.export, "sce_sys", "param.sfo")
     sfo = read_sfo(sfo_path) if os.path.isfile(sfo_path) else {}

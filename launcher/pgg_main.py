@@ -128,7 +128,7 @@ class Api:
                      'tested_version': game.TESTED_VERSION, 'expected': game.TITLE_ID,
                      'prepared': game.playable(check) and game.prepared(settings['game_dir'])},
             'devices': None if devices is None else {'gpus': gpus, 'gamepads': devices[1]},
-            'saves': game.save_slots(),
+            'saves': game.save_slots(settings['game_dir']),
             'phase': phase, 'last_exit': last_exit, 'stopped': stopped,
             'log_name': self._log_path.name if self._log_path else '',
             'build': game.build_id(),

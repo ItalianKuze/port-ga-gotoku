@@ -164,11 +164,25 @@ class Helpers(unittest.TestCase):
         self.assertEqual(self.game.find_game_folder(str(self.root / 'dump')), str(self.root / 'dump' / 'CUSA12781'))
         self.assertEqual(self.game.find_game_folder(str(self.root)), str(self.root))
 
+    def game_folder(self, fields):
+        game = self.root / 'game'
+        (game / 'sce_sys').mkdir(parents=True, exist_ok=True)
+        write_sfo(game / 'sce_sys' / 'param.sfo', fields)
+        return str(game)
+
     def test_save_slots_skip_metadata(self):
         saves = self.root / 'data' / 'user' / 'savedata' / '1' / 'CUSA12776'
         for name in ('01', '01.sce_sys', '02', '02.sce_sys'):
             (saves / name).mkdir(parents=True)
-        self.assertEqual(sorted(self.game.save_slots()), ['01', '02'])
+        game = self.game_folder({'TITLE_ID': 'CUSA12781', 'INSTALL_DIR_SAVEDATA': 'CUSA12776'})
+        self.assertEqual(sorted(self.game.save_slots(game)), ['01', '02'])
+
+    def test_save_title_id_from_param_sfo(self):
+        title = self.game.save_title_id
+        self.assertEqual(title(str(self.root / 'nowhere')), 'CUSA12776')
+        self.assertEqual(title(self.game_folder({'TITLE_ID': 'CUSA10053', 'INSTALL_DIR_SAVEDATA': 'CUSA10050'})),
+                         'CUSA10050')
+        self.assertEqual(title(self.game_folder({'TITLE_ID': 'CUSA10053'})), 'CUSA10053')
 
     def test_banner_only_png(self):
         game = self.root / 'game' / 'sce_sys'
