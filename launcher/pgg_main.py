@@ -78,7 +78,7 @@ def play_without_window(settings):
     if not game.prepared(settings['game_dir']):
         log_path = game.new_log_path('-prepare')
         with open(log_path, 'w', encoding='utf-8') as log:
-            ok = game.prepare(settings['game_dir'], log.write)
+            ok = game.prepare(settings['game_dir'], log.write, game.game_state(settings)[0] == 'experimental')
         if not ok:
             message_box(_('Preparing the game failed. Log: {}').format(log_path) + '\n\n' + tail(log_path), True)
             return 1
@@ -116,7 +116,7 @@ class Api:
 
     def state(self):
         settings = self._settings
-        check, info = game.check_game(settings['game_dir'])
+        check, info = game.game_state(settings)
         with self._lock:
             devices = self._devices
             phase, last_exit, stopped = self._phase, self._last_exit, self._stopped
@@ -148,7 +148,7 @@ class Api:
 
     # ---- settings ------------------------------------------------------------------------------
     def set_setting(self, key, value):
-        if key not in game.DEFAULTS or key == 'game_dir':
+        if key not in game.DEFAULTS or key in ('game_dir', 'experimental_title'):
             return False
         if isinstance(game.DEFAULTS[key], bool):
             value = bool(value)
@@ -170,11 +170,23 @@ class Api:
         if not chosen:
             return {'chosen': ''}
         folder = game.find_game_folder(chosen[0] if isinstance(chosen, (list, tuple)) else chosen)
-        check, info = game.check_game(folder)
+        check, info = game.check_game(folder, self._settings['experimental_title'])
         if game.playable(check):
             self._settings['game_dir'] = folder
             game.save_settings(self._settings)
-        return {'chosen': folder, 'state': check, 'title_id': info.get('TITLE_ID', ''), 'title': info.get('TITLE', '')}
+        return {'chosen': folder, 'state': check, 'title_id': info.get('TITLE_ID', ''), 'title': info.get('TITLE', ''),
+                'version': info.get('APP_VER', '')}
+
+    def try_experimental(self, folder):
+        """Another edition of the game (another TITLE_ID), after the page's explicit confirmation:
+        kept as the game folder and started without prepare.py's game check."""
+        check, info = game.check_game(folder)
+        if check != 'other_title':
+            return False
+        self._settings['game_dir'] = folder
+        self._settings['experimental_title'] = info['TITLE_ID']
+        game.save_settings(self._settings)
+        return True
 
     def open_folder(self, name):
         paths = {**game.folders(), 'game': Path(self._settings['game_dir'] or game.DATA_DIR)}
@@ -191,7 +203,7 @@ class Api:
             if self._phase != 'idle':
                 return {'ok': False, 'reason': 'busy'}
         settings = dict(self._settings)
-        if not game.playable(game.check_game(settings['game_dir'])[0]):
+        if not game.playable(game.game_state(settings)[0]):
             return {'ok': False, 'reason': 'game'}
         return {'ok': True, 'running': game.running_probes()}
 
@@ -237,7 +249,7 @@ class Api:
                 def output(text):
                     log.write(text)
                     self._append(text)
-                ok = game.prepare(settings['game_dir'], output)
+                ok = game.prepare(settings['game_dir'], output, game.game_state(settings)[0] == 'experimental')
             if not ok:
                 self._finish(-1)
                 return
@@ -291,7 +303,7 @@ def main():
         sys.exit(run_script(args))
     settings = game.load_settings()
     pgg_lang.LANG = settings['ui_language'] or pgg_lang.windows_language()
-    if '--play' in args and game.playable(game.check_game(settings['game_dir'])[0]):
+    if '--play' in args and game.playable(game.game_state(settings)[0]):
         sys.exit(play_without_window(settings))
     # Without a usable game folder there is nothing to play yet: the launcher opens instead.
     try:

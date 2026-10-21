@@ -45,7 +45,8 @@ function gameMessage(game) {
     case 'missing': return ['bad', t('The game folder does not exist any more: choose it again')];
     case 'no_eboot': return ['bad', t('No eboot.bin in this folder: it is not the game folder')];
     case 'no_sfo': return ['bad', t('No readable sce_sys\\param.sfo in this folder: it is not a complete PS4 dump')];
-    case 'other_title': return ['bad', fmt(t('This folder holds {}, not the game. Choose the CUSA12781 folder of the dump.'), game.title_id)];
+    case 'other_title': return ['bad', fmt(t('This folder holds {} ({}), not CUSA12781. If it is another edition of the game, you can try it as an experiment.'), game.title, game.title_id)];
+    case 'experimental': return ['warn', fmt(t('{} ({}) version {}: not supported, started as an experiment'), game.title, game.title_id, game.version)];
     default: return ['bad', game.state];
   }
 }
@@ -66,7 +67,9 @@ function renderHome(s) {
   const gameKind = game.state === 'ok' ? 'ok' : 'warn';
   list.append(statusItem(gameKind, game.state === 'ok'
     ? fmt(t('Game ready · {} v{}'), game.title_id, game.version)
-    : fmt(t('{} version {} (not tried)'), game.title_id, game.version)));
+    : game.state === 'experimental'
+      ? fmt(t('{} version {} (experimental, not supported)'), game.title_id, game.version)
+      : fmt(t('{} version {} (not tried)'), game.title_id, game.version)));
   if (!s.devices) {
     list.append(statusItem('wait', t('Controller: checking…')));
     list.append(statusItem('wait', t('Graphics card: checking…')));
@@ -121,12 +124,14 @@ function renderWelcome(s) {
   const path = $('welcome-path');
   const shown = state.chosen || s.settings.game_dir;
   path.textContent = shown || t('No folder chosen');
-  const [kind, text] = state.chosenResult ? gameMessage(state.chosenResult) : gameMessage(game);
+  const shownGame = state.chosenResult || game;
+  const [kind, text] = gameMessage(shownGame);
   path.className = 'path ' + (kind === 'ok' || kind === 'warn' ? 'ok' : kind === 'bad' ? 'bad' : '');
   const message = $('welcome-message');
   message.className = 'message ' + kind;
   message.textContent = kind === 'wait' ? '' : text;
   $('welcome-continue').disabled = !game.playable;
+  $('welcome-experimental').hidden = shownGame.state !== 'other_title';
 }
 
 function renderSettings(s) {
@@ -237,8 +242,18 @@ async function browse() {
   const result = await pywebview.api.browse_game();
   if (!result.chosen) return;
   state.chosen = result.chosen;
-  state.chosenResult = { state: result.state, title_id: result.title_id, title: result.title, version: '', tested_version: '' };
-  if (result.state === 'ok' || result.state === 'untested_version') { state.chosen = null; state.chosenResult = null; bannerFor = null; }
+  state.chosenResult = { state: result.state, title_id: result.title_id, title: result.title, version: result.version, tested_version: '' };
+  if (['ok', 'untested_version', 'experimental'].includes(result.state)) { state.chosen = null; state.chosenResult = null; bannerFor = null; }
+  await refresh();
+}
+
+// Another edition of the game (another TITLE_ID): only after an explicit confirmation.
+async function tryExperimental() {
+  const folder = state.chosen || state.s.settings.game_dir;
+  const titleId = (state.chosenResult || state.s.game).title_id;
+  if (!folder || !confirm(fmt(t('Only CUSA12781 is supported. {} has never been tried: it may not start, or it may have errors. If you send a log, it tells which version this is.\n\nTry it anyway?'), titleId))) return;
+  if (!await pywebview.api.try_experimental(folder)) return;
+  state.chosen = null; state.chosenResult = null; bannerFor = null;
   await refresh();
 }
 
@@ -269,6 +284,7 @@ function wire() {
   $('play').addEventListener('click', play);
   $('stop').addEventListener('click', () => pywebview.api.stop().then(refresh));
   $('welcome-browse').addEventListener('click', browse);
+  $('welcome-experimental').addEventListener('click', tryExperimental);
   $('welcome-continue').addEventListener('click', () => { welcomeForced = false; state.chosen = null; state.chosenResult = null; render(); });
   $('change-game').addEventListener('click', () => { openSettings(false); welcomeForced = true; render(); browse(); });
   $('open-settings').addEventListener('click', () => openSettings(true));

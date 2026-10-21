@@ -43,6 +43,7 @@ DEFAULTS = {
     'gpu': '',            # '' = automatic (discrete GPU preferred), else the Vulkan device name
     'frame_stats': True,  # BB_FRAME_STATS: frame statistics in the log
     'ui_language': 'en',  # 'en' (the default), 'it', or '' for Windows' language
+    'experimental_title': '',  # another edition's TITLE_ID the user chose to try (not supported)
 }
 
 
@@ -90,9 +91,10 @@ def read_sfo(path):
     return sfo(Path(path).read_bytes())
 
 
-def check_game(folder):
+def check_game(folder, experimental=''):
     """(state, details) for a game folder. state: 'ok', 'untested_version', 'empty' (no folder
-    chosen), 'missing' (the folder does not exist), 'no_eboot', 'no_sfo' or 'other_title'.
+    chosen), 'missing' (the folder does not exist), 'no_eboot', 'no_sfo', 'other_title' or
+    'experimental' (another TITLE_ID, the one the user chose to try: `experimental`).
     details: TITLE_ID, APP_VER and TITLE when param.sfo could be read."""
     if not folder:
         return 'empty', {}
@@ -108,14 +110,19 @@ def check_game(folder):
     if info is None:
         return 'no_sfo', {}
     if info.get('TITLE_ID') != TITLE_ID:
-        return 'other_title', info
+        return ('experimental' if experimental and info.get('TITLE_ID') == experimental else 'other_title'), info
     if info.get('APP_VER') != TESTED_VERSION:
         return 'untested_version', info
     return 'ok', info
 
 
 def playable(state):
-    return state in ('ok', 'untested_version')
+    return state in ('ok', 'untested_version', 'experimental')
+
+
+def game_state(settings):
+    """check_game() for the saved game folder."""
+    return check_game(settings['game_dir'], settings['experimental_title'])
 
 
 def find_game_folder(chosen):
@@ -185,9 +192,10 @@ def script_command(name, *args):
     return ([sys.executable, '--script', path, *args] if FROZEN else [sys.executable, path, *args])
 
 
-def prepare(game, output):
+def prepare(game, output, experimental=False):
     """Prepares the boot image into DATA_DIR/out (a new folder, swapped in when complete).
-    output(text) receives the scripts' lines. Returns True when it succeeded."""
+    output(text) receives the scripts' lines. experimental: another edition the user chose to try
+    (prepare.py's game check is skipped). Returns True when it succeeded."""
     out = DATA_DIR / 'out'
     new = DATA_DIR / 'out.new'
     if new.exists():
@@ -196,9 +204,10 @@ def prepare(game, output):
     steps = (('prepare.py', game, '--experimental-elf', '--out', str(new)),
              ('link_modules.py', game, '--out', str(new)),
              ('content_profile.py', game, '--out', str(new), '--sku', 'full'))
+    env = {**os.environ, 'BB_SKIP_GAME_CHECK': '1'} if experimental else None
     for name, *args in steps:
         output(f'== {name} ==\n')
-        process = subprocess.Popen(script_command(name, *args), cwd=str(SCRIPTS_DIR), stdin=subprocess.DEVNULL,
+        process = subprocess.Popen(script_command(name, *args), cwd=str(SCRIPTS_DIR), env=env, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
         for raw in iter(process.stdout.readline, b''):
             output(raw.decode('utf-8', errors='replace').replace('\r\n', '\n'))

@@ -31,6 +31,7 @@ IT = {
     'Window': 'Finestra',
     'Game ready · {} v{}': 'Gioco pronto · {} v{}',
     '{} version {} (not tried)': '{} versione {} (non provata)',
+    '{} version {} (experimental, not supported)': '{} versione {} (sperimentale, non supportata)',
     'Controller: checking…': 'Controller: controllo…',
     'Graphics card: checking…': 'Scheda video: controllo…',
     'No controller (the keyboard works)': 'Nessun controller (la tastiera funziona)',
@@ -69,8 +70,16 @@ IT = {
         'In questa cartella non c\'è eboot.bin: non è la cartella del gioco',
     'No readable sce_sys\\param.sfo in this folder: it is not a complete PS4 dump':
         'In questa cartella manca sce_sys\\param.sfo leggibile: non è un dump PS4 completo',
-    'This folder holds {}, not the game. Choose the CUSA12781 folder of the dump.':
-        'Questa cartella contiene {}, non il gioco. Scegli la cartella CUSA12781 del dump.',
+    'This folder holds {} ({}), not CUSA12781. If it is another edition of the game, you can try it as an experiment.':
+        'Questa cartella contiene {} ({}), non CUSA12781. Se è un\'altra edizione del gioco, puoi provarla in via '
+        'sperimentale.',
+    '{} ({}) version {}: not supported, started as an experiment':
+        '{} ({}) versione {}: non supportata, avvio sperimentale',
+    'Try it anyway (experimental)': 'Prova comunque (sperimentale)',
+    'Only CUSA12781 is supported. {} has never been tried: it may not start, or it may have errors. If you send a '
+    'log, it tells which version this is.\n\nTry it anyway?':
+        'È supportato solo CUSA12781. {} non è mai stato provato: potrebbe non avviarsi o avere errori. Se invii un '
+        'log, indica quale versione è.\n\nProvare comunque?',
     # Settings panel
     'Display': 'Schermo',
     'Presentation': 'Presentazione',

@@ -84,6 +84,12 @@ class GameFolder(unittest.TestCase):
         self.assertEqual(check(self.folder())[0], 'ok')
         self.assertEqual(check(self.folder(version='01.02'))[0], 'untested_version')
         self.assertEqual(check(self.folder(title='CUSA12776'))[0], 'other_title')
+        # Another edition only after the user chose to try it, and only that TITLE_ID.
+        self.assertEqual(check(self.folder(title='CUSA10053'), 'CUSA10053')[0], 'experimental')
+        self.assertEqual(check(self.folder(title='CUSA10053'), 'CUSA12776')[0], 'other_title')
+        self.assertEqual(check(self.folder(), 'CUSA10053')[0], 'ok')
+        self.assertTrue(self.game.playable('experimental'))
+        self.assertFalse(self.game.playable('other_title'))
 
     def test_no_eboot_and_no_sfo(self):
         self.assertEqual(self.game.check_game(self.folder(eboot=False))[0], 'no_eboot')
