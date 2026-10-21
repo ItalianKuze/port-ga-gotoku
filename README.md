@@ -55,14 +55,16 @@ were built on are.
 
 ## Download
 
-1. Download the `.zip` of the latest release from [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases)
-   and extract it to a folder you can write to (not `Program Files`).
-2. Check the [requirements](#requirements) above and have your dump of the game ready.
-3. Start `PortGaGotoku.exe`. At the first start it asks for the game folder: choose the CUSA12781
+1. Download the `.zip` of the latest release from [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases).
+2. **Before extracting it**: right-click the zip → Properties → check **Unblock** → OK. Otherwise the
+   launcher won't start (a fix is coming in the next version).
+3. Extract it to a folder you can write to (not `Program Files`).
+4. Check the [requirements](#requirements) above and have your dump of the game ready.
+5. Start `PortGaGotoku.exe`. At the first start it asks for the game folder: choose the CUSA12781
    folder (the one with `eboot.bin` and `sce_sys`). The launcher checks it, prepares the boot image
    (the game files are only read) and starts the game. Later, `Start Hokuto.exe` starts the game
    directly with the saved settings.
-4. The executables are not signed and the launcher is frozen with PyInstaller: Windows SmartScreen or
+6. The executables are not signed and the launcher is frozen with PyInstaller: Windows SmartScreen or
    an antivirus may warn about them.
 
 Logs are in `PortGaGotoku-data\logs\`, next to the extracted folder (see [Data folder](#data-folder)).

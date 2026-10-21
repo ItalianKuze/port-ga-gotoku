@@ -40,15 +40,17 @@ in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; una sola ma
 
 ## Download
 
-1. Scarica lo `.zip` dell'ultima release da [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases)
-   ed estrailo in una cartella in cui puoi scrivere (non `Programmi`).
-2. Controlla i [requisiti](README.md#requirements) (Windows 10/11 a 64 bit, CPU con AVX, BMI1, MOVBE,
+1. Scarica lo `.zip` dell'ultima release da [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases).
+2. **Prima di estrarlo**: clic destro sullo zip → Proprietà → spunta **Annulla blocco** → OK. Altrimenti
+   il launcher non si avvia (la correzione arriverà nella prossima versione).
+3. Estrailo in una cartella in cui puoi scrivere (non `Programmi`).
+4. Controlla i [requisiti](README.md#requirements) (Windows 10/11 a 64 bit, CPU con AVX, BMI1, MOVBE,
    LZCNT e POPCNT, scheda video Vulkan 1.3, WebView2) e tieni pronto il tuo dump del gioco.
-3. Avvia `PortGaGotoku.exe`. Al primo avvio chiede la cartella del gioco: scegli la cartella CUSA12781
+5. Avvia `PortGaGotoku.exe`. Al primo avvio chiede la cartella del gioco: scegli la cartella CUSA12781
    (quella con `eboot.bin` e `sce_sys`). Il launcher la controlla, prepara l'immagine di avvio (i file
    del gioco vengono solo letti) e avvia il gioco. In seguito `Start Hokuto.exe` avvia direttamente il
    gioco con le impostazioni salvate.
-4. Gli eseguibili non sono firmati e il launcher è impacchettato con PyInstaller: SmartScreen o un
+6. Gli eseguibili non sono firmati e il launcher è impacchettato con PyInstaller: SmartScreen o un
    antivirus potrebbero segnalarli.
 
 I log sono in `PortGaGotoku-data\logs\`, accanto alla cartella estratta. Per segnalare un problema apri
