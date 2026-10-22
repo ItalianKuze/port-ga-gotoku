@@ -82,9 +82,10 @@ static void check_cpu(void) {
     }
     if (!missing[0]) return;
     fprintf(stderr,
-            "ERROR: this CPU lacks %s. Bloodborne's code was compiled for the PS4's CPU and uses "
-            "these instructions directly: it needs an Intel Haswell (4th generation Core, 2013) or "
-            "newer, or an AMD Ryzen. BB_SKIP_CPU_CHECK=1 starts anyway.\n", missing);
+            "ERROR: this CPU lacks %s. Fist of the North Star: Lost Paradise's code was compiled for "
+            "the PS4's CPU and uses these instructions directly: it needs an Intel Haswell (4th "
+            "generation Core, 2013) or newer, or an AMD Ryzen. BB_SKIP_CPU_CHECK=1 starts anyway.\n",
+            missing);
     exit(1);
 }
 static uint64_t read64(FILE *f) {
