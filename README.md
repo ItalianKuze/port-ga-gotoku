@@ -49,9 +49,13 @@ were built on are.
 - 64-bit Windows 10 or 11.
 - A CPU with AVX, BMI1, MOVBE, LZCNT and POPCNT (the game's code was compiled for the PS4's CPU).
 - A graphics card with Vulkan 1.3 and a current driver.
+- Memory: the game reserves about 6 GB. With 16 GB of RAM, close other heavy applications before
+  playing.
 - Microsoft Edge WebView2 Runtime for the launcher's window (part of Windows 11).
 - Your own dump of Fist of the North Star: Lost Paradise, CUSA12781, version 01.00 (the only one
-  tested).
+  tested). The Asian edition, CUSA10053, was reported working by a tester as an experimental try
+  (from the prologue to the first save of chapter 1, texts in traditional Chinese); the launcher asks
+  for a confirmation before starting another edition.
 
 ## Download
 

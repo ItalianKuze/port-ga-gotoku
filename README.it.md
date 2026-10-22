@@ -38,6 +38,10 @@ controller e tastiera, salvataggio e caricamento (Continua), il launcher, il men
 statistiche. Problemi noti e prossimi passi: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md),
 in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; una sola macchina provata.
 
+L'edizione asiatica, CUSA10053, è stata segnalata funzionante da un tester come prova sperimentale (dal
+prologo al primo salvataggio del capitolo 1, testi in cinese tradizionale); il launcher chiede una
+conferma prima di avviare un'altra edizione. La versione provata resta CUSA12781 01.00.
+
 ## Download
 
 1. Scarica lo `.zip` dell'ultima release da [Releases](https://github.com/ItalianKuze/port-ga-gotoku/releases).
@@ -45,7 +49,8 @@ in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; una sola ma
    il launcher non si avvia (la correzione arriverà nella prossima versione).
 3. Estrailo in una cartella in cui puoi scrivere (non `Programmi`).
 4. Controlla i [requisiti](README.md#requirements) (Windows 10/11 a 64 bit, CPU con AVX, BMI1, MOVBE,
-   LZCNT e POPCNT, scheda video Vulkan 1.3, WebView2) e tieni pronto il tuo dump del gioco.
+   LZCNT e POPCNT, scheda video Vulkan 1.3, WebView2) e tieni pronto il tuo dump del gioco. Il gioco
+   riserva circa 6 GB di memoria: con 16 GB di RAM conviene chiudere le altre applicazioni pesanti.
 5. Avvia `PortGaGotoku.exe`. Al primo avvio chiede la cartella del gioco: scegli la cartella CUSA12781
    (quella con `eboot.bin` e `sce_sys`). Il launcher la controlla, prepara l'immagine di avvio (i file
    del gioco vengono solo letti) e avvia il gioco. In seguito `Start Hokuto.exe` avvia direttamente il
