@@ -19,6 +19,7 @@ from pathlib import Path
 import runpy
 import sys
 import threading
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pgg_game as game  # noqa: E402
@@ -63,6 +64,69 @@ def run_script(argv):
 
 def message_box(text, error=False):
     ctypes.windll.user32.MessageBoxW(None, text, 'PortGaGotoku', 0x10 if error else 0x40)
+
+
+# The Evergreen WebView2 Runtime's client in EdgeUpdate (Microsoft's documented installation check).
+WEBVIEW2_CLIENT = r'Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+# .NET Framework's refusal to load an assembly from a "remote" (downloaded) location.
+REMOTE_LOAD_ERRORS = ('loadFromRemoteSources', '0x80131515')
+
+
+def marked_as_downloaded():
+    """The Mark of the Web: Windows' zip extraction copies the zip's Zone.Identifier stream (internet
+    zone) to every extracted file, the launcher's .NET assemblies included."""
+    folder = Path(sys.executable).resolve().parent
+    for path in (folder / 'PortGaGotoku.exe', folder / '_internal' / 'pythonnet' / 'runtime' / 'Python.Runtime.dll'):
+        try:
+            with open(f'{path}:Zone.Identifier', encoding='utf-8', errors='replace') as stream:
+                if any(line.strip().startswith('ZoneId=') and line.strip() != 'ZoneId=0' for line in stream):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
+def webview2_installed():
+    import winreg
+    for root, key in ((winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\WOW6432Node\\' + WEBVIEW2_CLIENT),
+                      (winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\' + WEBVIEW2_CLIENT),
+                      (winreg.HKEY_CURRENT_USER, 'Software\\' + WEBVIEW2_CLIENT)):
+        try:
+            with winreg.OpenKey(root, key) as client:
+                version = winreg.QueryValueEx(client, 'pv')[0]
+        except OSError:
+            continue
+        if version and version != '0.0.0.0':
+            return True
+    return False
+
+
+def window_failed(error):
+    """The launcher window could not be opened: the cause in a message box, the details in
+    PortGaGotoku-data\\logs\\launcher-error.log."""
+    import traceback
+    text = f'{type(error).__name__}: {error}'
+    marked, webview2 = marked_as_downloaded(), webview2_installed()
+    log_path = game.DATA_DIR / 'logs' / 'launcher-error.log'
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(f'{time.strftime("%Y-%m-%d %H:%M:%S")} launcher window failed\n'
+                            f'{"".join(traceback.format_exception(type(error), error, error.__traceback__))}'
+                            f'files marked as downloaded: {marked}; WebView2 Runtime found: {webview2}\n',
+                            encoding='utf-8')
+    except OSError:
+        pass
+    if any(marker in text for marker in REMOTE_LOAD_ERRORS) or (marked and 'Python.Runtime' in text):
+        message_box(_('Windows blocked the launcher\'s files because the zip was downloaded from the internet. Close '
+                      'this message, delete the extracted PortGaGotoku folder, right-click the zip → Properties → '
+                      'check Unblock → OK, and extract it again.'), True)
+    elif not webview2:
+        message_box(_('The launcher window needs Microsoft Edge WebView2 Runtime, which was not found. Install it '
+                      'from Microsoft\'s website.\n\n"Start Hokuto.exe" starts the game with the saved settings '
+                      'without this window.'), True)
+    else:
+        message_box(_('The launcher window could not be opened ({}).\n\nDetails: {}\n\n"Start Hokuto.exe" may '
+                      'still start the game with the saved settings.').format(text, log_path), True)
 
 
 def tail(path, lines=20):
@@ -318,9 +382,8 @@ def main():
     window.events.closing += api.closing
     try:
         webview.start(private_mode=False, storage_path=str(game.DATA_DIR / 'launcher-webview'))
-    except Exception as error:  # WebView2 missing or broken
-        message_box(_('The launcher window needs Microsoft Edge WebView2 Runtime ({}).\n\n"Start Hokuto.exe" '
-                      'starts the game with the saved settings without this window.').format(error), True)
+    except Exception as error:  # blocked assemblies, WebView2 missing or broken
+        window_failed(error)
         return 1
     return 0
 

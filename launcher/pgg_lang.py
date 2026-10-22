@@ -112,10 +112,20 @@ IT = {
     'logs folder.':
         'Il gioco è ancora aperto. Chiudere comunque il launcher?\n\nIl gioco resta aperto; il suo log continua a '
         'essere scritto nella cartella dei log.',
-    'The launcher window needs Microsoft Edge WebView2 Runtime ({}).\n\n"Start Hokuto.exe" starts the game with the '
-    'saved settings without this window.':
-        'La finestra del launcher richiede Microsoft Edge WebView2 Runtime ({}).\n\n"Start Hokuto.exe" avvia il '
-        'gioco con le impostazioni salvate senza questa finestra.',
+    'Windows blocked the launcher\'s files because the zip was downloaded from the internet. Close this message, '
+    'delete the extracted PortGaGotoku folder, right-click the zip → Properties → check Unblock → OK, and extract it '
+    'again.':
+        'Windows ha bloccato i file del launcher perché lo zip è stato scaricato da internet. Chiudi questo messaggio, '
+        'elimina la cartella PortGaGotoku estratta, fai clic destro sullo zip → Proprietà → spunta Annulla blocco → '
+        'OK, ed estrailo di nuovo.',
+    'The launcher window needs Microsoft Edge WebView2 Runtime, which was not found. Install it from Microsoft\'s '
+    'website.\n\n"Start Hokuto.exe" starts the game with the saved settings without this window.':
+        'La finestra del launcher richiede Microsoft Edge WebView2 Runtime, che non è stato trovato. Installalo dal '
+        'sito di Microsoft.\n\n"Start Hokuto.exe" avvia il gioco con le impostazioni salvate senza questa finestra.',
+    'The launcher window could not be opened ({}).\n\nDetails: {}\n\n"Start Hokuto.exe" may still start the game '
+    'with the saved settings.':
+        'Non è stato possibile aprire la finestra del launcher ({}).\n\nDettagli: {}\n\n"Start Hokuto.exe" '
+        'potrebbe comunque avviare il gioco con le impostazioni salvate.',
 }
 
 TABLES = {'it': IT}
