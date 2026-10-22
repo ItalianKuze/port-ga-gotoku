@@ -26,6 +26,7 @@ import pgg_game as game  # noqa: E402
 import pgg_lang  # noqa: E402
 
 _ = pgg_lang.tr
+BUG_REPORT_URL = 'https://github.com/ItalianKuze/port-ga-gotoku/issues/new/choose'
 UI_DIR = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'ui'
 LOG_KEEP = 400_000  # characters of the running log the window keeps
 
@@ -259,6 +260,11 @@ class Api:
             return False
         path.mkdir(parents=True, exist_ok=True) if name != 'game' else None
         os.startfile(str(path))
+        return True
+
+    def report_bug(self):
+        """The project's issue forms in the default browser."""
+        os.startfile(BUG_REPORT_URL)
         return True
 
     # ---- the game ------------------------------------------------------------------------------

@@ -294,6 +294,7 @@ function wire() {
   document.addEventListener('click', () => toggleFolders(false));
   document.querySelectorAll('[data-folder]').forEach((b) => b.addEventListener('click', () => { pywebview.api.open_folder(b.dataset.folder); toggleFolders(false); }));
   $('open-log').addEventListener('click', () => { drawerWanted = !drawerWanted; render(); });
+  $('report-bug').addEventListener('click', () => pywebview.api.report_bug());
   $('close-log').addEventListener('click', () => { drawerWanted = false; render(); });
   $('copy-log').addEventListener('click', () => navigator.clipboard.writeText(logText));
   $('fullscreen').addEventListener('click', () => setSetting('fullscreen', !state.s.settings.fullscreen));

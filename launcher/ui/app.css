@@ -118,6 +118,9 @@ h1 span { font-weight: 300; }
 .message.warn { color: var(--warn); }
 
 .build { position: fixed; right: 28px; bottom: 20px; font-size: 12px; color: #7d7265; z-index: 2; }
+.report { position: fixed; left: 28px; bottom: 16px; padding: 4px 0; border: none; background: none; font-size: 12px;
+  color: #7d7265; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; z-index: 2; }
+.report:hover { color: var(--text); }
 
 /* Settings panel */
 .backdrop { position: fixed; inset: 0; background: rgba(10,9,8,.6); z-index: 10; }

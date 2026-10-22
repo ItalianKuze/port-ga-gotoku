@@ -20,6 +20,7 @@ IT = {
     'Logs': 'Log',
     'Shader cache': 'Cache degli shader',
     'Game folder': 'Cartella del gioco',
+    'Report a bug': 'Segnala un problema',
     # Home
     'Play': 'Gioca',
     'Play again': 'Gioca di nuovo',
