@@ -5,6 +5,8 @@
 #   PortGaGotoku.exe    the launcher, frozen with PyInstaller (players need no Python); it also
 #                       runs the preparation scripts (--script) and the game without its window
 #                       (--play)
+#   PortGaGotoku.exe.config   lets .NET load the launcher's assemblies from a zip that Windows
+#                       marked as downloaded (Mark of the Web), see the file
 #   Start Hokuto.exe    starts the game with the saved settings (packaging/windows/play.c)
 #   bin/                bb-probe.exe, bbport_runtime.dll, libbbgpu.dll and their DLLs (out-win/run)
 #   scripts/            the boot image preparation (prepare.py, link_modules.py, ...)
@@ -52,6 +54,7 @@ dest=out-win/stage/PortGaGotoku
 rm -rf -- out-win/stage
 mkdir -p "$dest/bin" "$dest/scripts"
 cp -r out-win/pyi-dist/PortGaGotoku/. "$dest/"
+cp packaging/windows/PortGaGotoku.exe.config "$dest/"
 strip -o "$dest/Start Hokuto.exe" out-win/start-hokuto.exe
 # The game's executables without debug information (out-win/run keeps the symbols for crash reports).
 for file in "$run"/*; do
