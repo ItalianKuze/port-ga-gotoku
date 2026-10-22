@@ -37,6 +37,8 @@ SCRIPTS_DIR = PORT_DIR / 'scripts'
 DATA_DIR = Path(os.environ.get('BB_DATA_DIR') or PORT_DIR.parent / 'PortGaGotoku-data')
 SETTINGS_FILE = DATA_DIR / 'launcher.json'
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+# The game's exit code when Windows cannot give it its memory (RUNTIME_EXIT_NO_MEMORY, src/runtime.h).
+EXIT_NO_MEMORY = 24
 
 DEFAULTS = {
     'game_dir': '',

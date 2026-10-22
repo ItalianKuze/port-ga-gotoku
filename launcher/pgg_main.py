@@ -151,7 +151,10 @@ def play_without_window(settings):
     process, job = game.start_game(settings, log_path)
     code = process.wait()
     job.close()
-    if code != 0:
+    if code == game.EXIT_NO_MEMORY:
+        message_box(_('Not enough memory to start the game: it reserves about 6 GB and Windows could not give them. '
+                      'Close other heavy applications, or enlarge the Windows page file, and try again.'), True)
+    elif code != 0:
         message_box(_('The game ended with code {}. Log: {}').format(code, log_path) + '\n\n' + tail(log_path), True)
     return code
 
@@ -197,6 +200,7 @@ class Api:
             'phase': phase, 'last_exit': last_exit, 'stopped': stopped,
             'log_name': self._log_path.name if self._log_path else '',
             'build': game.build_id(),
+            'exit_no_memory': game.EXIT_NO_MEMORY,
             'data_dir': str(game.DATA_DIR),
             'present_modes': list(game.PRESENT_MODES),
         }

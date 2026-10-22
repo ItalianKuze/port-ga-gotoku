@@ -103,6 +103,7 @@ function renderHome(s) {
   else if (s.phase === 'stopping') note.textContent = t('Closing the game: a save in progress is finished first…');
   else if (s.last_exit === 0) note.textContent = t('Last game: closed normally.');
   else if (s.last_exit !== null && s.stopped) note.textContent = fmt(t('Last game: stopped from the launcher (code {}).'), s.last_exit);
+  else if (failed && s.last_exit === s.exit_no_memory) { note.textContent = t('Not enough memory to start the game: it reserves about 6 GB and Windows could not give them. Close other heavy applications, or enlarge the Windows page file, and try again.'); note.className = 'note bad'; }
   else if (failed) { note.textContent = fmt(t('Last game: ended with an error (code {}).'), s.last_exit); note.className = 'note bad'; }
   else if (!game.prepared) note.textContent = t('At the first start the boot image is prepared (a few seconds).');
   else note.textContent = '';

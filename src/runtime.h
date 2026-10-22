@@ -104,6 +104,8 @@ uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
 uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
+/* Exit code when Windows cannot commit the guest memory pool (launcher/pgg_game.py EXIT_NO_MEMORY). */
+#define RUNTIME_EXIT_NO_MEMORY 24
 typedef struct { const char *name; void *function; } RuntimeExport;
 #define RUNTIME_LOOKUP(table, nid) runtime_lookup(table, sizeof(table)/sizeof(*(table)), nid)
 const char *runtime_symbol(const char *nid);

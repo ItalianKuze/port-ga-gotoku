@@ -109,6 +109,10 @@ IT = {
     # Messages of pgg_main.py
     'Preparing the game failed. Log: {}': 'Preparazione del gioco non riuscita. Log: {}',
     'The game ended with code {}. Log: {}': 'Il gioco è terminato con codice {}. Log: {}',
+    'Not enough memory to start the game: it reserves about 6 GB and Windows could not give them. Close other '
+    'heavy applications, or enlarge the Windows page file, and try again.':
+        'Memoria insufficiente per avviare il gioco: riserva circa 6 GB e Windows non è riuscito a darglieli. Chiudi '
+        'le altre applicazioni pesanti, oppure aumenta il file di paging di Windows, e riprova.',
     'The game is still running. Close the launcher anyway?\n\nThe game stays open; its log is still written to the '
     'logs folder.':
         'Il gioco è ancora aperto. Chiudere comunque il launcher?\n\nIl gioco resta aperto; il suo log continua a '

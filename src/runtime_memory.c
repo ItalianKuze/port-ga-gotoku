@@ -285,7 +285,20 @@ static int pool(void) {
     const uint64_t bytes=POOL_SIZE+FLEX_SPAN;
     section=CreateFileMappingW(INVALID_HANDLE_VALUE,NULL,PAGE_READWRITE,
                                (DWORD)(bytes>>32),(DWORD)(bytes&0xffffffffu),NULL);
-    if (!section) { fprintf(stderr,"Runtime: cannot create %" PRIu64 " MiB of guest memory (error %lu); is the page file large enough?\n",bytes>>20,GetLastError()); return -1; }
+    if (!section) {
+        DWORD error=GetLastError();
+        fprintf(stderr,"Runtime: cannot create %" PRIu64 " MiB of guest memory (error %lu); is the page file large enough?\n",bytes>>20,error);
+        /* ERROR_NOT_ENOUGH_MEMORY, ERROR_NO_SYSTEM_RESOURCES, ERROR_COMMITMENT_LIMIT: Windows cannot
+           commit the pool now (other applications, a small page file). The game cannot start: exit
+           with a code of its own, which the launcher explains, instead of stopping later. */
+        if (error==8 || error==1450 || error==1455) {
+            fprintf(stderr,"STOP: not enough memory: the game needs %" PRIu64 " MiB of memory that Windows cannot "
+                    "give now. Close other applications or enlarge the page file.\n",bytes>>20);
+            fflush(NULL);
+            _Exit(RUNTIME_EXIT_NO_MEMORY);
+        }
+        return -1;
+    }
     backing_base=MapViewOfFile(section,FILE_MAP_ALL_ACCESS,0,0,bytes);
     return backing_base ? 0 : -1;
 }
