@@ -53,8 +53,9 @@ conferma prima di avviare un'altra edizione. La versione provata resta CUSA12781
    (quella con `eboot.bin` e `sce_sys`). Il launcher la controlla, prepara l'immagine di avvio (i file
    del gioco vengono solo letti) e avvia il gioco. In seguito `Start Hokuto.exe` avvia direttamente il
    gioco con le impostazioni salvate.
-5. Gli eseguibili non sono firmati e il launcher è impacchettato con PyInstaller: SmartScreen o un
-   antivirus potrebbero segnalarli.
+5. Gli eseguibili non sono firmati: al primo avvio Windows SmartScreen può mostrare "Windows ha
+   protetto il PC". Fai clic su **Ulteriori informazioni** → **Esegui comunque**. Il launcher è
+   impacchettato con PyInstaller, quindi anche un antivirus potrebbe segnalarlo.
 
 I log sono in `PortGaGotoku-data\logs\`, accanto alla cartella estratta. Per segnalare un problema apri
 una [issue](https://github.com/ItalianKuze/port-ga-gotoku/issues/new/choose) con il modulo di

@@ -66,8 +66,9 @@ were built on are.
    folder (the one with `eboot.bin` and `sce_sys`). The launcher checks it, prepares the boot image
    (the game files are only read) and starts the game. Later, `Start Hokuto.exe` starts the game
    directly with the saved settings.
-5. The executables are not signed and the launcher is frozen with PyInstaller: Windows SmartScreen or
-   an antivirus may warn about them.
+5. The executables are not signed: at the first start Windows SmartScreen may show "Windows protected
+   your PC". Click **More info** → **Run anyway**. The launcher is frozen with PyInstaller, so an
+   antivirus may warn about it too.
 
 Logs are in `PortGaGotoku-data\logs\`, next to the extracted folder (see [Data folder](#data-folder)).
 To report a problem, open an [issue](https://github.com/ItalianKuze/port-ga-gotoku/issues/new/choose)
