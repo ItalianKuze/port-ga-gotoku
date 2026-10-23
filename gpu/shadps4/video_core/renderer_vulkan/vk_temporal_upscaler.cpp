@@ -14,6 +14,7 @@
 
 #include <vk_mem_alloc.h>
 
+#include "bbport_game.h"
 #include "bbport_settings.h"
 #include "bbport_toggles.h"
 #include "ffx_vk_portable.h"
@@ -218,7 +219,13 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
         std::printf("Upscaler: shaderStorageImageWriteWithoutFormat unsupported, FSR 3 off\n");
         enabled = false;
     }
-    if (enabled) {
+    // PortGaGotoku: on Hokuto FSR cannot start: its triggers are Bloodborne's shaders (the scene
+    // compute shader, the Scaleform UI) unless the environment names others or BB_RENDER_RES
+    // upscales without them.
+    if (enabled && BbGame::IsHokuto() && !scaled_session && !std::getenv("BB_UPSCALE_BEFORE_CS") &&
+        !std::getenv("BB_UI_TRIGGER_VS")) {
+        std::printf("Upscaler: FSR 3.1 cannot start on this game (it starts on Bloodborne's shaders)\n");
+    } else if (enabled) {
         std::printf("Upscaler: FSR 3.1 available (%s) on scene color before compute shader "
                     "%016llx\n",
                     BbSettings::Get().upscaler != BbSettings::UpscalerOff ? "on" : "off",
