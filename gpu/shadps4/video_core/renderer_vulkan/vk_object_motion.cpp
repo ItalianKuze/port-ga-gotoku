@@ -53,9 +53,10 @@ ObjectMotion::ObjectMotion(const Instance& instance_, Scheduler& scheduler_)
     : instance{instance_}, scheduler{scheduler_} {
     // Pipeline selection limits the extra attachment and vertex stores to likely
     // animated draws. A setting or environment override can still disable the path.
-    if (!BbSettings::Get().object_motion ||
-        BbSettings::Get().upscaler == BbSettings::UpscalerOff) {
-        std::puts("Object motion: off (enable in menu or BB_OBJECT_MOTION=1)");
+    if (!BbSettings::Get().object_motion || BbSettings::Get().upscaler == BbSettings::UpscalerOff ||
+        !BbSettings::UpscalerAvailable()) {
+        std::puts(BbSettings::UpscalerAvailable() ? "Object motion: off (enable in menu or BB_OBJECT_MOTION=1)"
+                                                  : "Object motion: off (no upscaler)");
         return;
     }
     const auto& features = instance.GetPhysicalDevice().getFeatures();

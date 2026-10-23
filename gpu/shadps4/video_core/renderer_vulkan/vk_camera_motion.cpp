@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "bbport_settings.h"
 #include "bbport_toggles.h"
 
 #include "video_core/host_shaders/camera_motion_comp.h"
@@ -76,10 +77,9 @@ CameraMotion::CameraMotion(const Instance& instance_, Scheduler& scheduler_,
     : instance{instance_}, scheduler{scheduler_}, texture_cache{texture_cache_}, runtime{runtime_} {
     const char* env = std::getenv("BB_DEBUG_MOTION");
     debug_overlay = env && env[0] == '1';
-    const char* upscaler = std::getenv("BB_UPSCALER");
     // The upscaler can be switched on from the menu at any time: the camera is always tracked
-    // unless BB_UPSCALER=none.
-    for_upscaler = !(upscaler && std::strcmp(upscaler, "none") == 0);
+    // unless BB_UPSCALER=none or on Hokuto (BbSettings::UpscalerAvailable).
+    for_upscaler = BbSettings::UpscalerAvailable();
     const auto device = instance.GetDevice();
     if (for_upscaler) {
         const std::array<vk::DescriptorSetLayoutBinding, 3> motion_bindings = {{

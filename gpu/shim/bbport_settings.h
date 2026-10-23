@@ -72,6 +72,10 @@ const char* MenuText(const char* english, const char* russian);
 void Load();
 /// Checks the loaded choice before the first frame; unsupported FSR 4 uses FSR 3.1.
 void ConfigureUpscalerSupport(bool fsr4, bool fsr411);
+/// PortGaGotoku: the temporal upscaler and what feeds it (jitter, camera and object motion) can run:
+/// not with BB_UPSCALER=none, never on the Hokuto profile (they are written for Bloodborne's frame),
+/// whatever the settings file says.
+bool UpscalerAvailable();
 /// Startup-patched scene dimensions cannot change until run.sh prepares a new image.
 bool FixedRenderSession();
 int RenderPreset();

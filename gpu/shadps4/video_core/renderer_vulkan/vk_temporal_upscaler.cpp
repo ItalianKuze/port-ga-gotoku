@@ -181,9 +181,13 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     BbSettings::ConfigureUpscalerSupport(instance.IsFsr4Int8Supported(),
                                          instance.IsFsr411Supported());
     fsr4 = std::make_unique<Fsr4Upscaler>(instance, scheduler);
-    // Available unless BB_UPSCALER=none; on/off and the parameters are the menu's settings.
-    const char* env = std::getenv("BB_UPSCALER");
-    enabled = !(env && std::strcmp(env, "none") == 0);
+    // Available unless BB_UPSCALER=none or on Hokuto; on/off and the parameters are the menu's
+    // settings.
+    enabled = BbSettings::UpscalerAvailable();
+    if (BbGame::IsHokuto()) {
+        std::printf("Upscaler: off on this game (FSR 3.1, jitter, camera and object motion are for "
+                    "Bloodborne's frame; bbport.ini not used for them)\n");
+    }
     if (const char* hash = std::getenv("BB_UPSCALE_BEFORE_CS")) {
         trigger_hash = std::strtoull(hash, nullptr, 16);
     }
@@ -219,13 +223,7 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
         std::printf("Upscaler: shaderStorageImageWriteWithoutFormat unsupported, FSR 3 off\n");
         enabled = false;
     }
-    // PortGaGotoku: on Hokuto FSR cannot start: its triggers are Bloodborne's shaders (the scene
-    // compute shader, the Scaleform UI) unless the environment names others or BB_RENDER_RES
-    // upscales without them.
-    if (enabled && BbGame::IsHokuto() && !scaled_session && !std::getenv("BB_UPSCALE_BEFORE_CS") &&
-        !std::getenv("BB_UI_TRIGGER_VS")) {
-        std::printf("Upscaler: FSR 3.1 cannot start on this game (it starts on Bloodborne's shaders)\n");
-    } else if (enabled) {
+    if (enabled) {
         std::printf("Upscaler: FSR 3.1 available (%s) on scene color before compute shader "
                     "%016llx\n",
                     BbSettings::Get().upscaler != BbSettings::UpscalerOff ? "on" : "off",

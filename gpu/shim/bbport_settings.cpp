@@ -204,6 +204,11 @@ void ConfigureUpscalerSupport(bool fsr4, bool fsr411) {
     }
 }
 
+bool UpscalerAvailable() {
+    const char* env = std::getenv("BB_UPSCALER");
+    return !(env && std::strcmp(env, "none") == 0) && !BbGame::IsHokuto();
+}
+
 bool FixedRenderSession() {
     const char* size = std::getenv("BB_RENDER_RES");
     return size && size[0];
