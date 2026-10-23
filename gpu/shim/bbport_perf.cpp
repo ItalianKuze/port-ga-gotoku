@@ -410,6 +410,12 @@ void FinishMeasurement() {
         }
     };
     both("Perf summary: %.1f s, %zu frames\n", seconds, frames);
+    if (sum_ms < 900.0 * seconds) {
+        std::printf("Perf: frames presented for only %.1f of %.1f s (window minimised?): not a comparable "
+                    "measurement\n",
+                    sum_ms / 1000.0, seconds);
+    }
+    both("presented_s=%.1f\n", sum_ms / 1000.0);
     both("fps_avg=%.2f\n", frames && sum_ms > 0 ? 1000.0 * double(frames) / sum_ms : 0.0);
     both("fps_low1=%.2f\nfps_low01=%.2f\n", LowFps(record_frames, 0.01), LowFps(record_frames, 0.001));
     both("frame_ms_p50=%.2f\nframe_ms_p90=%.2f\nframe_ms_p95=%.2f\nframe_ms_p99=%.2f\nframe_ms_p999=%.2f\nframe_ms_max=%.2f\n",
@@ -447,6 +453,11 @@ void SamplerThread() {
     auto last_time = Clock::now();
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
+        // The measurement also ends on time when no frame is presented: a minimised window
+        // skips presentation (vk_presenter), and only OnPresent would close it.
+        if (recording && std::chrono::duration<double>(Clock::now() - record_start).count() >= record_seconds + 2) {
+            FinishMeasurement();
+        }
         if (!Active()) {
             last.clear();
             continue;

@@ -14,7 +14,8 @@ delay the player took in the recording before pressing F9, then writes
 "replay measure=90" (walk) or "measure=30" (still) into the scripted pad file: the recorded route plays
 back and the measurement (gpu/shim/bbport_perf) starts on the same frame. When the summary is written
 the game is closed like its window's X (a save in progress is finished), and scripts/perf_report.py
-writes the report. Keep the game window alone: no input is needed or wanted.
+writes the report. Keep the game window alone and not minimised (a minimised window presents no
+frames): no input is needed or wanted.
 """
 import argparse
 import json
@@ -224,6 +225,8 @@ def run(kind, index):
         elif line.startswith('thread=') and 'top_thread' not in values:
             _tid, name, percent = line.strip()[7:].split('|')
             values['top_thread'], values['top_thread_pct'] = name, float(percent)
+    if values.get('presented_s', seconds) < 0.9 * seconds:
+        say(f'WARNING: frames presented for only {values["presented_s"]:.0f} of {seconds} s (window minimised?)')
     values['exit_code'] = code
     values['report'] = str(report)
     return values
