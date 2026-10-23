@@ -289,7 +289,7 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
     const auto extensions = GetLayerExtensions(GetInstanceExtensions(window_type, true), layers);
 
     const vk::ApplicationInfo application_info = {
-        .pApplicationName = "shadPS4",
+        .pApplicationName = "PortGaGotoku", // PortGaGotoku: was "shadPS4"
         .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
         .pEngineName = "shadPS4 Vulkan",
         .engineVersion = VK_MAKE_VERSION(1, 0, 0),

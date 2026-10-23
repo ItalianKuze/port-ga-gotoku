@@ -104,7 +104,7 @@ static int read_input(const char *kind) {
     const char *prompt = want_key && want_pad ? "Press a key or a gamepad button"
                          : want_key           ? "Press a key"
                                               : "Press a gamepad button";
-    if (!SDL_CreateWindowAndRenderer("bbport", 520, 90, 0, &window, &renderer)) {
+    if (!SDL_CreateWindowAndRenderer("PortGaGotoku", 520, 90, 0, &window, &renderer)) {
         fprintf(stderr, "read-input: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
     const int live_mode = argc > 1 && !strcmp(argv[1], "--live-resolution");
     const VkApplicationInfo app = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = "bbport scene scaling probe",
+        .pApplicationName = "PortGaGotoku scene scaling probe",
         .apiVersion = VK_API_VERSION_1_3,
     };
     const VkInstanceCreateInfo create = {
