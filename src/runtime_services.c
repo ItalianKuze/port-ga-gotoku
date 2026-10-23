@@ -121,7 +121,7 @@ static ABI int32_t user_list(int32_t *ids) {
 }
 static ABI int32_t user_name(int32_t id,char *name,uint64_t size) {
     if (id!=USER_ID || !name) return USER_INVALID_ARGUMENT;
-    const char *value=getenv("BB_USER_NAME") ? getenv("BB_USER_NAME") : "Hunter";
+    const char *value=getenv("BB_USER_NAME") ? getenv("BB_USER_NAME") : "Player";
     if (strlen(value)+1>size) return (int32_t)0x8096000a; /* BUFFER_TOO_SHORT */
     strcpy(name,value); return 0;
 }
@@ -720,7 +720,7 @@ static ABI int32_t ime_init(const ImeParam *param, const void *extended) {
     if (preset) { ime_complete(0,preset); return 0; }
     if (!bbgpu_text_input_begin(initial,prompt[0] ? prompt : "Text")) {
         const char *name=getenv("BB_USER_NAME");
-        ime_complete(0,name ? name : initial[0] ? initial : "Hunter");
+        ime_complete(0,name ? name : initial[0] ? initial : "Player");
     } else printf("Runtime: ImeDialog opened: type in the game window, Enter to confirm, Esc to cancel\n");
     return 0;
 }
