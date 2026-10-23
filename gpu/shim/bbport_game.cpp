@@ -9,8 +9,10 @@ namespace BbGame {
 
 namespace {
 
-// Fist of the North Star: Lost Paradise.
-constexpr const char* HokutoIds[] = {"CUSA12781"};
+// Fist of the North Star: Lost Paradise / Hokuto ga Gotoku: CUSA12781 (Europe, the supported one),
+// CUSA10053 (Asia, Chinese; reported working by a tester); store ids without a test: CUSA12776
+// (America), CUSA12785 and CUSA12788 (America and Europe, Traditional Chinese).
+constexpr const char* HokutoIds[] = {"CUSA12781", "CUSA10053", "CUSA12776", "CUSA12785", "CUSA12788"};
 
 std::atomic<unsigned> game{All};
 
