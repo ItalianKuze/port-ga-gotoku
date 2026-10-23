@@ -1038,16 +1038,16 @@ static ABI void heap_get_trace_info(GuestHeapTraceInfo *info) {
 }
 uintptr_t runtime_memory_resolve(const char *name) {
     if (!strcmp(name,"NWtTN10cJzE#libSceLibcInternalExt")) return (uintptr_t)heap_get_trace_info;
-    if (!strcmp(name,"mL8NDH86iQI#G#E")) return (uintptr_t)map_flexible_named;
+    if (!strcmp(name,"mL8NDH86iQI#libkernel")) return (uintptr_t)map_flexible_named;
     /* Direct-memory NIDs are exercised by test_runtime.c before names are loaded. */
-    if (!strcmp(name, "pO96TwzOm5E#p#J")) return (uintptr_t)direct_size;
-    if (!strcmp(name, "rTXw65xmLIA#p#J")) return (uintptr_t)direct_allocate;
-    if (!strcmp(name, "qCSfqDILlns#G#E")) return (uintptr_t)memory_pool_expand;
-    if (!strcmp(name, "pU-QydtGcGY#G#E")) return (uintptr_t)memory_pool_reserve;
-    if (!strcmp(name, "Vzl66WmfLvk#G#E")) return (uintptr_t)memory_pool_commit;
-    if (!strcmp(name, "L-Q3LEjIbgA#p#J")) return (uintptr_t)direct_map;
-    if (!strcmp(name, "MBuItvba6z8#p#J")) return (uintptr_t)direct_release;
-    if (!strcmp(name, "cQke9UuBQOk#p#J")) return (uintptr_t)direct_unmap;
+    if (!strcmp(name, "pO96TwzOm5E#libkernel")) return (uintptr_t)direct_size;
+    if (!strcmp(name, "rTXw65xmLIA#libkernel")) return (uintptr_t)direct_allocate;
+    if (!strcmp(name, "qCSfqDILlns#libkernel")) return (uintptr_t)memory_pool_expand;
+    if (!strcmp(name, "pU-QydtGcGY#libkernel")) return (uintptr_t)memory_pool_reserve;
+    if (!strcmp(name, "Vzl66WmfLvk#libkernel")) return (uintptr_t)memory_pool_commit;
+    if (!strcmp(name, "L-Q3LEjIbgA#libkernel")) return (uintptr_t)direct_map;
+    if (!strcmp(name, "MBuItvba6z8#libkernel")) return (uintptr_t)direct_release;
+    if (!strcmp(name, "cQke9UuBQOk#libkernel")) return (uintptr_t)direct_unmap;
     return RUNTIME_LOOKUP(exports,name);
 }
 /* Host-owned memory the guest can see (image, stacks, trampolines) lives in

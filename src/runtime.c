@@ -238,12 +238,14 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!(capabilities & 1)) return 0;
     if (is_data) {
         static int32_t need_libc_internal = 1; /* SDK marker variable referenced by Fios2 */
-        if (!strcmp(name, "f7uOxY9mM1U#p#J") || !strcmp(name, "f7uOxY9mM1U#G#E"))
+        if (!strcmp(name, "f7uOxY9mM1U#libkernel"))
             return (uintptr_t)&stack_canary;
         if (!strcmp(name, "ZT4ODD2Ts9o#libSceLibcInternal")) return (uintptr_t)&need_libc_internal;
         return 0;
     }
-    /* Exact scoped imports for CUSA03173; the suffix identifies library/module. */
+    /* Imports are named NID#library (scripts/link_modules.py). These libc overrides keep the
+     * letters Bloodborne's eboot (CUSA03173) gave libc, so they match no import now: Hokuto runs
+     * the libc of its dump (_init_env, atexit, memcpy...), as it did with its own letters (H#H). */
     if (!strcmp(name, "bzQExy189ZI#q#q")) return (uintptr_t)init_env;
     if (!strcmp(name, "8G2LB+A3rzg#q#q")) return (uintptr_t)guest_atexit;
     if (!strcmp(name, "tsvEmnenz48#q#q")) return (uintptr_t)guest_cxa_atexit;
@@ -253,16 +255,16 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!strcmp(name, "3GPpjQdAMTw#q#q")) return (uintptr_t)guard_acquire;
     if (!strcmp(name, "9rAeANT2tyE#q#q")) return (uintptr_t)guard_release;
     if (!strcmp(name, "2emaaluWzUw#q#q")) return (uintptr_t)guard_abort;
-    if (!strcmp(name, "Ou3iL1abvng#p#J") || !strcmp(name,"Ou3iL1abvng#G#E")) return (uintptr_t)stack_fail;
+    if (!strcmp(name, "Ou3iL1abvng#libkernel")) return (uintptr_t)stack_fail;
     if (!strcmp(name, "8zTFvBIAIN8#q#q")) return (uintptr_t)guest_memset;
     if (!strcmp(name, "Q3VBxCXhUHs#q#q")) return (uintptr_t)guest_memcpy;
     if (!strcmp(name, "+P6FRGH4LfA#q#q")) return (uintptr_t)guest_memmove;
     if (!strcmp(name, "DfivPArhucg#q#q")) return (uintptr_t)guest_memcmp;
     if (!strcmp(name, "j4ViWNHEgww#q#q")) return (uintptr_t)guest_strlen;
-    if (!strcmp(name, "vNe1w4diLCs#p#J") || !strcmp(name,"vNe1w4diLCs#G#E")) return (uintptr_t)guest_tls_get_addr;
-    if (!strcmp(name, "959qrazPIrg#p#J") || !strcmp(name, "959qrazPIrg#G#E"))
+    if (!strcmp(name, "vNe1w4diLCs#libkernel")) return (uintptr_t)guest_tls_get_addr;
+    if (!strcmp(name, "959qrazPIrg#libkernel"))
         return (uintptr_t)guest_procparam;
-    if (!strcmp(name, "p5EcQeEeJAE#p#J") || !strcmp(name, "p5EcQeEeJAE#G#E"))
+    if (!strcmp(name, "p5EcQeEeJAE#libkernel"))
         return (uintptr_t)guest_set_heap_api;
     uintptr_t mutex = runtime_mutex_resolve(name);
     if (mutex) return mutex;

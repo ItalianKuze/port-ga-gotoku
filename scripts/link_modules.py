@@ -5,6 +5,10 @@ libSceFios2.prx). Every module is placed after the previous one; imports of
 all modules share one import table, so the C runtime can override any
 function (host contracts first) and otherwise binds the native export.
 
+Imports are named NID#library (e.g. Ou3iL1abvng#libkernel), never by the
+letters an executable assigns to its libraries and modules (Ou3iL1abvng#G#E in
+this eboot): another eboot or edition orders its libraries differently.
+
 Exports are matched by (NID, library identity, module identity). Imports of
 libSceLibcInternal are served by libc.prx's same-NID exports: the internal
 library is not shipped with the game and exposes the same functions.
@@ -74,6 +78,11 @@ def module(path):
                 sha256=hashlib.sha256(source).hexdigest(), missing=missing)
 
 
+def canonical(identity):
+    """The runtime's name of an import: NID#library (library name without its version)."""
+    return f'{identity[0]}#{identity[1][0]}' if identity else None
+
+
 def patch_fs_loads(image, ph, base):
     """Rewrite initial-exec `mov rax, fs:[0]` to GS: glibc owns FS on Linux."""
     patched = 0
@@ -107,19 +116,13 @@ def link(game, out, module_names=DEFAULT_MODULES):
         raise ValueError('unexpected boot trailer')
 
     identities = {main['identity'](name): i for i, name in enumerate(names)}
-    main_libraries = {identity: key for key, identity in main['libraries'].items()}
-    main_modules = {identity: key for key, identity in main['modules'].items()}
+    names = [canonical(main['identity'](name)) or name for name in names]
 
     def imported(symbol):
         key = symbol['identity']
         if key not in identities:
-            n, lib, mod = key
-            # Main-program spelling when the identity matches (existing host
-            # tables use it); otherwise NID#library for new libraries.
-            name = (f'{n}#{main_libraries[lib]}#{main_modules[mod]}'
-                    if lib in main_libraries and mod in main_modules else f'{n}#{lib[0]}')
             identities[key] = len(names)
-            names.append(name)
+            names.append(canonical(key))
         return identities[key]
 
     exports, by_nid = {}, collections.defaultdict(list)

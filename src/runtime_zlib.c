@@ -244,10 +244,10 @@ static ABI int32_t sce_zlib_finalize(void) {
 }
 
 uintptr_t runtime_zlib_resolve(const char *name) {
-    if (!strcmp(name, "m1YErdIXCp4#o#k")) return (uintptr_t)sce_zlib_initialize;
-    if (!strcmp(name, "6na+Sa-B83w#o#k")) return (uintptr_t)sce_zlib_finalize;
-    if (!strcmp(name, "TLar1HULv1Q#o#k")) return (uintptr_t)sce_zlib_inflate;
-    if (!strcmp(name, "uB8VlDD4e0s#o#k")) return (uintptr_t)sce_zlib_wait_for_done;
-    if (!strcmp(name, "2eDcGHC0YaM#o#k")) return (uintptr_t)sce_zlib_get_result;
+    if (!strcmp(name, "m1YErdIXCp4#libSceZlib")) return (uintptr_t)sce_zlib_initialize;
+    if (!strcmp(name, "6na+Sa-B83w#libSceZlib")) return (uintptr_t)sce_zlib_finalize;
+    if (!strcmp(name, "TLar1HULv1Q#libSceZlib")) return (uintptr_t)sce_zlib_inflate;
+    if (!strcmp(name, "uB8VlDD4e0s#libSceZlib")) return (uintptr_t)sce_zlib_wait_for_done;
+    if (!strcmp(name, "2eDcGHC0YaM#libSceZlib")) return (uintptr_t)sce_zlib_get_result;
     return 0;
 }
