@@ -20,6 +20,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 TITLE_ID = 'CUSA12781'
@@ -176,25 +177,41 @@ def banner_data_url(folder):
 # The prepared boot image (scripts/prepare.py, link_modules.py, content_profile.py)
 
 PREPARATION_SCRIPTS = ('prepare.py', 'link_modules.py', 'link_libc.py', 'content_profile.py', 'game_check.py')
-_image_format = []
+IMAGE_FORMAT_TIMEOUT = 10  # seconds; bb-probe --image-format answers in well under one
+_image_format = {}          # value, problem: bb-probe's answer, asked once per launcher run
+_image_format_lock = threading.Lock()
+
+
+def _ask_image_format():
+    probe = RUN_DIR / 'bb-probe.exe'
+    try:
+        result = subprocess.run([str(probe), '--image-format'], cwd=str(RUN_DIR), env=game_path_env(),
+                                stdin=subprocess.DEVNULL, capture_output=True, timeout=IMAGE_FORMAT_TIMEOUT,
+                                creationflags=NO_WINDOW)
+    except subprocess.TimeoutExpired:  # run() has ended the process
+        return {'value': None, 'problem': f'{probe} did not answer within {IMAGE_FORMAT_TIMEOUT} s'}
+    except OSError as error:
+        return {'value': None, 'problem': f'{probe} could not be started ({error})'}
+    for line in result.stdout.decode('utf-8', errors='replace').splitlines():
+        if line.startswith('Image format: ') and line[14:].strip().isdigit():
+            return {'value': int(line[14:]), 'problem': ''}
+    return {'value': None, 'problem': f'{probe} gave no image format (exit code {result.returncode})'}
 
 
 def image_format():
     """The boot image format the runtime expects (bb-probe --image-format, RUNTIME_IMAGE_FORMAT in
-    src/runtime.h), asked once per launcher run; None when bb-probe could not tell."""
-    if not _image_format:
-        try:
-            result = subprocess.run([str(RUN_DIR / 'bb-probe.exe'), '--image-format'], cwd=str(RUN_DIR),
-                                    env=game_path_env(), capture_output=True, timeout=20, creationflags=NO_WINDOW)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        for line in result.stdout.decode('utf-8', errors='replace').splitlines():
-            if line.startswith('Image format: ') and line[14:].strip().isdigit():
-                _image_format.append(int(line[14:]))
-                break
-        else:
-            return None
-    return _image_format[0]
+    src/runtime.h), asked once per launcher run, failures included; None when bb-probe could not
+    tell (image_format_problem() says why)."""
+    with _image_format_lock:
+        if not _image_format:
+            _image_format.update(_ask_image_format())
+        return _image_format['value']
+
+
+def image_format_problem():
+    """Why bb-probe could not tell the image format ('' when it did): the game cannot start either."""
+    image_format()
+    return _image_format['problem']
 
 
 def _stamp(game, script_value):

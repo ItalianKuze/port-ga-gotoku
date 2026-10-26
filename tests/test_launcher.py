@@ -150,7 +150,7 @@ class GameFolder(unittest.TestCase):
         for name in self.game.PREPARATION_SCRIPTS:
             (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
         self.game.SCRIPTS_DIR = scripts
-        self.game._image_format[:] = [image_format]
+        self.game._image_format.update(value=image_format, problem='')
         out = Path(os.environ['BB_DATA_DIR']) / 'out'
         out.mkdir(parents=True)
         (out / 'boot-linked.bin').write_bytes(b'x')
@@ -176,7 +176,7 @@ class GameFolder(unittest.TestCase):
     def test_another_image_format_prepares_again(self):
         game, _scripts, out = self.prepared_folder()
         (out / 'prepared.json').write_text(json.dumps(self.game.preparation_stamp(game)), encoding='utf-8')
-        self.game._image_format[:] = [3]
+        self.game._image_format.update(value=3)
         self.assertFalse(self.game.prepared(game))
 
     def test_size_stamp_is_a_format_2_image(self):
@@ -194,11 +194,32 @@ class GameFolder(unittest.TestCase):
         game, scripts, out = self.prepared_folder(image_format=3)
         (out / 'prepared.json').write_text(json.dumps(self.game.size_stamp(game)), encoding='utf-8')
         self.assertFalse(self.game.prepared(game))
-        self.game._image_format[:] = [2]
+        self.game._image_format.update(value=2)
         stamp = self.game.size_stamp(game)
         stamp['scripts']['link_modules.py'] += 8  # 0.1.2's link_modules.py
         (out / 'prepared.json').write_text(json.dumps(stamp), encoding='utf-8')
         self.assertFalse(self.game.prepared(game))
+
+
+    def test_image_format_failures_are_asked_once_and_explained(self):
+        import subprocess
+        self.game.RUN_DIR = self.root / 'no-run-dir'
+        self.assertIsNone(self.game.image_format())
+        self.assertIn('could not be started', self.game.image_format_problem())
+        calls = []
+
+        def hanging(command, **kwargs):
+            calls.append(kwargs['timeout'])
+            raise subprocess.TimeoutExpired(command, kwargs['timeout'])
+        run, self.game.subprocess.run = self.game.subprocess.run, hanging
+        try:
+            self.game._image_format.clear()
+            self.assertIsNone(self.game.image_format())
+            self.assertIsNone(self.game.image_format())
+            self.assertIn(f'did not answer within {self.game.IMAGE_FORMAT_TIMEOUT} s', self.game.image_format_problem())
+        finally:
+            self.game.subprocess.run = run
+        self.assertEqual(calls, [self.game.IMAGE_FORMAT_TIMEOUT])
 
 
 class Helpers(unittest.TestCase):

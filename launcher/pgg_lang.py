@@ -108,6 +108,8 @@ IT = {
     'No game started from this window yet': 'Nessuna partita avviata da questa finestra',
     # Messages of pgg_main.py
     'Preparing the game failed. Log: {}': 'Preparazione del gioco non riuscita. Log: {}',
+    'The game cannot start: {}. Extract the PortGaGotoku zip again; if an antivirus removed or blocked bb-probe.exe, restore it.':
+        'Il gioco non può partire: {}. Estrai di nuovo lo zip di PortGaGotoku; se un antivirus ha rimosso o bloccato bb-probe.exe, ripristinalo.',
     'The game ended with code {}. Log: {}': 'Il gioco è terminato con codice {}. Log: {}',
     'Not enough memory to start the game: it reserves about 6 GB and Windows could not give them. Close other '
     'heavy applications, or enlarge the Windows page file, and try again.':

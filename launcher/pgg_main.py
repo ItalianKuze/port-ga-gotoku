@@ -140,6 +140,10 @@ def tail(path, lines=20):
 def play_without_window(settings):
     """--play: prepares the image if needed, runs the game and waits for it. A failure is shown
     in a message box with the end of the log."""
+    problem = game.image_format_problem()
+    if problem:
+        message_box(_('The game cannot start: {}. Extract the PortGaGotoku zip again; if an antivirus removed or blocked bb-probe.exe, restore it.').format(problem), True)
+        return 1
     if not game.prepared(settings['game_dir']):
         log_path = game.new_log_path('-prepare')
         with open(log_path, 'w', encoding='utf-8') as log:
@@ -315,6 +319,11 @@ class Api:
             self._devices = found
 
     def _run(self, settings):
+        problem = game.image_format_problem()
+        if problem:
+            self._append(_('The game cannot start: {}. Extract the PortGaGotoku zip again; if an antivirus removed or blocked bb-probe.exe, restore it.').format(problem) + '\n')
+            self._finish(-1)
+            return
         if not game.prepared(settings['game_dir']):
             log_path = game.new_log_path('-prepare')
             with self._lock:
