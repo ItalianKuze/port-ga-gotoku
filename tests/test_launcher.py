@@ -141,16 +141,63 @@ class GameFolder(unittest.TestCase):
         self.assertIn('== game ? version ?, eboot.bin sha256 ? ==',
                       self.game.log_header({**self.game.DEFAULTS, 'game_dir': str(self.root / 'nowhere')}))
 
-    def test_prepared_needs_a_matching_stamp(self):
+    def prepared_folder(self, image_format=2):
+        """A game, a copy of the preparation scripts and an image in DATA_DIR/out; bb-probe answers
+        `image_format`."""
         game = self.folder()
+        scripts = self.root / 'scripts'
+        scripts.mkdir()
+        for name in self.game.PREPARATION_SCRIPTS:
+            (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+        self.game.SCRIPTS_DIR = scripts
+        self.game._image_format[:] = [image_format]
         out = Path(os.environ['BB_DATA_DIR']) / 'out'
         out.mkdir(parents=True)
         (out / 'boot-linked.bin').write_bytes(b'x')
         (out / 'content.bin').write_bytes(b'x')
+        return game, scripts, out
+
+    def test_prepared_needs_a_matching_stamp(self):
+        game, _scripts, out = self.prepared_folder()
         self.assertFalse(self.game.prepared(game))
         (out / 'prepared.json').write_text(json.dumps(self.game.preparation_stamp(game)), encoding='utf-8')
         self.assertTrue(self.game.prepared(game))
         (Path(game) / 'eboot.bin').write_bytes(b'\0' * 32)
+        self.assertFalse(self.game.prepared(game))
+
+    def test_a_script_changed_at_the_same_size_prepares_again(self):
+        game, scripts, out = self.prepared_folder()
+        (out / 'prepared.json').write_text(json.dumps(self.game.preparation_stamp(game)), encoding='utf-8')
+        source = (scripts / 'link_modules.py').read_bytes()
+        (scripts / 'link_modules.py').write_bytes(source[:-2] + b'#\n')
+        self.assertEqual(len((scripts / 'link_modules.py').read_bytes()), len(source))
+        self.assertFalse(self.game.prepared(game))
+
+    def test_another_image_format_prepares_again(self):
+        game, _scripts, out = self.prepared_folder()
+        (out / 'prepared.json').write_text(json.dumps(self.game.preparation_stamp(game)), encoding='utf-8')
+        self.game._image_format[:] = [3]
+        self.assertFalse(self.game.prepared(game))
+
+    def test_size_stamp_is_a_format_2_image(self):
+        game, scripts, out = self.prepared_folder()
+        (out / 'prepared.json').write_text(json.dumps(self.game.size_stamp(game)), encoding='utf-8')
+        self.assertTrue(self.game.prepared(game))
+        self.assertEqual(json.loads((out / 'prepared.json').read_text(encoding='utf-8')),
+                         self.game.preparation_stamp(game))
+        # Rewritten: a later change at the same size is seen.
+        source = (scripts / 'prepare.py').read_bytes()
+        (scripts / 'prepare.py').write_bytes(source[:-2] + b'#\n')
+        self.assertFalse(self.game.prepared(game))
+
+    def test_size_stamp_of_another_size_or_format_prepares_again(self):
+        game, scripts, out = self.prepared_folder(image_format=3)
+        (out / 'prepared.json').write_text(json.dumps(self.game.size_stamp(game)), encoding='utf-8')
+        self.assertFalse(self.game.prepared(game))
+        self.game._image_format[:] = [2]
+        stamp = self.game.size_stamp(game)
+        stamp['scripts']['link_modules.py'] += 8  # 0.1.2's link_modules.py
+        (out / 'prepared.json').write_text(json.dumps(stamp), encoding='utf-8')
         self.assertFalse(self.game.prepared(game))
 
 

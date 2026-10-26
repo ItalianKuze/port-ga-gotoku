@@ -804,6 +804,7 @@ int main(int argc, char **argv) {
 #endif
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();
     if (argc == 2 && !strcmp(argv[1], "--devices")) return probe_devices();
+    if (argc == 2 && !strcmp(argv[1], "--image-format")) { printf("Image format: %d\n", RUNTIME_IMAGE_FORMAT); return 0; }
 #ifdef _WIN32
     /* The PS4 user range must be reserved before anything lands in it: the guest image is mapped
      * at an address inside [USER_MIN,USER_MAX), and Vulkan drivers take their allocations from
@@ -826,7 +827,7 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
     }
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--timeout seconds] | --vulkan-only\n", argv[0]);
+        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--timeout seconds] | --vulkan-only | --devices | --image-format\n", argv[0]);
         return 1;
     }
     if (content_profile) {

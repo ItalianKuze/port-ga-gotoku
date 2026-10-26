@@ -175,22 +175,55 @@ def banner_data_url(folder):
 # ---------------------------------------------------------------------------------------------
 # The prepared boot image (scripts/prepare.py, link_modules.py, content_profile.py)
 
-def preparation_stamp(game):
-    """What the prepared image was made from: the dump's eboot.bin and the preparation scripts."""
-    eboot = Path(game) / 'eboot.bin'
-    stat = eboot.stat()
-    scripts = {}
-    for name in ('prepare.py', 'link_modules.py', 'link_libc.py', 'content_profile.py', 'game_check.py'):
+PREPARATION_SCRIPTS = ('prepare.py', 'link_modules.py', 'link_libc.py', 'content_profile.py', 'game_check.py')
+_image_format = []
+
+
+def image_format():
+    """The boot image format the runtime expects (bb-probe --image-format, RUNTIME_IMAGE_FORMAT in
+    src/runtime.h), asked once per launcher run; None when bb-probe could not tell."""
+    if not _image_format:
         try:
-            scripts[name] = (SCRIPTS_DIR / name).stat().st_size
+            result = subprocess.run([str(RUN_DIR / 'bb-probe.exe'), '--image-format'], cwd=str(RUN_DIR),
+                                    env=game_path_env(), capture_output=True, timeout=20, creationflags=NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        for line in result.stdout.decode('utf-8', errors='replace').splitlines():
+            if line.startswith('Image format: ') and line[14:].strip().isdigit():
+                _image_format.append(int(line[14:]))
+                break
+        else:
+            return None
+    return _image_format[0]
+
+
+def _stamp(game, script_value):
+    stat = (Path(game) / 'eboot.bin').stat()
+    scripts = {}
+    for name in PREPARATION_SCRIPTS:
+        try:
+            scripts[name] = script_value(SCRIPTS_DIR / name)
         except OSError:
             scripts[name] = None
     return {'game': str(Path(game).resolve()), 'eboot_size': stat.st_size, 'eboot_mtime': int(stat.st_mtime),
             'scripts': scripts}
 
 
+def preparation_stamp(game):
+    """What the prepared image was made from: the dump's eboot.bin, the preparation scripts (SHA-256)
+    and the image format of the runtime that will load it."""
+    return {**_stamp(game, lambda path: hashlib.sha256(path.read_bytes()).hexdigest()), 'image_format': image_format()}
+
+
+def size_stamp(game):
+    """The stamp up to a35f281: script sizes, no image format. Its images are format 2 when the
+    scripts still have those sizes (the ones of 0.1.2 do not: link_modules.py changed)."""
+    return _stamp(game, lambda path: path.stat().st_size)
+
+
 def prepared(game):
-    """True when DATA_DIR/out holds an image prepared from this game folder by these scripts."""
+    """True when DATA_DIR/out holds an image prepared from this game folder by these scripts for this
+    runtime. A size stamp of a format 2 image is rewritten as a current stamp."""
     out = DATA_DIR / 'out'
     if not ((out / 'boot-linked.bin').is_file() and (out / 'content.bin').is_file()):
         return False
@@ -198,7 +231,13 @@ def prepared(game):
         stamp = json.loads((out / 'prepared.json').read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return False
-    return stamp == preparation_stamp(game)
+    current = preparation_stamp(game)
+    if stamp == current:
+        return True
+    if current['image_format'] == 2 and stamp == size_stamp(game):
+        (out / 'prepared.json').write_text(json.dumps(current, indent=2), encoding='utf-8')
+        return True
+    return False
 
 
 def script_command(name, *args):

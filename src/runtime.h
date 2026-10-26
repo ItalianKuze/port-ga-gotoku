@@ -106,6 +106,11 @@ uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
 /* Exit code when Windows cannot commit the guest memory pool (launcher/pgg_game.py EXIT_NO_MEMORY). */
 #define RUNTIME_EXIT_NO_MEMORY 24
+/* What this runtime expects of a prepared boot image (bb-probe --image-format; the launcher keeps it in
+ * prepared.json and prepares again when it changes). Raise it when the image an unchanged set of
+ * preparation scripts produces no longer fits the runtime. 1: imports named NID#X#Y (letters of the
+ * eboot), up to 0.1.2; 2: imports named NID#library. */
+#define RUNTIME_IMAGE_FORMAT 2
 typedef struct { const char *name; void *function; } RuntimeExport;
 #define RUNTIME_LOOKUP(table, nid) runtime_lookup(table, sizeof(table)/sizeof(*(table)), nid)
 const char *runtime_symbol(const char *nid);
