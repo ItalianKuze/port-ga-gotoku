@@ -289,14 +289,9 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
-#ifdef _WIN32
         // The runtime lets save writes finish, prints its report and ends the process without
-        // DLL detach (std::_Exit went through ExitProcess, which hung on Windows).
+        // destructors or DLL detach (std::_Exit went through ExitProcess, which hung on Windows).
         runtime_quit(0, "window closed by the user");
-#else
-        std::fflush(stdout);
-        std::_Exit(0);
-#endif
     });
     g_window_thread.detach();
     {

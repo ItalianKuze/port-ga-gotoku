@@ -20,6 +20,9 @@ mkdir -p "$out" "$data/user"
 # bbgpu_init can set PGG_GPU_USER_DIR. Keep that static initialization and the
 # port settings file inside this attempt's writable data directory.
 export XDG_DATA_HOME="$data"
+# The GPU library's folders in the data folder, as on Windows (scripts/run-hokuto-win.sh, the
+# launcher): its user folder and the shader/pipeline cache (<data>/cache/<serial>).
+export PGG_GPU_USER_DIR="$data/gpu" PGG_GPU_CACHE_DIR="$data/cache"
 # pgg.ini (bbport.ini until 0.1.2, copied the first time; the old file stays).
 [[ -f $data/pgg.ini || ! -f $data/bbport.ini ]] || cp "$data/bbport.ini" "$data/pgg.ini"
 export PGG_CONFIG="$data/pgg.ini"
