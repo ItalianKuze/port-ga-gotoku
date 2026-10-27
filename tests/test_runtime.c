@@ -12,10 +12,6 @@ void runtime_restart(void) { abort(); }
 #include <stdatomic.h>
 #include <time.h>
 
-typedef int (ABI *Register)(GuestCallback);
-typedef int (ABI *RegisterCxa)(void (ABI *)(void *), void *, void *);
-typedef int (ABI *Acquire)(uint64_t *);
-typedef void (ABI *Guard)(uint64_t *);
 typedef int32_t (ABI *AttrInit)(void **);
 typedef int32_t (ABI *AttrType)(void **, int);
 typedef int32_t (ABI *MutexInit)(void **, void **, const char *);
@@ -77,46 +73,6 @@ static void libc_support(void) {
     assert(runtime_application_heap_api()==NULL);
     runtime_set_procparam(NULL);
 }
-static int order[512], count;
-static Register register_plain;
-static ABI void first(void) { order[count++]=1; }
-static ABI void second(void) { order[count++]=2; }
-static ABI void with_arg(void *p) { order[count++]=(int)(uintptr_t)p; }
-static ABI void add_handler(void) { order[count++]=4; assert(register_plain(first)==0); }
-
-static void exit_handlers(void) {
-    register_plain=GET(Register,"8G2LB+A3rzg#q#q");
-    RegisterCxa cxa=GET(RegisterCxa,"tsvEmnenz48#q#q");
-    assert(register_plain && cxa);
-    assert(register_plain(first)==0);
-    assert(cxa(with_arg,(void *)3,(void *)11)==0);
-    assert(register_plain(second)==0);
-    runtime_finalize((void *)11);
-    assert(count==1 && order[0]==3);
-    runtime_finalize((void *)11); assert(count==1);
-    runtime_finalize(NULL);
-    assert(count==3 && order[1]==2 && order[2]==1);
-    runtime_finalize(NULL); assert(count==3);
-    assert(register_plain(add_handler)==0);
-    runtime_finalize(NULL);
-    assert(count==5 && order[3]==4 && order[4]==1);
-    /* Exercise reallocating the registry and strict LIFO ordering. */
-    count=0;
-    for (uintptr_t i=0; i<200; ++i) assert(cxa(with_arg,(void *)i,(void *)12)==0);
-    runtime_finalize((void *)12);
-    assert(count==200);
-    for (int i=0; i<200; ++i) assert(order[i]==199-i);
-}
-static void guards(void) {
-    uint64_t state=0;
-    Acquire acquire=GET(Acquire,"3GPpjQdAMTw#q#q");
-    Guard release=GET(Guard,"9rAeANT2tyE#q#q"), abort_guard=GET(Guard,"2emaaluWzUw#q#q");
-    assert(acquire(&state)==1 && state==(UINT64_C(1)<<32));
-    abort_guard(&state); assert(state==0);
-    assert(acquire(&state)==1);
-    release(&state); assert(state==1);
-    assert(acquire(&state)==0);
-}
 static void mutexes(void) {
     AttrInit attr_init=GET(AttrInit,"F8bUHwAG284#libkernel");
     AttrType type=GET(AttrType,"iMp8QpE+XO4#libkernel");
@@ -159,7 +115,7 @@ static void posix_mutexes(void) {
     m=NULL;
     assert(lock(&m)==0 && lock(&m)==11 && trylock(&m)==16);
     assert(unlock(&m)==0 && destroy(&m)==0);
-    assert(!runtime_resolve("dQHWEsJtoE4#q#q",0));
+    assert(!runtime_resolve("dQHWEsJtoE4#wrong",0));
 }
 static void wall_time(void) {
     typedef int (ABI *GetTime)(int64_t *,int32_t *);
@@ -173,7 +129,7 @@ static void wall_time(void) {
     assert(t.value[1]>=0 && t.value[1]<1000000);
     assert(t.canary==0xabcdef && z.canary==0x123456);
     assert(get(NULL,NULL)==0 && get(NULL,z.value)==0);
-    assert(!runtime_resolve("n88vx3C5nW8#q#q",0));
+    assert(!runtime_resolve("n88vx3C5nW8#wrong",0));
 }
 static void direct_memory(void) {
     Allocate alloc=GET(Allocate,"rTXw65xmLIA#libkernel");
@@ -202,22 +158,6 @@ static void direct_memory(void) {
     assert(*(uint64_t *)x==0); /* released allocation does not leak previous data */
     assert(release(a,length)==0); /* release also unmaps owned mapping */
 }
-static void memory_primitives(void) {
-    typedef void *(ABI *Set)(void *,int,size_t);
-    typedef void *(ABI *Copy)(void *,const void *,size_t);
-    typedef int (ABI *Compare)(const void *,const void *,size_t);
-    char a[16],b[16];
-    assert(GET(Set,"8zTFvBIAIN8#q#q")(a,0x5a,sizeof(a))==a);
-    assert(GET(Copy,"Q3VBxCXhUHs#q#q")(b,a,sizeof(a))==b);
-    assert(GET(Compare,"DfivPArhucg#q#q")(a,b,sizeof(a))==0);
-    memcpy(a,"abcdef",7);
-    GET(Copy,"+P6FRGH4LfA#q#q")(a+1,a,6);
-    assert(memcmp(a,"aabcdef",7)==0);
-    typedef size_t (ABI *Length)(const char *);
-    Length length=GET(Length,"j4ViWNHEgww#q#q");
-    assert(length("")==0 && length("abc\0def")==3 && length("\xff\x80")==2);
-}
-
 static HandleOp rw_read, rw_write, rw_tryread, rw_trywrite, rw_unlock, rw_destroy;
 typedef struct { int64_t seconds, nanoseconds; } TestTime;
 typedef int32_t (ABI *TimedLock)(void **, const TestTime *);
@@ -326,18 +266,15 @@ static void rw_timeouts(void) {
     fixture_destroy(&f);
 }
 int main(int argc,char **argv) {
-    runtime_start(0); assert(runtime_resolve("bzQExy189ZI#q#q",0)==0);
+    runtime_start(0); assert(runtime_resolve("959qrazPIrg#libkernel",0)==0);
     runtime_start(1);
-    assert(runtime_resolve("bzQExy189ZI#wrong#module",0)==0);
+    assert(runtime_resolve("959qrazPIrg#libkernel",0)!=0);
+    assert(runtime_resolve("959qrazPIrg#wrong#module",0)==0);
     assert(runtime_resolve("unknown",0)==0);
-    assert(runtime_resolve("8zTFvBIAIN8#q#q",1)==0);
+    assert(runtime_resolve("959qrazPIrg#libkernel",1)==0);
     assert(runtime_resolve("f7uOxY9mM1U#libkernel",0)==0);
     uint64_t *canary=(uint64_t *)runtime_resolve("f7uOxY9mM1U#libkernel",1);
     assert(canary && *canary && !(*canary & 255));
-    if (argc>1 && !strcmp(argv[1],"--guard-recursion")) {
-        uint64_t guard=0; Acquire acquire=GET(Acquire,"3GPpjQdAMTw#q#q");
-        acquire(&guard); acquire(&guard); return 99;
-    }
     if (argc>1 && !strcmp(argv[1],"--bad-tls")) {
         static const char data[4]={0};
         runtime_set_libc_tls(data,4,8);
@@ -350,8 +287,8 @@ int main(int argc,char **argv) {
     if (argc>1 && !strcmp(argv[1],"--rwlock-lifecycle")) { rw_lifecycle(); return 0; }
     if (argc>1 && !strcmp(argv[1],"--rwlock-concurrency")) { rw_concurrency(); return 0; }
     if (argc>1 && !strcmp(argv[1],"--rwlock-timeouts")) { rw_timeouts(); return 0; }
-    libc_support(); posix_mutexes(); wall_time(); exit_handlers(); guards(); mutexes(); direct_memory(); memory_primitives();
+    libc_support(); posix_mutexes(); wall_time(); mutexes(); direct_memory();
     rw_lifecycle(); rw_concurrency(); rw_timeouts();
-    puts("PASS: callback lifecycle, guard ABI, mutex errors, shared direct memory, memory primitives, resolver scope");
+    puts("PASS: mutex errors, shared direct memory, resolver scope");
     return 0;
 }

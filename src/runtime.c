@@ -5,23 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdatomic.h>
-#include <sched.h>
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
 
-typedef struct {
-    union { GuestCallback plain; void (ABI *with_arg)(void *); } callback;
-    void *argument, *dso;
-    int with_arg, active;
-} ExitHandler;
-static ExitHandler *handlers;
-static size_t handler_count, handler_capacity, calls_init, calls_atexit, calls_cxa;
 static uint64_t capabilities;
-static _Atomic size_t guards_acquired, guards_released;
 static uint64_t stack_canary;
-static _Atomic size_t memory_calls;
 /* Dynamic TLS of linked modules: module IDs 2..7 (1 is the eboot's static TLS). */
 #define TLS_MODULES 8
 static struct { const void *data; uint64_t filesz, memsz; } tls_modules[TLS_MODULES];
@@ -120,9 +109,6 @@ void runtime_quit(int code, const char *why) {
     _exit(code);
 }
 void runtime_report(void) {
-    printf("Runtime: _init_env=%zu, atexit=%zu, __cxa_atexit=%zu, registered handlers=%zu\n",
-           calls_init, calls_atexit, calls_cxa, handler_count);
-    printf("Runtime: static guards acquired=%zu, released=%zu\n", (size_t)guards_acquired, (size_t)guards_released);
     runtime_thread_report();
     runtime_mutex_report();
     runtime_rwlock_report();
@@ -134,105 +120,10 @@ void runtime_report(void) {
     runtime_pad_report();
     runtime_savedata_report();
     runtime_file_report();
-    printf("Runtime: memory operations=%zu\n", (size_t)memory_calls);
-}
-static ABI void init_env(void) {
-    /* prepare.py verified the supplied libc export consists of exactly C3. */
-    ++calls_init;
-    puts("Runtime: _init_env returned (verified libc implementation: RET)");
-}
-static pthread_mutex_t handler_lock = PTHREAD_MUTEX_INITIALIZER;
-static int register_handler(ExitHandler value) {
-    pthread_mutex_lock(&handler_lock);
-    if (handler_count == handler_capacity) {
-        size_t capacity = handler_capacity ? handler_capacity * 2 : 64;
-        ExitHandler *next = capacity > 1024 * 1024 ? NULL : realloc(handlers, capacity * sizeof(*handlers));
-        if (!next) { pthread_mutex_unlock(&handler_lock); return -1; }
-        handlers = next; handler_capacity = capacity;
-    }
-    value.active = 1; handlers[handler_count++] = value;
-    pthread_mutex_unlock(&handler_lock);
-    return 0;
-}
-static ABI int guest_atexit(GuestCallback callback) {
-    if (!callback) return -1;
-    ++calls_atexit;
-    return register_handler((ExitHandler){.callback.plain=callback});
-}
-static ABI int guest_cxa_atexit(void (ABI *callback)(void *), void *argument, void *dso) {
-    if (!callback) return -1;
-    ++calls_cxa;
-    return register_handler((ExitHandler){.callback.with_arg=callback, .argument=argument, .dso=dso, .with_arg=1});
-}
-void runtime_finalize(void *dso) {
-    /* Mark before invoking: repeated or recursive finalization cannot run twice.
-       Restart at the end to include handlers registered by a destructor. */
-    for (;;) {
-        pthread_mutex_lock(&handler_lock);
-        size_t i = handler_count;
-        while (i && (!handlers[i-1].active || (dso && handlers[i-1].dso != dso))) --i;
-        if (!i) { pthread_mutex_unlock(&handler_lock); return; }
-        ExitHandler handler = handlers[i-1]; handlers[i-1].active = 0;
-        pthread_mutex_unlock(&handler_lock);
-        if (handler.with_arg) handler.callback.with_arg(handler.argument);
-        else handler.callback.plain();
-    }
-}
-static ABI void guest_finalize(void *dso) { runtime_finalize(dso); }
-static _Atomic uint32_t next_guard_owner=1;
-static _Thread_local uint32_t guard_owner;
-static ABI int guard_acquire(uint64_t *guard) {
-    _Atomic uint64_t *state = (_Atomic uint64_t *)guard;
-    /* Dump libc uses the low byte for completion and the dword at +4 as lock.
-       The lock word holds a per-thread owner tag so recursion is detectable. */
-    if (!guard_owner) guard_owner = atomic_fetch_add(&next_guard_owner, 1);
-    for (;;) {
-        uint64_t expected = 0;
-        if (atomic_load_explicit(state, memory_order_acquire) & 1) return 0;
-        if (atomic_compare_exchange_strong_explicit(state, &expected, (uint64_t)guard_owner << 32,
-                                                    memory_order_acq_rel, memory_order_acquire)) break;
-        if (expected & 1) return 0;
-        if ((uint32_t)(expected >> 32) == guard_owner) {
-            fputs("STOP: recursive/concurrent static initialization is not supported yet\n", stderr);
-            exit(21);
-        }
-        sched_yield(); /* another thread is running the initializer */
-    }
-    atomic_fetch_add(&guards_acquired, 1);
-    return 1;
-}
-static ABI void guard_release(uint64_t *guard) {
-    atomic_store_explicit((_Atomic uint64_t *)guard, 1, memory_order_release);
-    atomic_fetch_add(&guards_released, 1);
-}
-static ABI void guard_abort(uint64_t *guard) {
-    atomic_fetch_and_explicit((_Atomic uint64_t *)guard, UINT64_C(0xffffffff), memory_order_release);
 }
 static ABI __attribute__((noreturn)) void stack_fail(void) {
     fputs("STOP: guest stack protector detected corruption\n", stderr);
     exit(22);
-}
-static ABI void *guest_memset(void *dst, int value, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed);
-    memset(dst, value, size); runtime_memory_note_cpu_write((uintptr_t)dst, size); return dst;
-}
-static ABI void *guest_memcpy(void *dst, const void *src, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed);
-    memcpy(dst, src, size); runtime_memory_note_cpu_write((uintptr_t)dst, size); return dst;
-}
-static ABI void *guest_memmove(void *dst, const void *src, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed);
-    memmove(dst, src, size); runtime_memory_note_cpu_write((uintptr_t)dst, size); return dst;
-}
-static ABI int guest_memcmp(const void *a, const void *b, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed); return memcmp(a, b, size);
-}
-static ABI size_t guest_strlen(const char *text) { return strlen(text); }
-static ABI __attribute__((noreturn)) void guest_libc_exit(int status) {
-    printf("Runtime: guest requested exit(%d)\n", status);
-    runtime_finalize(NULL);
-    runtime_report();
-    exit(status);
 }
 uintptr_t runtime_resolve(const char *name, int is_data) {
     if (!(capabilities & 1)) return 0;
@@ -243,24 +134,7 @@ uintptr_t runtime_resolve(const char *name, int is_data) {
         if (!strcmp(name, "ZT4ODD2Ts9o#libSceLibcInternal")) return (uintptr_t)&need_libc_internal;
         return 0;
     }
-    /* Imports are named NID#library (scripts/link_modules.py). These libc overrides keep the
-     * letters Bloodborne's eboot (CUSA03173) gave libc, so they match no import now: Hokuto runs
-     * the libc of its dump (_init_env, atexit, memcpy...), as it did with its own letters (H#H). */
-    if (!strcmp(name, "bzQExy189ZI#q#q")) return (uintptr_t)init_env;
-    if (!strcmp(name, "8G2LB+A3rzg#q#q")) return (uintptr_t)guest_atexit;
-    if (!strcmp(name, "tsvEmnenz48#q#q")) return (uintptr_t)guest_cxa_atexit;
-    if (!strcmp(name, "uMei1W9uyNo#q#q")) return (uintptr_t)guest_libc_exit;
-    /* Not imported by the current eboot, exposed for ABI tests/future use. */
-    if (!strcmp(name, "H2e8t5ScQGc#q#q")) return (uintptr_t)guest_finalize;
-    if (!strcmp(name, "3GPpjQdAMTw#q#q")) return (uintptr_t)guard_acquire;
-    if (!strcmp(name, "9rAeANT2tyE#q#q")) return (uintptr_t)guard_release;
-    if (!strcmp(name, "2emaaluWzUw#q#q")) return (uintptr_t)guard_abort;
     if (!strcmp(name, "Ou3iL1abvng#libkernel")) return (uintptr_t)stack_fail;
-    if (!strcmp(name, "8zTFvBIAIN8#q#q")) return (uintptr_t)guest_memset;
-    if (!strcmp(name, "Q3VBxCXhUHs#q#q")) return (uintptr_t)guest_memcpy;
-    if (!strcmp(name, "+P6FRGH4LfA#q#q")) return (uintptr_t)guest_memmove;
-    if (!strcmp(name, "DfivPArhucg#q#q")) return (uintptr_t)guest_memcmp;
-    if (!strcmp(name, "j4ViWNHEgww#q#q")) return (uintptr_t)guest_strlen;
     if (!strcmp(name, "vNe1w4diLCs#libkernel")) return (uintptr_t)guest_tls_get_addr;
     if (!strcmp(name, "959qrazPIrg#libkernel"))
         return (uintptr_t)guest_procparam;

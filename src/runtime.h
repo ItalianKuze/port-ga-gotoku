@@ -47,7 +47,6 @@ __attribute__((noreturn)) void runtime_quit(int code, const char *why);
 int runtime_file_open_saves(char *first, size_t size);
 /* Save slots mounted for writing: their number; the first dirName goes to first. */
 int runtime_savedata_writable_mounts(char *first, size_t size);
-void runtime_finalize(void *dso);
 uintptr_t runtime_mutex_resolve(const char *name);
 void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);

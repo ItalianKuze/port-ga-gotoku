@@ -14,12 +14,7 @@ class RuntimeTests(unittest.TestCase):
     def test_runtime_contracts(self):
         r=self.run_case()
         self.assertEqual(r.returncode,0,r.stdout+r.stderr)
-        self.assertIn('PASS: callback lifecycle',r.stdout)
-
-    def test_recursive_guard_fails_explicitly(self):
-        r=self.run_case('--guard-recursion')
-        self.assertEqual(r.returncode,21)
-        self.assertIn('recursive/concurrent static initialization',r.stderr)
+        self.assertIn('PASS: mutex errors',r.stdout)
 
     def test_stack_corruption_is_not_ignored(self):
         r=self.run_case('--stack-failure')
