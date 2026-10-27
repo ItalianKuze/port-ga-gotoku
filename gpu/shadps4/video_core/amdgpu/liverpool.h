@@ -249,8 +249,6 @@ private:
     };
     Task ProcessGraphics(std::span<const u32> dcb, std::span<const u32> ccb, u64 seq = NoSeq,
                          std::shared_ptr<SubmittedCopy> copy = {});
-    /// After a copied submission is decoded: whether the guest changed its command buffers since.
-    static void CheckSubmittedCopy(const SubmittedCopy& copy, u64 seq);
     Task ProcessCeUpdate(std::span<const u32> ccb);
     template <bool is_indirect = false>
     Task ProcessCompute(std::span<const u32> acb, u32 vqid);

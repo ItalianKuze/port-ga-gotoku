@@ -4,7 +4,6 @@
 #include <xxhash.h>
 
 #include "bbport_toggles.h"
-#include "bbport_free_check.h"
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/div_ceil.h"
@@ -154,8 +153,6 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
     if (sync) {
         scheduler.Finish();
         download.Invalidate();
-        BbFreeCheck::Check(image.info.guest_address, download_size, download.mapped,
-                           BbFreeCheck::ImageDownload);
         Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(image.info.guest_address),
                                                   download.mapped, download_size);
         if (!WriteTracking()) {
@@ -165,8 +162,6 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
         scheduler.DeferPriorityOperation(
             [this, device_addr = image.info.guest_address, download, download_size] {
                 download.Invalidate();
-                BbFreeCheck::Check(device_addr, download_size, download.mapped,
-                                   BbFreeCheck::ImageDownload);
                 Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(device_addr),
                                                           download.mapped, download_size);
                 if (!WriteTracking()) {

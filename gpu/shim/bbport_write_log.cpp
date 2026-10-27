@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_write_log.h"
-#include "bbport_free_check.h"
 
 #include <array>
 #include <atomic>
@@ -107,7 +106,6 @@ extern "C" void bbgpu_dump_guest_writes(void* ucontext) {
     using namespace BbWriteLog;
     const auto* uc = static_cast<const ucontext_t*>(ucontext);
     const auto* g = uc->uc_mcontext.gregs;
-    BbFreeCheck::DumpAtFault(std::uint64_t(g[REG_RAX]), std::uint64_t(g[REG_R14]));
     if (Mode() == 0) {
         return;
     }

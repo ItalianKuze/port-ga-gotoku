@@ -5,7 +5,6 @@
 #include <thread>
 #include <pthread.h>
 #include <sys/resource.h>
-#include <sys/uio.h>
 #include <unistd.h>
 #include <array>
 #include <time.h>
@@ -30,7 +29,6 @@
 #include "core/platform.h"
 #include "video_core/amdgpu/liverpool.h"
 #include "bbport_write_log.h"
-#include "bbport_free_check.h"
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
@@ -392,24 +390,11 @@ void StoreLabel(void* address, u64 value, u32 num_bytes) {
     }
 }
 
-void SignalEop(const PM4CmdEventWriteEop& eop, u64 seq) {
+void SignalEop(const PM4CmdEventWriteEop& eop) {
     eop.SignalFence(
-        [seq](void* address, u64 data, u32 num_bytes) {
+        [](void* address, u64 data, u32 num_bytes) {
             auto* memory = Core::Memory::Instance();
-            // bbport: BB_FENCE_DELAY_TEST=1 (experiment) holds every 200th fence back 80 ms: if
-            // the guest frees label objects after a timeout, late labels corrupt its heap.
-            static const bool delay_test = [] {
-                const char* env = std::getenv("BB_FENCE_DELAY_TEST");
-                return env && env[0] == '1';
-            }();
-            if (delay_test && seq != 0 && seq % 200 == 0) { // seq: BB_FREE_CHECK=1
-                std::this_thread::sleep_for(std::chrono::milliseconds(80));
-            }
-            BbFreeCheck::Check(reinterpret_cast<u64>(address), num_bytes, &data, BbFreeCheck::Eop,
-                               seq);
-            BbFreeCheck::NoteFenceWriting(reinterpret_cast<u64>(address));
             BbWriteLog::Note(reinterpret_cast<u64>(address), &data, num_bytes, BbWriteLog::Fence);
-            const auto write_start = std::chrono::steady_clock::now();
             if (!memory->TryWriteBacking(address, &data, num_bytes)) {
                 StoreLabel(address, data, num_bytes);
             }
@@ -418,11 +403,6 @@ void SignalEop(const PM4CmdEventWriteEop& eop, u64 seq) {
             if (auto* rasterizer = memory->GetRasterizer()) {
                 rasterizer->NoteLateCommandWrite(reinterpret_cast<VAddr>(address), &data, num_bytes);
             }
-            BbFreeCheck::NoteFenceWritten(
-                reinterpret_cast<u64>(address),
-                u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now() - write_start)
-                        .count()));
         },
         [] { Platform::IrqC::Instance()->Signal(Platform::InterruptId::GfxEop); });
 }
@@ -434,8 +414,6 @@ void RunEventWriteEop(Vulkan::Rasterizer& rasterizer, const u8* data) {
     if (eop.data_sel.Value() != DataSelect::None) {
         BbStats::eop_decoded.fetch_add(1, std::memory_order_relaxed);
     }
-    // BB_FREE_CHECK: the order of the fences in the command stream, checked where they land.
-    const u64 seq = BbFreeCheck::NextFenceSeq();
     rasterizer.ProcessDownloadImages();
     // BB_HONEST_LABELS: written once the GPU has finished the work before it, as the hardware
     // does (an end-of-pipe event), instead of when that work is recorded.
@@ -443,7 +421,7 @@ void RunEventWriteEop(Vulkan::Rasterizer& rasterizer, const u8* data) {
         const bool writes = eop.data_sel.Value() != DataSelect::None;
         const u64 value = eop.data_sel.Value() == DataSelect::Data32Low ? eop.DataDWord()
                                                                         : eop.DataQWord();
-        rasterizer.SignalAfterGpu([eop, seq] { SignalEop(eop, seq); },
+        rasterizer.SignalAfterGpu([eop] { SignalEop(eop); },
                                   writes ? reinterpret_cast<VAddr>(eop.Address<u8>()) : 0, value);
         return;
     }
@@ -456,16 +434,16 @@ void RunEventWriteEop(Vulkan::Rasterizer& rasterizer, const u8* data) {
         return env && env[0] == '1';
     }();
     if (async_fences && !BbToggle::Disabled(BbToggle::AsyncFences)) {
-        BbCopy::AfterCopies([eop, seq] { SignalEop(eop, seq); });
+        BbCopy::AfterCopies([eop] { SignalEop(eop); });
     } else if (Vulkan::DrawPipe::OnStageB() && !BbToggle::Disabled(BbToggle::RecorderFences)) {
         // The draw recording thread does not wait: the Vulkan recording thread signals the
         // fence after the copies queued before it.
-        rasterizer.SignalAfterHostCopies([eop, seq] { SignalEop(eop, seq); });
+        rasterizer.SignalAfterHostCopies([eop] { SignalEop(eop); });
     } else {
         // Labels are written in order: not before the ones deferred to the recording thread.
         rasterizer.WaitHostCopies();
         rasterizer.WaitDeferredSignals();
-        SignalEop(eop, seq);
+        SignalEop(eop);
     }
 }
 
@@ -538,8 +516,6 @@ void RunWriteData(Vulkan::Rasterizer& rasterizer, const u8* data) {
     rasterizer.WaitHostCopiesFor(write_data->Address<VAddr>(),
                                  (header->type3.count.Value() - 2) * sizeof(u32));
     rasterizer.WaitDeferredSignals();
-    BbFreeCheck::Check(write_data->Address<u64>(), (header->type3.count.Value() - 2) * sizeof(u32),
-                       write_data->data, BbFreeCheck::WriteData);
     BbWriteLog::Note(write_data->Address<u64>(), write_data->data,
                      (header->type3.count.Value() - 2) * sizeof(u32), BbWriteLog::WriteData);
     std::memcpy(write_data->Address<u64*>(), write_data->data,
@@ -550,8 +526,6 @@ void RunWriteData(Vulkan::Rasterizer& rasterizer, const u8* data) {
 
 void WriteEosLabel(void* address, u64 value, u32 num_bytes) {
     auto* memory = Core::Memory::Instance();
-    BbFreeCheck::Check(reinterpret_cast<u64>(address), num_bytes, &value, BbFreeCheck::Eos);
-    BbFreeCheck::NoteFenceWriting(reinterpret_cast<u64>(address));
     BbWriteLog::Note(reinterpret_cast<u64>(address), &value, num_bytes, BbWriteLog::Fence);
     if (!memory->TryWriteBacking(address, &value, num_bytes)) {
         StoreLabel(address, value, num_bytes);
@@ -560,7 +534,6 @@ void WriteEosLabel(void* address, u64 value, u32 num_bytes) {
     if (auto* rasterizer = memory->GetRasterizer()) {
         rasterizer->NoteLateCommandWrite(reinterpret_cast<VAddr>(address), &value, num_bytes);
     }
-    BbFreeCheck::NoteFenceWritten(reinterpret_cast<u64>(address));
 }
 
 void RunEventWriteEos(Vulkan::Rasterizer& rasterizer, const u8* data) {
@@ -583,11 +556,7 @@ void RunEventWriteEos(Vulkan::Rasterizer& rasterizer, const u8* data) {
         ASSERT(event_eos.size == 1);
         rasterizer.Finish();
         const u32 value = rasterizer.ReadDataFromGds(event_eos.gds_index);
-        BbFreeCheck::Check(reinterpret_cast<u64>(event_eos.Address()), sizeof(u32), &value,
-                           BbFreeCheck::EosGds);
-        BbFreeCheck::NoteFenceWriting(reinterpret_cast<u64>(event_eos.Address()));
         *event_eos.Address() = value;
-        BbFreeCheck::NoteFenceWritten(reinterpret_cast<u64>(event_eos.Address()));
     }
 }
 } // namespace
@@ -685,9 +654,6 @@ Liverpool::Task Liverpool::ProcessCeUpdate(std::span<const u32> ccb) {
             if (rasterizer) {
                 rasterizer->WaitForPendingReads(dump_const->Address<VAddr>(), dump_const->Size());
             }
-            BbFreeCheck::Check(dump_const->Address<u64>(), dump_const->Size(),
-                               cblock.constants_heap.data() + dump_const->Offset(),
-                               BbFreeCheck::ConstRam);
             memcpy(dump_const->Address<void*>(),
                    cblock.constants_heap.data() + dump_const->Offset(), dump_const->Size());
             // bbport: no write tracking (BB_GUEST_IN_PLACE): the caches hear of it (in order, on the
@@ -1428,10 +1394,6 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             }
             case PM4ItOpcode::EventWriteEos: {
                 const auto* event_eos = reinterpret_cast<const PM4CmdEventWriteEos*>(header);
-                if (BbFreeCheck::Enabled()) {
-                    BbFreeCheck::NoteFenceDecoded(reinterpret_cast<u64>(event_eos->Address()),
-                                                  event_eos->DataDWord(), header, dcb.data(), seq);
-                }
                 if (rasterizer &&
                     rasterizer->RunInOrder(&RunEventWriteEos, event_eos, sizeof(*event_eos),
                                            BbToggle::PipelinedTasks, false)) {
@@ -1441,20 +1403,13 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             }
             case PM4ItOpcode::EventWriteEop: {
                 const auto* event_eop = reinterpret_cast<const PM4CmdEventWriteEop*>(header);
-                if (BbFreeCheck::Enabled()) {
-                    BbFreeCheck::NoteFenceDecoded(
-                        reinterpret_cast<u64>(event_eop->Address<u8>()),
-                        event_eop->data_sel.Value() == DataSelect::Data32Low ? event_eop->DataDWord()
-                                                                             : event_eop->DataQWord(),
-                        header, dcb.data(), seq);
-                }
                 if (rasterizer) {
                     if (rasterizer->RunInOrder(&RunEventWriteEop, event_eop, sizeof(*event_eop),
                                                BbToggle::PipelinedTasks, false)) {
                         NotePendingFences(*event_eop);
                     }
                 } else {
-                    SignalEop(*event_eop, 0);
+                    SignalEop(*event_eop);
                 }
                 break;
             }
@@ -1506,8 +1461,6 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                                                         (count - 2) * sizeof(u32));
                     }
                 } else {
-                    BbFreeCheck::Check(write_data->Address<u64>(), (count - 2) * 4, write_data->data,
-                                       BbFreeCheck::WriteData);
                     std::memcpy(write_data->Address<u64*>(), write_data->data, (count - 2) * 4);
                 }
                 break;
@@ -1680,10 +1633,6 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
             BbStats::gpu_vol_switches.store(usage.ru_nvcsw, std::memory_order_relaxed);
             BbStats::gpu_minor_faults.store(usage.ru_minflt, std::memory_order_relaxed);
         }
-    }
-
-    if (copy && BbFreeCheck::Enabled()) {
-        CheckSubmittedCopy(*copy, seq); // diagnostic
     }
 
     FIBER_EXIT;
@@ -1909,8 +1858,6 @@ Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
             ASSERT(write_data->dst_sel.Value() == 2 || write_data->dst_sel.Value() == 5);
             const u32 data_size = (header->type3.count.Value() - 2) * 4;
             if (!write_data->wr_one_addr.Value()) {
-                BbFreeCheck::Check(write_data->Address<u64>(), data_size, write_data->data,
-                                   BbFreeCheck::ComputeWriteData);
                 std::memcpy(write_data->Address<void*>(), write_data->data, data_size);
                 if (rasterizer) {
                     rasterizer->NoteCommandWrite(write_data->Address<VAddr>(), write_data->data,
@@ -1975,13 +1922,6 @@ Liverpool::Task Liverpool::ProcessCompute(std::span<const u32> acb, u32 vqid) {
                 rasterizer->WaitDeferredSignals();
             }
             const auto* release_mem = reinterpret_cast<const PM4CmdReleaseMem*>(header);
-            if (const auto sel = release_mem->data_sel.Value();
-                sel != DataSelect::None && sel != DataSelect::GdsMemStore) {
-                const u64 value = release_mem->DataQWord();
-                BbFreeCheck::Check(release_mem->Address<u64>(),
-                                   sel == DataSelect::Data32Low ? 4 : 8, &value,
-                                   BbFreeCheck::ReleaseMem);
-            }
             if (rasterizer) {
                 rasterizer->ProcessDownloadImages();
             }
@@ -2079,7 +2019,6 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
             seq = gfx_submit_seq++;
             draw_prep->Enqueue(seq, std::move(prep_submission));
         }
-        BbFreeCheck::NoteSubmit(seq, copy ? copy->guest_dcb : dcb.data(), dcb.size_bytes());
         auto task = ProcessGraphics(dcb, ccb, seq, std::move(copy));
         queue.submits.emplace(task.handle);
     }
@@ -2160,97 +2099,6 @@ void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
     ++submissions_total;
     work_retired = false;
     submit_cv.notify_one();
-}
-
-
-void Liverpool::CheckSubmittedCopy(const SubmittedCopy& copy, u64 seq) {
-    // The guest memory may be unmapped by now: read it without faulting.
-    static std::atomic<u64> changed{0}, checked{0};
-    const auto first_change = [](const u32* guest, const u32* kept, std::size_t dwords) -> s64 {
-        std::array<u32, 1024> buf;
-        for (std::size_t at = 0; at < dwords; at += buf.size()) {
-            const std::size_t n = std::min(buf.size(), dwords - at);
-            iovec local{buf.data(), n * 4}, remote{const_cast<u32*>(guest + at), n * 4};
-            if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) != ssize_t(n * 4)) {
-                // bbport BB_GUEST_IN_PLACE: dma-buf guest memory is not readable that way; still
-                // mapped, it is read directly.
-                int prot = 0, type = -1;
-                uintptr_t end = 0;
-                const auto from = reinterpret_cast<uintptr_t>(guest + at);
-                if (!runtime_memory_vma_info(from, &prot, &type, &end) || end < from + n * 4) {
-                    return -2 - s64(at); // unmapped
-                }
-                std::memcpy(buf.data(), guest + at, n * 4);
-            }
-            for (std::size_t i = 0; i < n; ++i) {
-                if (buf[i] != kept[at + i]) {
-                    return s64(at + i);
-                }
-            }
-        }
-        return -1;
-    };
-    checked.fetch_add(1, std::memory_order_relaxed);
-    const s64 dcb_change = first_change(copy.guest_dcb, copy.data.data(), copy.dcb_dwords);
-    const s64 ccb_change =
-        first_change(copy.guest_ccb, copy.data.data() + copy.dcb_dwords, copy.ccb_dwords);
-    if (dcb_change == -1 && ccb_change == -1) {
-        return;
-    }
-    const u64 n = changed.fetch_add(1, std::memory_order_relaxed) + 1;
-    if (n > 16 && n % 100 != 0) {
-        return;
-    }
-    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                                copy.submitted)
-                          .count();
-    const s64 at = dcb_change != -1 ? dcb_change : ccb_change;
-    std::printf("Command buffers: the guest changed submission %llu's %s at %p +%#llx (%s) "
-                "%.3f ms after submitting it, before it was decoded; %llu of %llu so far "
-                "(decoded from the copy)\n",
-                (unsigned long long)seq, dcb_change != -1 ? "dcb" : "ccb",
-                static_cast<const void*>(dcb_change != -1 ? copy.guest_dcb : copy.guest_ccb),
-                (unsigned long long)((at < -1 ? -2 - at : at) * 4),
-                at < -1 ? "unmapped" : "rewritten", ms, (unsigned long long)n,
-                (unsigned long long)checked.load());
-    if (n > 4 || at < 0) {
-        return;
-    }
-    // What changed, and the packets before it (a WaitRegMem the guest releases after patching,
-    // or a write of ours into its own command buffer).
-    const u32* kept = dcb_change != -1 ? copy.data.data() : copy.data.data() + copy.dcb_dwords;
-    const u32* guest = dcb_change != -1 ? copy.guest_dcb : copy.guest_ccb;
-    const std::size_t dwords = dcb_change != -1 ? copy.dcb_dwords : copy.ccb_dwords;
-    const std::size_t from = at >= 8 ? at - 8 : 0, to = std::min<std::size_t>(dwords, at + 8);
-    std::array<u32, 16> now{};
-    iovec local{now.data(), (to - from) * 4}, remote{const_cast<u32*>(guest + from), (to - from) * 4};
-    const bool readable = process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t((to - from) * 4);
-    std::printf("  submitted:");
-    for (std::size_t i = from; i < to; ++i) {
-        std::printf(i == std::size_t(at) ? " [%08x]" : " %08x", kept[i]);
-    }
-    std::printf("\n  now:      ");
-    for (std::size_t i = from; readable && i < to; ++i) {
-        std::printf(i == std::size_t(at) ? " [%08x]" : " %08x", now[i - from]);
-    }
-    std::printf("\n  packets before it (dword offset:opcode):");
-    std::array<std::pair<u32, u32>, 12> last{};
-    std::size_t count = 0;
-    for (std::size_t p = 0; p < std::size_t(at) && p < dwords;) {
-        const u32 header = kept[p];
-        if ((header >> 30) == 3) {
-            last[count++ % last.size()] = {u32(p), (header >> 8) & 0xff};
-            p += ((header >> 16) & 0x3fff) + 2;
-        } else if ((header >> 30) == 2) {
-            ++p;
-        } else {
-            break;
-        }
-    }
-    for (std::size_t i = count > last.size() ? count - last.size() : 0; i < count; ++i) {
-        std::printf(" %#x:%#x", last[i % last.size()].first, last[i % last.size()].second);
-    }
-    std::printf("\n");
 }
 
 } // namespace AmdGpu

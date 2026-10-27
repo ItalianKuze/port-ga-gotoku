@@ -4,7 +4,6 @@
 #include "bbport_settings.h"
 #include "bbport_copy.h"
 #include <sys/resource.h>
-#include "bbport_free_check.h"
 #include "bbport_game.h"
 #include "bbport_perf.h"
 #include "bbport_toggles.h"
@@ -331,16 +330,7 @@ extern "C" uintptr_t bbgpu_resolve(const char* scoped_nid) {
 }
 
 extern "C" int bbgpu_handle_fault(void* ucontext, void* address) {
-    // BB_LABEL_TRAP (diagnostic): its read-only label pages first. Not passed on to GPU page
-    // tracking (a write fault drains the draw pipe: thousands a second would change the timing
-    // under test); label pages are not expected to be GPU-tracked.
-    if (BbFreeCheck::OnTrapFault(ucontext, reinterpret_cast<std::uint64_t>(address))) {
-        return 1;
-    }
-    if (Core::Signals::Instance()->DispatchAccessViolation(ucontext, address)) {
-        return 1;
-    }
-    return BbFreeCheck::OnStaleTrapFault(reinterpret_cast<std::uint64_t>(address)) ? 1 : 0;
+    return Core::Signals::Instance()->DispatchAccessViolation(ucontext, address) ? 1 : 0;
 }
 
 extern "C" int bbgpu_perf_start(int seconds) {
