@@ -28,6 +28,9 @@
 #include <pthread.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
+#ifndef SYS_close_range
+#define SYS_close_range 436 /* x86-64; glibc 2.31's headers (Steam Runtime sniper) do not name it */
+#endif
 #endif
 
 typedef struct { uint64_t address, size, flags; } Segment;

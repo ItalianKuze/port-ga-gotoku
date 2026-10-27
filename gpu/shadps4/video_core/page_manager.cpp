@@ -38,6 +38,17 @@
 #include <thread>
 #include <fcntl.h>
 #include <linux/userfaultfd.h>
+// bbport: kernel ABI values for older kernel headers (the Steam Runtime sniper SDK has Linux 5.10's);
+// the running kernel still decides whether it supports them (UFFDIO_API fails otherwise).
+#ifndef UFFD_USER_MODE_ONLY
+#define UFFD_USER_MODE_ONLY 1
+#endif
+#ifndef UFFD_FEATURE_WP_HUGETLBFS_SHMEM
+#define UFFD_FEATURE_WP_HUGETLBFS_SHMEM (1 << 12)
+#endif
+#ifndef UFFD_FEATURE_WP_UNPOPULATED
+#define UFFD_FEATURE_WP_UNPOPULATED (1 << 13)
+#endif
 #include <poll.h>
 #include <unordered_set>
 #include <cstdio>

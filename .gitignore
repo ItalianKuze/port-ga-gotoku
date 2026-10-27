@@ -30,6 +30,7 @@ patches.json
 *.dll
 # PortGaGotoku: build outputs, logs, binaries and temporary files
 out-win/
+out-linux/
 *.log
 *.exe
 *.so
