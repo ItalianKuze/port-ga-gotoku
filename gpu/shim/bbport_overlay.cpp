@@ -78,6 +78,14 @@ bool l3_down = false, r3_down = false;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
 
+// The colors the overlay draws by hand (HUD, save dialog); HokutoStyle sets the game's.
+struct {
+    ImVec4 strong{0.965f, 0.937f, 0.894f, 1.0f}, muted{0.66f, 0.62f, 0.55f, 1.0f};
+    ImVec4 warn{0.89f, 0.70f, 0.35f, 1.0f}, bad{0.95f, 0.65f, 0.61f, 1.0f};
+    ImVec4 plot{0.70f, 0.13f, 0.16f, 1.0f};
+    ImVec4 chosen{0.70f, 0.13f, 0.16f, 0.85f}, chosen_edge{0.70f, 0.13f, 0.16f, 0.85f}, chosen_line{};
+} palette;
+
 // The game's text dialog (ImeDialog, the character name), typed on the keyboard: drawn while it
 // is open. In fullscreen the window title that showed it is not visible (issues #17, #19).
 std::mutex prompt_mutex;
@@ -217,8 +225,7 @@ void HokutoSections(BbSettings::Values& s) {
         Hint(BbSettings::MenuText(
             "Records 90 s of frame times, CPU and GPU time and thread load into the logs folder (perf-*.csv)."));
     } else {
-        ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f),
-                           BbSettings::MenuText("Measuring: %.0f / %d s"), done, length);
+        ImGui::TextColored(palette.warn, BbSettings::MenuText("Measuring: %.0f / %d s"), done, length);
     }
     ImGui::SeparatorText(BbSettings::MenuText("Game settings"));
     ImGui::TextDisabled("%s", BbSettings::MenuText("Hokuto's own settings will be here"));
@@ -307,8 +314,7 @@ void HudOverlay() {
     ImGui::Begin("##bb_hud", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
-    const ImVec4 strong(0.965f, 0.937f, 0.894f, 1.0f), muted(0.66f, 0.62f, 0.55f, 1.0f);
-    const ImVec4 warn(0.89f, 0.70f, 0.35f, 1.0f), bad(0.95f, 0.65f, 0.61f, 1.0f);
+    const ImVec4 &strong = palette.strong, &muted = palette.muted, &warn = palette.warn, &bad = palette.bad;
     ImGui::TextColored(strong, "%.0f FPS", p.fps);
     ImGui::SameLine();
     ImGui::TextColored(muted, "%.1f ms   1%% low %.0f", p.frame_ms, p.low1_fps);
@@ -319,7 +325,7 @@ void HudOverlay() {
         }
         char label[32];
         std::snprintf(label, sizeof(label), "max %.1f ms", worst);
-        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.70f, 0.13f, 0.16f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_PlotLines, palette.plot);
         ImGui::PlotLines("##frametimes", p.frame_history.data(), int(p.frame_history.size()), 0, label, 0.0f,
                          std::max(40.0f, worst * 1.1f), ImVec2(260.0f * base_scale, 46.0f * base_scale));
         ImGui::PopStyleColor();
@@ -360,8 +366,7 @@ void RecordingLabel() {
     ImGui::Begin("##bb_rec", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f), BbSettings::MenuText("REC %.0f / %d s"),
-                       done, length);
+    ImGui::TextColored(palette.warn, BbSettings::MenuText("REC %.0f / %d s"), done, length);
     ImGui::End();
 }
 
@@ -405,11 +410,23 @@ void SaveDialog() {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
     const ImVec4 muted = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-    const ImU32 chosen = ImGui::GetColorU32(ImVec4(0.70f, 0.13f, 0.16f, 0.85f));
+    ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImU32 other = ImGui::GetColorU32(ImGuiCol_Header);
+    const float rounding = ImGui::GetStyle().FrameRounding;
+    // Chosen: the game's selection, a band that fades to the right with a bright line under it.
+    const auto box = [&](ImVec2 a, ImVec2 b, bool selected) {
+        if (!selected) {
+            draw->AddRectFilled(a, b, other, rounding);
+            return;
+        }
+        const ImU32 full = ImGui::GetColorU32(palette.chosen), fade = ImGui::GetColorU32(palette.chosen_edge);
+        draw->AddRectFilledMultiColor(a, b, full, fade, fade, full);
+        const ImU32 line = ImGui::GetColorU32(palette.chosen_line), line_fade = line & ~IM_COL32_A_MASK;
+        const float h = std::max(2.0f * base_scale, 1.0f);
+        draw->AddRectFilledMultiColor(ImVec2(a.x, b.y - h), b, line, line_fade, line_fade, line);
+    };
     ImGui::TextUnformatted(d.heading.c_str());
     ImGui::Separator();
-    ImDrawList* draw = ImGui::GetWindowDrawList();
     const float line = ImGui::GetTextLineHeightWithSpacing();
     const float inner = ImGui::GetContentRegionAvail().x;
     const float pad = 8.0f * base_scale;
@@ -433,8 +450,7 @@ void SaveDialog() {
             }
             const ImVec2 at = ImGui::GetCursorScreenPos();
             const ImVec2 size(inner, height + 2.0f * pad);
-            draw->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), i == d.selected ? chosen : other,
-                                6.0f * base_scale);
+            box(at, ImVec2(at.x + size.x, at.y + size.y), i == d.selected);
             ImGui::Dummy(size);
             const ImU32 text = ImGui::GetColorU32(ImGuiCol_Text), dim = ImGui::GetColorU32(muted);
             float y = at.y + pad;
@@ -470,8 +486,7 @@ void SaveDialog() {
                 ImGui::SameLine(0.0f, pad);
             }
             const ImVec2 at = ImGui::GetCursorScreenPos();
-            draw->AddRectFilled(at, ImVec2(at.x + button, at.y + height), (i == 0) == d.yes ? chosen : other,
-                                6.0f * base_scale);
+            box(at, ImVec2(at.x + button, at.y + height), (i == 0) == d.yes);
             const float w = ImGui::CalcTextSize(labels[i]).x;
             draw->AddText(ImVec2(at.x + (button - w) * 0.5f, at.y + pad), ImGui::GetColorU32(ImGuiCol_Text), labels[i]);
             ImGui::Dummy(ImVec2(button, height));
@@ -516,49 +531,68 @@ void SetTextPrompt(bool active, const std::string& prompt, const std::string& te
     prompt_active = active;
 }
 
-// PortGaGotoku: the launcher's look (launcher/ui/app.css): dark warm ground, bone text, crimson for
-// what is on or chosen.
+// PortGaGotoku: the game's own menus (the pause menu): dark blue-slate panels with thin cool borders,
+// white text, square corners, and a blue band that fades to the right for what is chosen; the
+// game's red and gold for warnings.
 static void HokutoStyle(ImGuiStyle& style) {
     const auto rgb = [](unsigned hex, float alpha = 1.0f) {
         return ImVec4(float((hex >> 16) & 0xff) / 255.0f, float((hex >> 8) & 0xff) / 255.0f,
                       float(hex & 0xff) / 255.0f, alpha);
     };
-    style.WindowRounding = 10.0f;
-    style.FrameRounding = 8.0f;
-    style.GrabRounding = 8.0f;
-    style.PopupRounding = 8.0f;
-    style.WindowPadding = ImVec2(18.0f, 16.0f);
+    style.WindowRounding = 2.0f;
+    style.ChildRounding = 0.0f;
+    style.FrameRounding = 0.0f;
+    style.GrabRounding = 0.0f;
+    style.PopupRounding = 0.0f;
+    style.ScrollbarRounding = 0.0f;
+    style.WindowPadding = ImVec2(20.0f, 16.0f);
     style.FramePadding = ImVec2(10.0f, 6.0f);
     style.ItemSpacing = ImVec2(10.0f, 9.0f);
     style.WindowBorderSize = 1.0f;
+    style.FrameBorderSize = 1.0f;
+    style.SeparatorTextBorderSize = 1.0f;
     ImVec4* c = style.Colors;
-    c[ImGuiCol_Text] = rgb(0xece3d3);
-    c[ImGuiCol_TextDisabled] = rgb(0x93877a);
-    c[ImGuiCol_WindowBg] = rgb(0x161311, 0.95f);
-    c[ImGuiCol_PopupBg] = rgb(0x161311, 0.98f);
-    c[ImGuiCol_Border] = rgb(0x2b2521);
-    c[ImGuiCol_FrameBg] = rgb(0x0f0d0c);
-    c[ImGuiCol_FrameBgHovered] = rgb(0x2c2622);
-    c[ImGuiCol_FrameBgActive] = rgb(0x3a332e);
-    c[ImGuiCol_TitleBg] = rgb(0x100e0d);
-    c[ImGuiCol_TitleBgActive] = rgb(0x1f1a17);
-    c[ImGuiCol_TitleBgCollapsed] = rgb(0x100e0d);
-    c[ImGuiCol_CheckMark] = rgb(0xffffff);
-    c[ImGuiCol_SliderGrab] = rgb(0xb3222a);
-    c[ImGuiCol_SliderGrabActive] = rgb(0xc4313a);
-    c[ImGuiCol_Button] = rgb(0x2c2622);
-    c[ImGuiCol_ButtonHovered] = rgb(0x3a332e);
-    c[ImGuiCol_ButtonActive] = rgb(0xb3222a);
-    c[ImGuiCol_Header] = rgb(0x2c2622);
-    c[ImGuiCol_HeaderHovered] = rgb(0x3a332e);
-    c[ImGuiCol_HeaderActive] = rgb(0xb3222a);
-    c[ImGuiCol_Separator] = rgb(0x2b2521);
-    c[ImGuiCol_SeparatorHovered] = rgb(0x3a332e);
-    c[ImGuiCol_SeparatorActive] = rgb(0xb3222a);
-    c[ImGuiCol_ResizeGrip] = rgb(0x2c2622);
-    c[ImGuiCol_ResizeGripHovered] = rgb(0x3a332e);
-    c[ImGuiCol_ResizeGripActive] = rgb(0xb3222a);
-    c[ImGuiCol_NavCursor] = rgb(0xcfc4b2);
+    c[ImGuiCol_Text] = rgb(0xeef0f5);
+    c[ImGuiCol_TextDisabled] = rgb(0x8a8f9c);
+    c[ImGuiCol_WindowBg] = rgb(0x141823, 0.94f);
+    c[ImGuiCol_PopupBg] = rgb(0x141823, 0.98f);
+    c[ImGuiCol_Border] = rgb(0x3d4352);
+    c[ImGuiCol_BorderShadow] = rgb(0x000000, 0.0f);
+    c[ImGuiCol_FrameBg] = rgb(0x1b1f29);
+    c[ImGuiCol_FrameBgHovered] = rgb(0x2f3a66);
+    c[ImGuiCol_FrameBgActive] = rgb(0x3b4aa0);
+    c[ImGuiCol_TitleBg] = rgb(0x0b0d14);
+    c[ImGuiCol_TitleBgActive] = rgb(0x1b1f29);
+    c[ImGuiCol_TitleBgCollapsed] = rgb(0x0b0d14);
+    c[ImGuiCol_ScrollbarBg] = rgb(0x10141c, 0.6f);
+    c[ImGuiCol_ScrollbarGrab] = rgb(0x2c3240);
+    c[ImGuiCol_ScrollbarGrabHovered] = rgb(0x3d4352);
+    c[ImGuiCol_ScrollbarGrabActive] = rgb(0x5d6a9c);
+    c[ImGuiCol_CheckMark] = rgb(0xbfdefe);
+    c[ImGuiCol_SliderGrab] = rgb(0x7a8fec);
+    c[ImGuiCol_SliderGrabActive] = rgb(0xa5b8f5);
+    c[ImGuiCol_Button] = rgb(0x222838);
+    c[ImGuiCol_ButtonHovered] = rgb(0x2f3a66);
+    c[ImGuiCol_ButtonActive] = rgb(0x4a5cc8);
+    c[ImGuiCol_Header] = rgb(0x1b1f29);
+    c[ImGuiCol_HeaderHovered] = rgb(0x2f3a66);
+    c[ImGuiCol_HeaderActive] = rgb(0x3b4aa0);
+    c[ImGuiCol_Separator] = rgb(0x3d4352);
+    c[ImGuiCol_SeparatorHovered] = rgb(0x5d6a9c);
+    c[ImGuiCol_SeparatorActive] = rgb(0x7a8fec);
+    c[ImGuiCol_ResizeGrip] = rgb(0x222838);
+    c[ImGuiCol_ResizeGripHovered] = rgb(0x5d6a9c);
+    c[ImGuiCol_ResizeGripActive] = rgb(0x7a8fec);
+    c[ImGuiCol_TextSelectedBg] = rgb(0x3b4aa0, 0.6f);
+    c[ImGuiCol_NavCursor] = rgb(0xbfdefe);
+    palette.strong = rgb(0xffffff);
+    palette.muted = rgb(0x8a8f9c);
+    palette.warn = rgb(0xd4ad55);
+    palette.bad = rgb(0xfc5c6b);
+    palette.plot = rgb(0xe2453f);
+    palette.chosen = rgb(0x4a5cc8, 0.95f);
+    palette.chosen_edge = rgb(0x3b417d, 0.35f);
+    palette.chosen_line = rgb(0xbfdefe);
 }
 
 void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) {
