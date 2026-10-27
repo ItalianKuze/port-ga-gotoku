@@ -20,12 +20,7 @@ const char* Path() {
     return env && env[0] ? env : "bbport.ini";
 }
 
-float Clamp(float v, float lo, float hi) {
-    return std::clamp(v, lo, hi);
-}
-
 void Set(Values& v, const std::string& key, const std::string& value) {
-    const float f = float(std::atof(value.c_str()));
     const int i = std::atoi(value.c_str());
     if (key == "menu_language") {
         if (value == "en") v.menu_language = MenuLanguage::English;
@@ -37,26 +32,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
                 v.upscaler = u;
             }
         }
-    } else if (key == "preset") {
-        v.preset = std::clamp(i, 0, PresetCount - 1);
-    } else if (key == "sharpen") {
-        v.sharpen = i != 0;
-    } else if (key == "sharpness") {
-        v.sharpness = Clamp(f, 0.0f, 2.0f);
-    } else if (key == "jitter") {
-        v.jitter = i != 0;
-    } else if (key == "reactive") {
-        v.reactive = i != 0;
     } else if (key == "object_motion") {
         v.object_motion = i != 0;
-    } else if (key == "reactive_scale") {
-        v.reactive_scale = Clamp(f, 0.0f, 16.0f);
-    } else if (key == "reactive_threshold") {
-        v.reactive_threshold = Clamp(f, 0.0f, 1.0f);
-    } else if (key == "reactive_max") {
-        v.reactive_max = Clamp(f, 0.0f, 1.0f);
-    } else if (key == "debug_view") {
-        v.debug_view = std::clamp(i, 0, DebugViewCount - 1);
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
     } else if (key == "show_hud") {
@@ -67,18 +44,6 @@ void Set(Values& v, const std::string& key, const std::string& value) {
             y <= 1.0f) {
             v.menu_x = x;
             v.menu_y = y;
-        }
-    } else if (key == "fsr4_auto_exposure") {
-        v.fsr4_auto_exposure = i != 0;
-    } else if (key == "fsr4_invert_jitter") {
-        v.fsr4_invert_jitter = i != 0;
-    } else if (key == "live_resolution") {
-        v.live_resolution = value == "auto" ? -1 : std::clamp(i, 0, 1);
-    } else if (key == "output_res") {
-        for (int r = 0; r < OutputCount; ++r) {
-            if (value == std::to_string(OutputWidths[r]) + "x" + std::to_string(OutputHeights[r])) {
-                v.output_res = r;
-            }
         }
     }
 }
@@ -162,61 +127,14 @@ void Load() {
             if (std::strcmp(env, UpscalerName(u)) == 0) v.upscaler = u;
         }
     }
-    const std::pair<const char*, const char*> env_keys[] = {
-        {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
-        {"BB_REACTIVE", "reactive"},              {"BB_REACTIVE_SCALE", "reactive_scale"},
-        {"BB_REACTIVE_THRESHOLD", "reactive_threshold"}, {"BB_REACTIVE_MAX", "reactive_max"},
-        {"BB_UPSCALE_PRESET", "preset"},            {"BB_OBJECT_MOTION", "object_motion"},
-    };
-    for (const auto& [env, key] : env_keys) {
-        if (const char* value = std::getenv(env)) {
-            Set(v, key, value);
-        }
-    }
-    v.startup_preset = v.preset;
-    v.startup_upscaler = v.upscaler;
-    v.startup_object_motion = v.object_motion;
-    v.startup_output_res = v.output_res;
-    v.startup_live_resolution = v.live_resolution;
-}
-
-void ConfigureUpscalerSupport(bool fsr4, bool fsr411) {
-    auto& v = Get();
-    v.fsr4_supported = fsr4;
-    v.fsr411_supported = fsr4 && fsr411;
-    const int requested = v.upscaler;
-    if ((requested == UpscalerFsr4 && !v.fsr4_supported) ||
-        (requested == UpscalerFsr411 && !v.fsr411_supported)) {
-        v.fsr4_problem = "GPU does not support the selected FSR 4 shaders; using FSR 3.1";
-        std::printf("Upscaler: %s unsupported on this GPU; falling back to FSR 3.1 before the first frame\n",
-                    UpscalerName(requested));
-        v.upscaler = UpscalerFsr3;
+    if (const char* value = std::getenv("BB_OBJECT_MOTION")) {
+        Set(v, "object_motion", value);
     }
 }
 
 bool UpscalerAvailable() {
     const char* env = std::getenv("BB_UPSCALER");
     return !(env && std::strcmp(env, "none") == 0) && !BbGame::IsHokuto();
-}
-
-bool FixedRenderSession() {
-    const char* size = std::getenv("BB_RENDER_RES");
-    return size && size[0];
-}
-
-int RenderPreset() {
-    const auto& v = Get();
-    return FixedRenderSession() ? v.startup_preset :
-        v.upscaler == UpscalerTaa ? NativeAA : v.preset.load();
-}
-
-bool ResolutionNeedsRestart() {
-    const auto& v = Get();
-    // TAA needs the live path (native guest targets): run.sh selects it on restart.
-    return FixedRenderSession() &&
-        (v.preset != v.startup_preset || v.output_res != v.startup_output_res ||
-         (v.upscaler == UpscalerOff) != (v.startup_upscaler == UpscalerOff) ||
-         (v.upscaler == UpscalerTaa) != (v.startup_upscaler == UpscalerTaa));
 }
 
 void Save() {
@@ -233,24 +151,9 @@ void Save() {
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
     put("menu_language", v.menu_language == MenuLanguage::Italian ? "it" : "en");
     put("upscaler", UpscalerName(v.upscaler));
-    put("preset", std::to_string(v.preset.load()));
-    put("sharpen", flag(v.sharpen));
-    put("sharpness", fixed(v.sharpness, 2));
-    put("jitter", flag(v.jitter));
-    put("reactive", flag(v.reactive));
     put("object_motion", flag(v.object_motion));
-    put("reactive_scale", fixed(v.reactive_scale, 2));
-    put("reactive_threshold", fixed(v.reactive_threshold, 2));
-    put("reactive_max", fixed(v.reactive_max, 2));
-    put("debug_view", std::to_string(v.debug_view.load()));
     put("show_fps", flag(v.show_fps));
     put("show_hud", flag(v.show_hud));
-    put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
-    put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));
-    put("output_res", std::to_string(OutputWidths[v.output_res]) + "x" +
-                          std::to_string(OutputHeights[v.output_res]));
-    // Read by run.sh at start.
-    put("live_resolution", v.live_resolution < 0 ? "auto" : flag(v.live_resolution != 0));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {
         put("menu_pos", fixed(v.menu_x, 4) + "," + fixed(v.menu_y, 4));
     }
@@ -297,17 +200,6 @@ void Save() {
     if (!ok || std::rename(temporary.c_str(), Path()) != 0) {
         std::printf("Settings: cannot write %s\n", Path());
     }
-}
-
-float PresetScale(int preset) {
-    static constexpr float scales[PresetCount] = {1.0f, 1.5f, 1.7f, 2.0f, 3.0f};
-    return scales[std::clamp(preset, 0, PresetCount - 1)];
-}
-
-const char* PresetName(int preset) {
-    static constexpr const char* names[PresetCount] = {"Native AA", "Quality", "Balanced",
-                                                       "Performance", "Ultra Performance"};
-    return names[std::clamp(preset, 0, PresetCount - 1)];
 }
 
 const char* UpscalerName(int upscaler) {

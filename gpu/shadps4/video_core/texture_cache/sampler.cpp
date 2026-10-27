@@ -9,7 +9,7 @@
 namespace VideoCore {
 
 Sampler::Sampler(const Vulkan::Instance& instance, const AmdGpu::Sampler& sampler,
-                 const AmdGpu::BorderColorBuffer border_color_base, const bool is_depth, float extra_lod_bias) {
+                 const AmdGpu::BorderColorBuffer border_color_base, const bool is_depth) {
     using namespace Vulkan;
     const bool anisotropy_enable = instance.IsAnisotropicFilteringSupported() &&
                                    (AmdGpu::IsAnisoFilter(sampler.xy_mag_filter) ||
@@ -51,7 +51,7 @@ Sampler::Sampler(const Vulkan::Instance& instance, const AmdGpu::Sampler& sample
         .addressModeU = LiverpoolToVK::ClampMode(sampler.clamp_x),
         .addressModeV = LiverpoolToVK::ClampMode(sampler.clamp_y),
         .addressModeW = LiverpoolToVK::ClampMode(sampler.clamp_z),
-        .mipLodBias = std::clamp(sampler.LodBias() + extra_lod_bias, -instance.MaxSamplerLodBias(),
+        .mipLodBias = std::clamp(sampler.LodBias(), -instance.MaxSamplerLodBias(),
                                  instance.MaxSamplerLodBias()),
         .anisotropyEnable = anisotropy_enable,
         .maxAnisotropy = max_anisotropy,

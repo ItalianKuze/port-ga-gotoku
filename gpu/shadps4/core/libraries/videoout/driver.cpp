@@ -569,8 +569,7 @@ void VideoOutDriver::Flip(const Request& req) {
                         "%u shader/pipeline compiles, %.1f ms; %llu recorder syncs; "
                         "%.0f write faults/s, %lld hot pages; GPU thread %.2f us/draw, "
                         "%.0f draws/frame, idle %.1f%%; blocked: recorder %.1f%%, host copies "
-                        "%.1f%% (%.0f/frame, %.0f/frame not needed), copy threads %.1f%%, GPU ticks %.1f%%; "
-                        "reduced-size draws %.0f/frame of %.0f in the scene\n",
+                        "%.1f%% (%.0f/frame, %.0f/frame not needed), copy threads %.1f%%, GPU ticks %.1f%%\n",
                         frames / window, worst_ms, EmulatorSettings.GetVblankFrequency(), compiles,
                         compile_ns / 1e6, static_cast<unsigned long long>(direct),
                         faults / window, static_cast<long long>(BbStats::hot_pages.load()),
@@ -581,9 +580,7 @@ void VideoOutDriver::Flip(const Request& req) {
                         frames ? double(BbStats::host_copy_waits.exchange(0)) / frames : 0.0,
                         frames ? double(BbStats::host_copy_waits_skipped.exchange(0)) / frames : 0.0,
                         BbStats::copy_threads_wait_ns.exchange(0) / (window * 1e7),
-                        BbStats::tick_wait_ns.exchange(0) / (window * 1e7),
-                        frames ? double(BbStats::reduced_draws.exchange(0)) / frames : 0.0,
-                        frames ? double(BbStats::scene_draws.exchange(0)) / frames : 0.0);
+                        BbStats::tick_wait_ns.exchange(0) / (window * 1e7));
             VideoCore::PageManager::ReportFaultSites();
             if (const u64 notes = BbStats::cpu_write_notes.exchange(0)) {
                 std::printf("Write notices: %.0f/s, %.2f MB/s (libc copies over pages the GPU side "

@@ -17,7 +17,6 @@ class BlitHelper;
 namespace Vulkan {
 
 class GpuProfiler;
-class SceneTargets;
 
 class Instance;
 class Scheduler;
@@ -40,7 +39,6 @@ public:
     }
 
     void TickFrame();
-    SceneTargets* scene_targets = nullptr;
 
     void CopyBuffer(const VideoCore::Buffer* src, const VideoCore::Buffer* dst,
                     std::span<const vk::BufferCopy> copies);

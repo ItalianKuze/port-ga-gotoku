@@ -5,7 +5,6 @@
 #include <map>
 #include <unordered_set>
 #include <xxhash.h>
-#include "video_core/renderer_vulkan/ui_composition.h"
 #include "bbport_timeline.h"
 #include "bbport_sections.h"
 #include "bbport_ce_stats.h"
@@ -59,13 +58,10 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
       guest_markers_enabled{EmulatorSettings.IsVkGuestMarkersEnabled()} {
     // Before the rasterizer is bound: Liverpool enqueues buffers only once it sees it.
     draw_prep = std::make_unique<DrawPreparation>(pipeline_cache);
-    scene_targets = std::make_unique<SceneTargets>(instance, scheduler, runtime, texture_cache);
     // Object motion first: it fixes the buffer addresses the motion shader variants embed.
     object_motion = std::make_unique<ObjectMotion>(instance, scheduler);
     camera_motion = std::make_unique<CameraMotion>(instance, scheduler, texture_cache, runtime);
     camera_motion->SetObjectMotion(object_motion.get());
-    upscaler = std::make_unique<TemporalUpscaler>(instance, scheduler, texture_cache, runtime,
-                                                  *camera_motion, *scene_targets);
     if (!EmulatorSettings.IsNullGPU()) {
         liverpool->BindRasterizer(this);
     }
@@ -567,31 +563,6 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
         const auto& vp = regs.viewports[0];
         camera_motion->OnGBufferPass(db_desc.first, vp.xscale < 0.0f ? -1.0f : 1.0f,
                                      vp.yscale < 0.0f ? -1.0f : 1.0f);
-    }
-    if (upscaler->Enabled() && cb_descs[0].first) {
-        upscaler->OnColorTarget(cb_descs[0].first);
-    }
-    // bbport: scene color: a full-size RGBA16F target drawn with the scene depth.
-    if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth() &&
-        cb_descs[0].first && std::popcount(key.mrt_mask) <= 2) {
-        const auto& color = texture_cache.GetImage(cb_descs[0].first);
-        const auto& depth = texture_cache.GetImage(db_desc.first);
-        if (color.info.pixel_format == vk::Format::eR16G16B16A16Sfloat &&
-            color.info.size.width == depth.info.size.width &&
-            color.info.size.height == depth.info.size.height) {
-            upscaler->OnSceneColor(cb_descs[0].first);
-            // Blended geometry without depth writes (not full-screen passes): transparents and
-            // effects start. Blended layers writing depth (decals, wet/blood ground) are
-            // surfaces and stay in the history.
-            if (regs.blend_control[0].enable && !regs.color_buffers[0].info.blend_bypass &&
-                !regs.depth_control.depth_write_enable &&
-                (regs.num_indices > 6 || regs.num_instances.NumInstances() > 1)) {
-                upscaler->OnBlendedSceneDraw();
-            } else if (regs.num_indices <= 6 && regs.num_instances.NumInstances() <= 1) {
-                // A full-screen pass over the scene (the fog composite): the transparents are in.
-                upscaler->OnSceneComposite();
-            }
-        }
     }
 }
 
@@ -1428,30 +1399,15 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     // target is that frame.
     if (camera_motion->Enabled() && regs.color_buffers[0] &&
         FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address())) {
-        scene_started = false;
         camera_motion->OnDisplayPass(cb_descs[0].first);
-        if (upscaler->OnFrameStart()) {
-            object_motion->InvalidateHistory();
-            camera_motion->InvalidateHistory();
-        }
-        camera_motion->SetJitter(upscaler->Jitter());
         object_motion->OnFrameStart();
         NoteFrameStart();
-        static const char* scene_debug = std::getenv("BB_SCENE_DEBUG");
-        scene_debug_frame = scene_debug && std::remove(scene_debug) == 0;
-        scene_targets->debug = scene_debug_frame;
     }
     bind_prepared = used_prepared;
     motion_draw = pipeline->GetGraphicsKey().motion_vectors;
     motion_geometry = 0;
 
     PrepareRenderState(pipeline);
-    if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
-        const auto& viewport = Regs().viewports[0];
-        upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
-                         cb_descs[0].first, db_desc.first,
-                         UiComposition::NativeViewport(viewport.xscale * 2, viewport.yscale * 2));
-    }
     const PreparedDraw* draw_prepared = bind_prepared;
     // bbport: vertex and index buffers are resolved while the helper binds textures (their
     // commands are recorded after BeginRendering, as before).
@@ -1480,11 +1436,6 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         runtime.FlushBarriers();
     }
 
-    // bbport: screen-space (clip disabled) draws into the upscaler's output-size images.
-    push_data.xscale *= target_scale[0];
-    push_data.xoffset *= target_scale[0];
-    push_data.yscale *= target_scale[1];
-    push_data.yoffset *= target_scale[1];
     if (motion_draw && motion_geometry) {
         BB_SECTION(Motion);
         const auto& vs = pipeline->GetStage(Shader::SwStage::Vertex);
@@ -1572,13 +1523,6 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         BB_SECTION(PipelineBind);
         pipeline->BindResources(set_writes, push_data, {image_infos.data(), image_infos.size()},
                                 {buffer_infos.data(), buffer_infos.size()});
-    }
-    // bbport: jitter geometry drawn with the scene depth, not full-screen passes (a shifted
-    // full-screen quad leaves an edge column unwritten).
-    draw_jitter = {};
-    if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth() &&
-        (regs.num_indices > 6 || regs.num_instances.NumInstances() > 1)) {
-        draw_jitter = upscaler->Jitter();
     }
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
@@ -1675,12 +1619,6 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     motion_draw = false;
     motion_geometry = 0;
     PrepareRenderState(pipeline);
-    if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
-        const auto& viewport = Regs().viewports[0];
-        upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
-                         cb_descs[0].first, db_desc.first,
-                         UiComposition::NativeViewport(viewport.xscale * 2, viewport.yscale * 2));
-    }
     if (!BindResources(pipeline)) {
         return;
     }
@@ -1706,17 +1644,8 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
         runtime.FlushBarriers();
     }
 
-    // bbport: screen-space (clip disabled) draws into the upscaler's output-size images.
-    push_data.xscale *= target_scale[0];
-    push_data.xoffset *= target_scale[0];
-    push_data.yscale *= target_scale[1];
-    push_data.yoffset *= target_scale[1];
     pipeline->BindResources(set_writes, push_data, {image_infos.data(), image_infos.size()},
                             {buffer_infos.data(), buffer_infos.size()});
-    draw_jitter = {};
-    if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth()) {
-        draw_jitter = upscaler->Jitter();
-    }
     UpdateDynamicState(pipeline, is_indexed);
     MarkPass(pipeline, state);
     scheduler.BeginRendering(state);
@@ -1798,9 +1727,6 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
             });
         }
     };
-    if (upscaler->Enabled()) {
-        upscaler->OnDispatch(cs.pgm_hash);
-    }
     bool hle;
     {
         BB_SECTION(ShaderHle);
@@ -2021,9 +1947,7 @@ bool Rasterizer::TexturesBindableOnHelper(const Shader::Info& stage,
             image_id = depth_image_id;
             image = &texture_cache.GetImage(image_id);
         }
-        if (image->binding.needs_rebind || !texture_cache.IsUpToDate(image_id) ||
-            scene_targets->Tracks(image->image_uid) ||
-            (upscaler->Enabled() && upscaler->RedirectsSampled(image_id))) {
+        if (image->binding.needs_rebind || !texture_cache.IsUpToDate(image_id)) {
             return false;
         }
     }
@@ -2062,21 +1986,7 @@ bool Rasterizer::BindResources(const Pipeline* pipeline) {
     set_writes.clear();
     buffer_infos.clear();
     image_infos.clear();
-    // bbport: G-buffer passes sample material textures for a scene rendered below the output
-    // size; the temporal upscaler restores the detail of the output's mip level (FSR guide:
-    // log2(render / output)). Shadows, post-processing and UI keep the guest's bias.
-    sampler_lod_bias = 0.0f;
     pipeline_is_compute = pipeline->IsCompute();
-    if (!pipeline->IsCompute() && !BbToggle::Disabled(BbToggle::SceneMipBias) &&
-        std::popcount(static_cast<const GraphicsPipeline*>(pipeline)->GetGraphicsKey().mrt_mask &
-                      0xff) >= 5) {
-        sampler_lod_bias = upscaler->SceneMipBias();
-        static float reported = 0.0f;
-        if (sampler_lod_bias != reported) {
-            reported = sampler_lod_bias;
-            std::printf("Upscaler: scene texture LOD bias %.2f\n", sampler_lod_bias);
-        }
-    }
 
     bool uses_dma = false;
 
@@ -2841,11 +2751,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
     // TextureSetMemo: what this call resolves, to remember when the set qualifies.
     std::array<TextureSetEntry, TextureSet::MaxImages> resolved{};
     bool set_ok = set_slot != nullptr;
-    // SampleSceneProxies: bindings that may read a reduced scene proxy instead of the native
-    // image (normalized sampling only; see Shader::ImageResource::needs_native).
-    boost::container::small_vector<bool, 16> binding_proxy_ok;
-    const bool sample_proxies = !BbToggle::Disabled(BbToggle::SampleSceneProxies) &&
-                                !on_helper && scene_targets->Reduced();
 
     for (u32 image_index = 0; image_index < stage.images.size(); ++image_index) {
         const auto& image_desc = stage.images[image_index];
@@ -2862,7 +2767,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
         if (tsharp.Address() == 0 || data_fmt == AmdGpu::DataFormat::FormatInvalid) {
             image_bindings.emplace_back(VideoCore::ImageId{}, &image_desc_storage.emplace_back());
             image_binding_entries.push_back(nullptr);
-            binding_proxy_ok.push_back(false);
             image_descriptor_array_sizes.push_back(1);
             continue;
         }
@@ -2876,7 +2780,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                         static_cast<u32>(num_fmt));
             image_bindings.emplace_back(VideoCore::ImageId{}, &image_desc_storage.emplace_back());
             image_binding_entries.push_back(nullptr);
-            binding_proxy_ok.push_back(false);
             image_descriptor_array_sizes.push_back(1);
             continue;
         }
@@ -2887,24 +2790,10 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
             mip_fallback_mode == Shader::MipStorageFallbackMode::DynamicIndex
                 ? static_cast<u32>(tsharp.last_level - tsharp.base_level + 1)
                 : 1u;
-        const bool proxy_candidate = sample_proxies && num_bindings == 1 &&
-                                     !image_desc.needs_native && !image_desc.is_written &&
-                                     mip_fallback_mode == Shader::MipStorageFallbackMode::None;
 
         auto& desc_entry =
             prepared ? CachedImageDescEntry(tsharp, image_desc, prepared->image_hashes[image_index])
                      : CachedImageDescEntry(tsharp, image_desc);
-        // BB_SCENE_DEBUG: proxied scene targets this binding reads at the native size, and why.
-        const auto debug_native = [&](const VideoCore::Image& image) {
-            if (!scene_debug_frame || proxy_candidate || !image.scene_proxy) return;
-            std::printf("Scene native read: %s %016llx %s %ux%u needs_native %d written %d "
-                        "bindings %u mip_fallback %d\n",
-                        stage.sw_stage == Shader::SwStage::Compute ? "cs" : "gfx",
-                        (unsigned long long)stage.pgm_hash,
-                        vk::to_string(image.info.pixel_format).c_str(), image.info.size.width,
-                        image.info.size.height, int(image_desc.needs_native),
-                        int(image_desc.is_written), num_bindings, int(mip_fallback_mode));
-        };
         for (auto i = 0; i < num_bindings; i++) {
             // bbport: a plain binding (no mip override) of the same T# resolves to the same image
             // while no image was registered or unregistered.
@@ -2915,14 +2804,12 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 auto& [image_id, _] =
                     image_bindings.emplace_back(desc_entry.found_id, &desc_entry.found_desc);
                 image_binding_entries.push_back(&desc_entry);
-                binding_proxy_ok.push_back(proxy_candidate);
                 texture_cache.MarkFound(image_id);
                 auto* image = &texture_cache.GetImage(image_id);
                 if (auto depth_image_id = texture_cache.GetAssociatedDepth(*image)) {
                     image_id = depth_image_id;
                     image = &texture_cache.GetImage(image_id);
                 }
-                debug_native(*image);
                 if (image->binding.is_bound) {
                     image->binding.force_general |= image_desc.is_written;
                 }
@@ -2932,7 +2819,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
             auto& desc = image_desc_storage.emplace_back(desc_entry.desc);
             auto& [image_id, _] = image_bindings.emplace_back(VideoCore::ImageId{}, &desc);
             image_binding_entries.push_back(nullptr);
-            binding_proxy_ok.push_back(proxy_candidate);
 
             if (mip_fallback_mode == Shader::MipStorageFallbackMode::ConstantIndex) {
                 ASSERT(num_bindings == 1);
@@ -2960,7 +2846,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 image_id = depth_image_id;
                 image = &texture_cache.GetImage(image_id);
             }
-            debug_native(*image);
             if (image->binding.is_bound) {
                 // The image is already bound. In case if it is about to be used as storage we
                 // need to force general layout on it.
@@ -2998,22 +2883,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 image_id, desc, memo_entry ? &memo_entry->view_memo : nullptr, !on_helper);
             const auto binding = image.binding;
 
-            // bbport: a proxied scene image sampled with normalized coordinates reads the proxy:
-            // no resample to the native size (the native image is not touched).
-            if (binding_proxy_ok[binding_index] && !is_storage && !binding.force_general &&
-                !binding.is_target &&
-                !(upscaler->Enabled() && upscaler->RedirectsSampled(image_id))) {
-                if (const auto proxy = scene_targets->SampleProxy(image, desc.view_info)) {
-                    image.usage.texture = 1u;
-                    image_infos.emplace_back(VK_NULL_HANDLE, proxy->view, proxy->layout);
-                    if (set_ok && binding_index < resolved.size()) {
-                        resolved[binding_index] = {image_id, proxy->view, image.backing,
-                                                   desc.view_info.range, true};
-                    }
-                    ++proxy_samples;
-                    continue;
-                }
-            }
             // The image is either bound as storage in a separate descriptor or bound as render
             // target in feedback loop. Depth images are excluded because they can't be bound as
             // storage and feedback loop doesn't make sense for them
@@ -3048,13 +2917,8 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
                 FrameCapture::Sampled(image.info, is_storage);
             }
 
-            vk::ImageView view = *image_view.image_view;
-            vk::ImageLayout layout = image.backing->state.layout;
-            if (upscaler->Enabled()) {
-                // bbport: the display pass reads the upscaled frame (scaled presets).
-                upscaler->RedirectSampled(image_id, image_view.info, view, layout);
-            }
-            image_infos.emplace_back(VK_NULL_HANDLE, view, layout);
+            image_infos.emplace_back(VK_NULL_HANDLE, *image_view.image_view,
+                                     image.backing->state.layout);
             if (set_ok && binding_index < resolved.size()) {
                 resolved[binding_index] = {image_id, *image_view.image_view, image.backing,
                                            desc.view_info.range};
@@ -3065,7 +2929,6 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
     if (set_ok && image_bindings.size() == stage.images.size()) {
         // Remember the set: the same T#s resolve the same way while no image is (un)registered.
         set_slot->generation = texture_cache.RegistryGeneration();
-        set_slot->scene_generation = scene_targets->Generation();
         set_slot->count = static_cast<u32>(stage.images.size());
         std::copy_n(resolved.begin(), set_slot->count, set_slot->entries.begin());
     } else if (set_slot) {
@@ -3094,8 +2957,7 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
     BindSamplers(stage, prepared, binding, write_index);
 }
 
-// bbport: the PS4 build samples most scene textures with little or no anisotropic filtering.
-// Behind the temporal upscaler the output shows the detail of the output's mip level, and
+// bbport: the PS4 build samples most scene textures with little or no anisotropic filtering:
 // surfaces seen at a grazing angle (stairs, floors, walls along the view) stay blurred.
 // Mipmapped linear samplers of graphics draws get BB_ANISO (16; 0 = the game's) times.
 void Rasterizer::ForceAnisotropy(AmdGpu::Sampler& sharp, bool is_depth) const {
@@ -3140,8 +3002,8 @@ void Rasterizer::BindSamplers(const Shader::Info& stage, const PreparedStage* pr
         auto ssharp =
             prepared ? prepared->sampler_sharps[sampler_index] : sampler.GetSharp(stage);
         ForceAnisotropy(ssharp, sampler.is_depth);
-        const auto vk_sampler = texture_cache.GetSampler(
-            ssharp, Regs().ta_bc_base, sampler.is_depth, sampler.is_depth ? 0.0f : sampler_lod_bias);
+        const auto vk_sampler =
+            texture_cache.GetSampler(ssharp, Regs().ta_bc_base, sampler.is_depth);
         image_infos.emplace_back(vk_sampler, VK_NULL_HANDLE, vk::ImageLayout::eGeneral);
         auto& set_write = set_writes[write_index++];
         set_write.dstSet = VK_NULL_HANDLE;
@@ -3172,9 +3034,6 @@ Rasterizer::BeginSignature Rasterizer::MakeBeginSignature(const GraphicsPipeline
     sig.mrt_mask = key.mrt_mask;
     sig.num_samples = key.num_samples;
     sig.motion = key.motion_vectors;
-    sig.scene_started = scene_started;
-    sig.raster_scaling = upscaler->RasterScaling();
-    sig.upscaler_state = upscaler->RedirectState();
     sig.generation = texture_cache.RegistryGeneration();
     std::memcpy(&sig.depth_control, &regs.depth_control, sizeof(u32));
     sig.depth_valid = regs.depth_buffer.DepthValid();
@@ -3202,7 +3061,6 @@ bool Rasterizer::BindTexturesFromSet(const Shader::Info& stage, const PreparedSt
     const u64 generation = texture_cache.RegistryGeneration();
     const bool match = set.key == key && set.stage == &stage && set.count == count &&
                        set.generation == generation &&
-                       set.scene_generation == scene_targets->Generation() &&
                        std::equal(set.hashes.begin(), set.hashes.begin() + count,
                                   prepared->image_hashes);
     if (!match) {
@@ -3222,16 +3080,8 @@ bool Rasterizer::BindTexturesFromSet(const Shader::Info& stage, const PreparedSt
             continue;
         }
         const auto& image = texture_cache.GetImage(entry.id);
-        // Proxy entries need a current proxy; native entries of a proxied image go through
-        // BindTextures, which may sample the proxy instead.
-        const bool proxies_on = !BbToggle::Disabled(BbToggle::SampleSceneProxies);
         if (image.backing != entry.backing || image.binding.needs_rebind ||
-            image.binding.is_target || !texture_cache.IsUpToDate(entry.id) ||
-            (entry.proxy ? !proxies_on ||
-                               !scene_targets->ProxyCurrent(image, entry.range.base.level,
-                                                            entry.range.extent.levels)
-                         : image.scene_proxy && proxies_on) ||
-            (upscaler->Enabled() && upscaler->RedirectsSampled(entry.id))) {
+            image.binding.is_target || !texture_cache.IsUpToDate(entry.id)) {
             ++texture_set_why[2];
             ++texture_set_misses;
             set.generation = ~0ull;
@@ -3251,12 +3101,6 @@ bool Rasterizer::BindTexturesFromSet(const Shader::Info& stage, const PreparedSt
         image.binding.is_bound = 1u;
         bound_images.emplace_back(entry.id);
         image.usage.texture = 1u;
-        if (entry.proxy) {
-            image_infos.emplace_back(VK_NULL_HANDLE, entry.view,
-                                     scene_targets->PrepareSample(image, entry.range.base.level));
-            ++proxy_samples;
-            continue;
-        }
         const auto new_layout = image.info.props.is_depth
                                     ? vk::ImageLayout::eDepthStencilReadOnlyOptimal
                                     : vk::ImageLayout::eShaderReadOnlyOptimal;
@@ -3283,9 +3127,6 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
                     "other %llu\n",
                     (unsigned long long)texture_set_why[0], (unsigned long long)texture_set_why[1],
                     (unsigned long long)texture_set_why[2], (unsigned long long)texture_set_why[3]);
-        std::printf("  scene proxies sampled directly: %llu bindings\n",
-                    static_cast<unsigned long long>(proxy_samples));
-        proxy_samples = 0;
         texture_set_why = {};
         begin_memo_hits = begin_memo_misses = texture_set_hits = texture_set_misses = 0;
     }
@@ -3306,8 +3147,6 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
         if (usable) {
             ++begin_memo_hits;
             attachment_feedback_loop = false;
-            push_data.scene_size = begin_memo.scene_size;
-            target_scale = begin_memo.target_scale;
             return begin_memo.state;
         }
         ++begin_memo_misses;
@@ -3322,9 +3161,8 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
             clears |= state.color_attachments[i].is_clear != 0;
         }
         if (!clears) {
-            // Recomputed after the full path: it may have started the scene (scene_started).
-            begin_memo = {true, MakeBeginSignature(pipeline), state, push_data.scene_size,
-                          target_scale};
+            // Recomputed after the full path: it may have rebound targets.
+            begin_memo = {true, MakeBeginSignature(pipeline), state};
         }
     }
     return state;
@@ -3332,77 +3170,8 @@ RenderState Rasterizer::BeginRendering(const GraphicsPipeline* pipeline) {
 
 RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
     attachment_feedback_loop = false;
-    using VulkanUpscalerTarget = TemporalUpscaler::Target;
-    VulkanUpscalerTarget redirect{};
-    bool color_redirected = false, depth_redirected = false;
-    std::pair<u32, u32> guest_extent{1, 1};
-    std::pair<vk::ImageView, vk::ImageLayout> original_color{};
     const auto& regs = Regs();
     const auto& key = pipeline->GetGraphicsKey();
-    if (std::popcount(key.mrt_mask & 0x7f) >= 5 && db_desc.first &&
-        scene_targets->EligibleScene(texture_cache.GetImage(db_desc.first))) scene_started = true;
-    // A proxy attachment cannot represent MSAA or a feedback loop that reads the
-    // same image through the guest's native descriptor during this draw.
-    bool reduced = scene_started && upscaler->RasterScaling() && key.num_samples == 1;
-    // BB_SCENE_DEBUG=<file>: once the file exists, why the passes of one frame keep the
-    // native size (see NoteFrameStart).
-    const bool debug_pass = scene_debug_frame && scene_started;
-    std::string why;
-    if (debug_pass) {
-        why = fmt::format("pass vs {:08x} ps {:08x} mrt {:#x} samples {} raster_scaling {}:",
-                          pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
-                          key.mrt_mask ? pipeline->GetStage(Shader::SwStage::Fragment).pgm_hash
-                                       : 0,
-                          key.mrt_mask, u32(key.num_samples), upscaler->RasterScaling());
-    }
-    // Only this pass's attachments: slots past the mask's width keep earlier passes' targets,
-    // often the G-buffer images the lighting passes sample (bound), which kept those native.
-    const u32 num_attachments = BbToggle::Disabled(BbToggle::SceneAttachmentsOnly)
-                                    ? u32(cb_descs.size())
-                                    : u32(std::bit_width(key.mrt_mask));
-    // All attachments of a reduced pass share one proxy size (scene or half resolution).
-    std::optional<SceneResolution::Size> pass_size;
-    const auto same_size = [&](const VideoCore::Image& image, u32 level) {
-        const auto proxy = scene_targets->ProxySize(image, level);
-        if (!pass_size) pass_size = proxy;
-        return *pass_size == proxy;
-    };
-    for (u32 cb = 0; cb < num_attachments; ++cb) {
-        const auto& [id, desc] = cb_descs[cb];
-        if (id) {
-            const auto& image = texture_cache.GetImage(id);
-            // Mip levels of eligible chains have their own proxies (SceneTargets::Get).
-            if (!scene_targets->Eligible(image) || image.binding.is_bound ||
-                image.binding.needs_rebind || desc.view_info.range.base.layer ||
-                !same_size(image, desc.view_info.range.base.level)) reduced = false;
-            if (debug_pass) {
-                why += fmt::format(" [{} {}x{} eligible {} bound {} rebind {} level {} layer {}]",
-                                   vk::to_string(image.info.pixel_format), image.info.size.width,
-                                   image.info.size.height, scene_targets->Eligible(image),
-                                   u32(image.binding.is_bound), u32(image.binding.needs_rebind),
-                                   desc.view_info.range.base.level,
-                                   desc.view_info.range.base.layer);
-            }
-        }
-    }
-    if (db_desc.first && (!scene_targets->Eligible(texture_cache.GetImage(db_desc.first)) ||
-                          !same_size(texture_cache.GetImage(db_desc.first), 0))) {
-        reduced = false;
-    }
-    if (debug_pass) {
-        if (db_desc.first) {
-            const auto& depth = texture_cache.GetImage(db_desc.first);
-            why += fmt::format(" depth [{} {}x{} eligible {}]",
-                               vk::to_string(depth.info.pixel_format), depth.info.size.width,
-                               depth.info.size.height, scene_targets->Eligible(depth));
-        }
-        std::printf("Scene pass: reduced %d %s\n", reduced, why.c_str());
-    }
-    push_data.scene_size = reduced ? SceneResolution::Pack(scene_targets->Size()) : 0;
-    if (BbStats::enabled) {
-        BbStats::reduced_draws.fetch_add(reduced, std::memory_order_relaxed);
-        BbStats::scene_draws.fetch_add(scene_started, std::memory_order_relaxed);
-    }
     RenderState state;
     state.width = instance.GetMaxFramebufferWidth();
     state.height = instance.GetMaxFramebufferHeight();
@@ -3430,9 +3199,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         const bool is_clear = texture_cache.IsMetaCleared(col_buf.CmaskAddress(), slice);
         texture_cache.TouchMeta(col_buf.CmaskAddress(), slice, false);
 
-        if (reduced) {
-            // The native image is resolved lazily when a shader/copy actually reads it.
-        } else if (image->binding.is_bound) {
+        if (image->binding.is_bound) {
             ASSERT_MSG(!image->binding.force_general,
                        "Having image both as storage and render target is unsupported");
             runtime.FlushBarriers();
@@ -3464,22 +3231,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         attachment.image_layout = image->backing->state.layout;
         attachment.clear_value = clear_value.color.uint32;
         attachment.is_clear = is_clear;
-
-        if (reduced) {
-            const auto target = scene_targets->Attachment(image_id, desc.view_info);
-            attachment.image_view = target.view;
-            attachment.image_layout = target.layout;
-        }
         image->usage.render_target = 1u;
-        if (cb == 0 && upscaler->Enabled()) {
-            color_redirected = upscaler->RedirectColor(image_id, desc.view_info, redirect);
-            if (color_redirected) {
-                guest_extent = {image->info.size.width, image->info.size.height};
-                original_color = {attachment.image_view, attachment.image_layout};
-                attachment.image_view = redirect.view;
-                attachment.image_layout = redirect.layout;
-            }
-        }
     }
     for (u32 cb = state.num_color_attachments; cb < state.color_attachments.size(); ++cb) {
         state.color_attachments[cb] = {};
@@ -3511,7 +3263,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
                                     ? vk::ImageLayout::eDepthReadOnlyStencilAttachmentOptimal
                                 : has_stencil ? vk::ImageLayout::eDepthStencilReadOnlyOptimal
                                               : vk::ImageLayout::eDepthReadOnlyOptimal;
-        if (!reduced) needs_barrier |= runtime.Transit(&image, new_layout,
+        needs_barrier |= runtime.Transit(&image, new_layout,
                                          vk::PipelineStageFlagBits2::eEarlyFragmentTests |
                                              vk::PipelineStageFlagBits2::eLateFragmentTests,
                                          vk::AccessFlagBits2::eDepthStencilAttachmentWrite |
@@ -3539,93 +3291,15 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
             attachment.stencil_clear = is_stencil_clear;
         }
 
-        if (reduced) {
-            const auto target = scene_targets->Attachment(image_id, desc.view_info);
-            attachment.image_view = target.view;
-            attachment.image_layout = target.layout;
-        }
         image.usage.depth_target = true;
-        if (upscaler->Enabled()) {
-            VulkanUpscalerTarget depth_redirect;
-            depth_redirected = upscaler->RedirectDepth(image_id, depth_redirect);
-            if (depth_redirected) {
-                guest_extent = {image.info.size.width, image.info.size.height};
-                attachment.image_view = depth_redirect.view;
-                attachment.image_layout = depth_redirect.layout;
-                redirect = depth_redirect;
-            }
-        }
     } else {
         state.depth_stencil_attachment = {};
-    }
-
-    // bbport: a pass drawn into the upscaler's output-size images (UI, display pass): every
-    // attachment must be redirected, viewports and scissors are scaled.
-    target_scale = {1.0f, 1.0f};
-    if (color_redirected || depth_redirected) {
-        u32 color_targets = 0;
-        for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
-            color_targets += state.color_attachments[cb].image_view ? 1 : 0;
-        }
-        const bool has_depth = bool(db_desc.first);
-        if ((color_targets > 0 && !color_redirected) || (has_depth && !depth_redirected) ||
-            color_targets > 1) {
-            static u32 warned = 0;
-            if (warned < 8) {
-                ++warned;
-                const auto describe = [&](VideoCore::ImageId id) {
-                    if (!id) {
-                        return std::string{"-"};
-                    }
-                    const auto& info = texture_cache.GetImage(id).info;
-                    return fmt::format("{:#x} {}x{} {}", info.guest_address, info.size.width,
-                                       info.size.height, vk::to_string(info.pixel_format));
-                };
-                std::printf("Upscaler: pass not redirected (color %s: %s, depth %s: %s, %u "
-                            "targets)\n",
-                            color_redirected ? "yes" : "no", describe(cb_descs[0].first).c_str(),
-                            depth_redirected ? "yes" : "no", describe(db_desc.first).c_str(),
-                            state.num_color_attachments);
-            }
-            if (color_redirected) {
-                state.color_attachments[0].image_view = original_color.first;
-                state.color_attachments[0].image_layout = original_color.second;
-            }
-            if (depth_redirected) {
-                auto& depth_image = texture_cache.GetImage(db_desc.first);
-                state.depth_stencil_attachment.image_view =
-                    *texture_cache.FindDepthTarget(db_desc.first, db_desc.second).image_view;
-                state.depth_stencil_attachment.image_layout = depth_image.backing->state.layout;
-            }
-        } else {
-            state.width = redirect.width;
-            state.height = redirect.height;
-            // The UI movie viewport is now 1920x1080 even when the scene is 960x540.
-            // A native viewport (or native window-space UI vertices) must not be doubled
-            // again. The final display copy still uses the guest render-size coordinates.
-            const auto& viewport = regs.viewports[0];
-            const bool native_coordinates = redirect.native_ui &&
-                (UiComposition::NativeViewport(viewport.xscale * 2, viewport.yscale * 2) ||
-                 (regs.IsClipDisabled() && !regs.viewport_control.xscale_enable &&
-                  !regs.viewport_control.yscale_enable));
-            target_scale = UiComposition::Scale(guest_extent.first, guest_extent.second,
-                                                redirect.width, redirect.height,
-                                                native_coordinates);
-        }
     }
 
     if (state.num_layers == std::numeric_limits<u16>::max()) {
         state.num_layers = 1;
     }
 
-    if (reduced) {
-        // Half-resolution passes keep the scene's factor (proxy / native = scene / 1920).
-        const auto size = scene_targets->Size();
-        const auto proxy = pass_size.value_or(size);
-        state.width = proxy.width;
-        state.height = proxy.height;
-        target_scale = {float(size.width) / 1920.0f, float(size.height) / 1080.0f};
-    }
     if (FrameCapture::Active()) {
         std::array<const VideoCore::ImageInfo*, AmdGpu::NUM_COLOR_BUFFERS> colors{};
         for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
@@ -3988,12 +3662,10 @@ void Rasterizer::UpdateViewportScissorState() const {
             const auto yoffset = vp_ctl.yoffset_enable ? vp.yoffset : 0.f;
             const auto yscale = vp_ctl.yscale_enable ? vp.yscale : 1.f;
 
-            // bbport: sub-pixel jitter of scene geometry for the temporal upscaler; the same
-            // shift as jittering the projection.
-            viewport.x = (xoffset - xscale) * target_scale[0] + draw_jitter[0];
-            viewport.y = (yoffset - yscale) * target_scale[1] + draw_jitter[1];
-            viewport.width = xscale * 2.0f * target_scale[0];
-            viewport.height = yscale * 2.0f * target_scale[1];
+            viewport.x = xoffset - xscale;
+            viewport.y = yoffset - yscale;
+            viewport.width = xscale * 2.0f;
+            viewport.height = yscale * 2.0f;
         }
 
         viewports.push_back(viewport);
@@ -4009,22 +3681,10 @@ void Rasterizer::UpdateViewportScissorState() const {
             vp_scsr.bottom_right_y = std::min(AmdGpu::Scissor::Clamp(vp_scsr.bottom_right_y),
                                               regs.viewport_scissors[i].bottom_right_y);
         }
-        if (target_scale[0] != 1.0f || target_scale[1] != 1.0f) {
-            const auto scale = [](s32 v, float f) { return s32(std::lround(float(v) * f)); };
-            const s32 x0 = scale(vp_scsr.top_left_x, target_scale[0]);
-            const s32 y0 = scale(vp_scsr.top_left_y, target_scale[1]);
-            const s32 x1 = scale(vp_scsr.top_left_x + s32(vp_scsr.GetWidth()), target_scale[0]);
-            const s32 y1 = scale(vp_scsr.top_left_y + s32(vp_scsr.GetHeight()), target_scale[1]);
-            scissors.push_back({
-                .offset = {x0, y0},
-                .extent = {u32(std::max(x1 - x0, 0)), u32(std::max(y1 - y0, 0))},
-            });
-        } else {
-            scissors.push_back({
-                .offset = {vp_scsr.top_left_x, vp_scsr.top_left_y},
-                .extent = {vp_scsr.GetWidth(), vp_scsr.GetHeight()},
-            });
-        }
+        scissors.push_back({
+            .offset = {vp_scsr.top_left_x, vp_scsr.top_left_y},
+            .extent = {vp_scsr.GetWidth(), vp_scsr.GetHeight()},
+        });
     }
 
     if (viewports.empty()) {

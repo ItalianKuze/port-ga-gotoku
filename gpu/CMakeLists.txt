@@ -95,18 +95,10 @@ add_host_shader(fsr.comp fsr_easu_comp SAMPLE_EASU=1)
 add_host_shader(fsr.comp fsr_rcas_comp SAMPLE_RCAS=1)
 add_host_shader(post_process.frag post_process_frag)
 add_host_shader(camera_motion.comp camera_motion_comp)
-add_host_shader(upscale_merge.comp upscale_merge_comp)
-add_host_shader(upscale_reactive.comp upscale_reactive_comp)
-add_host_shader(taa.comp taa_comp)
-add_host_shader(taa_sharpen.comp taa_sharpen_comp)
-add_host_shader(taa_sharpen.comp taa_sharpen_ldr_comp LDR_OUTPUT=1)
 add_host_shader(fsr4_color.comp fsr4_decode_comp)
 add_host_shader(fsr4_color.comp fsr4_encode_comp ENCODE=1)
 add_host_shader(fsr4_reactive.comp fsr4_reactive_comp)
 add_host_shader(buffer_multi_copy.comp buffer_multi_copy_comp)
-add_host_shader(depth_resample.frag depth_resample_frag)
-add_host_shader(depth_resample.frag depth_stencil_resample_frag HAS_STENCIL=1)
-add_host_shader(depth_resample.frag depth_stencil_bits_frag STENCIL_BITS=1)
 add_host_shader(camera_motion.comp camera_motion_debug_comp DEBUG_OVERLAY=1)
 foreach(BPP IN ITEMS 8 16 32 64 96 128)
     add_host_shader(tiling.comp tiling_micro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=0)
@@ -191,28 +183,9 @@ target_include_directories(motion-history-test PRIVATE ..)
 add_executable(motion-shader-test EXCLUDE_FROM_ALL ../tests/test_motion_shaders.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(motion-shader-test PRIVATE shim shadps4 third_party/gcn/include)
 target_link_libraries(motion-shader-test PRIVATE bbgpu)
-add_executable(ui-composition-test EXCLUDE_FROM_ALL ../tests/test_ui_composition.cpp)
-target_compile_options(ui-composition-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
-target_include_directories(ui-composition-test PRIVATE ..)
 add_executable(settings-test EXCLUDE_FROM_ALL ../tests/test_settings.cpp shim/bbport_settings.cpp)
 target_compile_options(settings-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(settings-test PRIVATE .. shim)
-
-add_executable(scene-resolution-test EXCLUDE_FROM_ALL ../tests/test_scene_resolution.cpp ../tests/test_gpu_runtime_stubs.cpp)
-target_include_directories(scene-resolution-test PRIVATE shim shadps4 third_party/gcn/include)
-# The test's Vulkan-Hpp inline methods have a different set of platform extensions
-# from vk_platform.cpp. Keep them local and use an explicit dispatcher in the test.
-target_compile_options(scene-resolution-test PRIVATE -UNDEBUG -fPIC)
-set_source_files_properties(../tests/test_scene_resolution.cpp PROPERTIES
-    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
-target_link_libraries(scene-resolution-test PRIVATE bbgpu)
-add_executable(taa-shader-test EXCLUDE_FROM_ALL ../tests/test_taa_shader.cpp ../tests/test_gpu_runtime_stubs.cpp)
-target_include_directories(taa-shader-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
-target_compile_options(taa-shader-test PRIVATE -UNDEBUG -fPIC)
-set_source_files_properties(../tests/test_taa_shader.cpp PROPERTIES
-    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
-target_link_libraries(taa-shader-test PRIVATE bbgpu)
-add_dependencies(taa-shader-test host_shaders)
 
 add_executable(camera-motion-test EXCLUDE_FROM_ALL ../tests/test_camera_motion.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(camera-motion-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
@@ -220,12 +193,8 @@ target_compile_options(camera-motion-test PRIVATE -UNDEBUG -fPIC)
 target_link_libraries(camera-motion-test PRIVATE bbgpu)
 add_dependencies(camera-motion-test host_shaders)
 
-# bbport: FSR 4 benchmark outside the game (tools/fsr4_bench.cpp): ninja -C out/gpu fsr4-bench.
-add_executable(upscaler-support-test EXCLUDE_FROM_ALL ../tests/test_upscaler_support.cpp
-    shim/bbport_settings.cpp)
-target_include_directories(upscaler-support-test PRIVATE shim)
-target_compile_options(upscaler-support-test PRIVATE -UNDEBUG)
 
+# bbport: FSR 4 benchmark outside the game (tools/fsr4_bench.cpp): ninja -C out/gpu fsr4-bench.
 add_executable(fsr4-bench EXCLUDE_FROM_ALL tools/fsr4_bench.cpp
     shadps4/video_core/renderer_vulkan/fsr411/fsr411.cpp)
 target_include_directories(fsr4-bench PRIVATE shadps4/video_core/renderer_vulkan/fsr411)
