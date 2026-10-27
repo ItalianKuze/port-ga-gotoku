@@ -15,6 +15,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include "../gpu/shim/pgg_env.h"
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define MAX_FILES 1024
 #define MAX_MOUNTS 16
@@ -197,11 +198,11 @@ static File *get(int fd) {
     if (fd<3 || fd>=MAX_FILES || !files[fd].used) return NULL;
     return &files[fd];
 }
-/* BB_AUDIO_TRACE=1: sound file opens and failed reads (missing game sounds). */
-static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("BB_AUDIO_TRACE"); v=e && e[0]=='1'; } return v; }
-/* BB_FILE_TRACE=1: every open/stat/access with its guest path, host path and result
+/* PGG_AUDIO_TRACE=1: sound file opens and failed reads (missing game sounds). */
+static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=pgg_getenv("AUDIO_TRACE"); v=e && e[0]=='1'; } return v; }
+/* PGG_FILE_TRACE=1: every open/stat/access with its guest path, host path and result
  * (fd or -errno), to compare file access between builds. */
-static int file_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("BB_FILE_TRACE"); v=e && e[0]=='1'; } return v; }
+static int file_trace(void) { static int v=-1; if (v<0) { const char *e=pgg_getenv("FILE_TRACE"); v=e && e[0]=='1'; } return v; }
 static int save_path(const char *guest) { return guest && !strncmp(guest,"/savedata",9); }
 static int64_t traced(const char *op,const char *guest,const char *host,int64_t result) {
     if (file_trace() || (runtime_save_trace() && save_path(guest))) printf("FileTrace: %s %s -> %s = %lld\n",op,guest ? guest : "(null)",host ? host : "-",(long long)result);
@@ -345,7 +346,7 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     ++opens;
     pthread_mutex_unlock(&lock);
     if (audio_trace() && strstr(guest,"sound/")) printf("Audio trace: open(%s) -> fd %d, %lld bytes\n",guest,fd,(long long)s.st_size);
-    const char *mod_trace=getenv("BB_MOD_TRACE"), *mod_root=getenv("BB_MODS_DIR");
+    const char *mod_trace=pgg_getenv("MOD_TRACE"), *mod_root=pgg_getenv("MODS_DIR");
     if (mod_trace && mod_trace[0]=='1' && mod_root) {
         char actual[PATH_MAX],root[PATH_MAX];
         static unsigned traced;
@@ -401,7 +402,7 @@ static int host_fd_written(int fd) {
     f->dirty=1;
     return f->host;
 }
-/* BB_FILE_TRACE: an operation on an open descriptor, named by the guest path it was opened as. */
+/* PGG_FILE_TRACE: an operation on an open descriptor, named by the guest path it was opened as. */
 static int64_t traced_fd(const char *op,int fd,uint64_t size,int64_t offset,int64_t result) {
     if (!file_trace() && !runtime_save_trace()) return result;
     File *f=fd>=3 ? get(fd) : NULL;

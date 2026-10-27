@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// bbport BB_SECTIONS=1 (diagnostics): time the draw recording thread spends per part of a draw,
+// bbport PGG_SECTIONS=1 (diagnostics): time the draw recording thread spends per part of a draw,
 // inclusive (nested parts count in their parent too), printed with the draw pipe statistics.
 #pragma once
 
@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <x86intrin.h>
+#include "pgg_env.h"
 
 namespace BbSections {
 enum Id : std::uint32_t {
@@ -46,7 +47,7 @@ inline std::array<std::atomic<std::uint64_t>, Count> cycles{};
 
 inline bool Enabled() {
     static const bool on = [] {
-        const char* env = std::getenv("BB_SECTIONS");
+        const char* env = pgg_getenv("SECTIONS");
         return env && env[0] == '1';
     }();
     return on;

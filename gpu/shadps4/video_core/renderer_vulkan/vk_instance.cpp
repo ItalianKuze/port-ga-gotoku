@@ -20,6 +20,7 @@
 #include "video_core/renderer_vulkan/vk_platform.h"
 
 #include <vk_mem_alloc.h>
+#include "pgg_env.h"
 
 namespace Vulkan {
 
@@ -116,8 +117,8 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
     ASSERT_MSG(num_physical_devices > 0, "No physical devices found");
     LOG_INFO(Render_Vulkan, "Found {} physical devices", num_physical_devices);
 
-    // bbport: every device in the log (always shown), and an explicit choice: BB_GPU_DEVICE=<part
-    // of the name> or BB_GPU_ID=<index> forces one; otherwise the sort below prefers devices with
+    // bbport: every device in the log (always shown), and an explicit choice: PGG_GPU_DEVICE=<part
+    // of the name> or PGG_GPU_ID=<index> forces one; otherwise the sort below prefers devices with
     // the required Vulkan version, then discrete GPUs, then not CPU, then the most device memory.
     const auto device_type_name = [](vk::PhysicalDeviceType type) -> const char* {
         switch (type) {
@@ -151,8 +152,8 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
                     driver_version(p).c_str(), VK_API_VERSION_MAJOR(p.apiVersion),
                     VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion));
     }
-    const char* reason = physical_device_index >= 0 ? "BB_GPU_ID" : "automatic (discrete GPU preferred)";
-    if (const char* wanted = std::getenv("BB_GPU_DEVICE"); wanted && *wanted) {
+    const char* reason = physical_device_index >= 0 ? "PGG_GPU_ID" : "automatic (discrete GPU preferred)";
+    if (const char* wanted = pgg_getenv("GPU_DEVICE"); wanted && *wanted) {
         std::string needle{wanted};
         std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char c) { return std::tolower(c); });
         s32 found = -1;
@@ -161,11 +162,11 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
             std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::tolower(c); });
             if (name.find(needle) != std::string::npos) found = s32(i);
         }
-        if (found >= 0) { physical_device_index = found; reason = "BB_GPU_DEVICE"; }
-        else std::printf("GPU: BB_GPU_DEVICE=%s matches no device; choosing automatically\n", wanted);
+        if (found >= 0) { physical_device_index = found; reason = "PGG_GPU_DEVICE"; }
+        else std::printf("GPU: PGG_GPU_DEVICE=%s matches no device; choosing automatically\n", wanted);
     }
     if (physical_device_index >= s32(num_physical_devices)) {
-        std::printf("GPU: BB_GPU_ID=%d is not a device (0..%zu); choosing automatically\n", physical_device_index,
+        std::printf("GPU: PGG_GPU_ID=%d is not a device (0..%zu); choosing automatically\n", physical_device_index,
                     num_physical_devices - 1);
         physical_device_index = -1;
         reason = "automatic (discrete GPU preferred)";
@@ -488,10 +489,10 @@ bool Instance::CreateDevice() {
     };
     // bbport: a queue of a compute and transfer family without graphics, for reading back GPU
     // data the GPU finished writing long ago without waiting behind the queued frame
-    // (BufferCache::DownloadMemory). BB_READBACK_QUEUE=0 turns it off.
+    // (BufferCache::DownloadMemory). PGG_READBACK_QUEUE=0 turns it off.
     std::array<vk::DeviceQueueCreateInfo, 2> queue_infos{queue_info};
     u32 queue_info_count = 1;
-    if (const char* env = std::getenv("BB_READBACK_QUEUE"); !env || env[0] != '0') {
+    if (const char* env = pgg_getenv("READBACK_QUEUE"); !env || env[0] != '0') {
         for (std::size_t i = 0; i < family_properties.size(); i++) {
             const auto flags = family_properties[i].queueFlags;
             if (!(flags & vk::QueueFlagBits::eGraphics) && (flags & vk::QueueFlagBits::eCompute) &&
@@ -818,7 +819,7 @@ void Instance::CreateAllocator() {
         .vkGetInstanceProcAddr = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetInstanceProcAddr,
         .vkGetDeviceProcAddr = VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr,
     };
-    // bbport: new device memory per frame (BB_FRAME_LOG alloc_mb).
+    // bbport: new device memory per frame (PGG_FRAME_LOG alloc_mb).
     static const VmaDeviceMemoryCallbacks memory_callbacks = {
         .pfnAllocate = [](VmaAllocator, uint32_t, VkDeviceMemory, VkDeviceSize size, void*) {
             BbStats::device_alloc_bytes.fetch_add(size, std::memory_order_relaxed);
@@ -830,9 +831,9 @@ void Instance::CreateAllocator() {
 
     // bbport: 64 MiB blocks (VMA default 256 MiB). A block goes back to the driver only once
     // empty: images freed here and there (the texture collector) left 256 MiB blocks mostly
-    // empty and held. BB_VMA_BLOCK_MB=N.
+    // empty and held. PGG_VMA_BLOCK_MB=N.
     static const VkDeviceSize block_size = [] {
-        const char* env = std::getenv("BB_VMA_BLOCK_MB");
+        const char* env = pgg_getenv("VMA_BLOCK_MB");
         return VkDeviceSize(env ? std::max(1ul, std::strtoul(env, nullptr, 10)) : 64ul) << 20;
     }();
     const VmaAllocatorCreateInfo allocator_info = {

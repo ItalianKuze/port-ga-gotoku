@@ -3,6 +3,7 @@
  * use FreeBSD numbering; host errno values never reach the guest directly. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/shim/pgg_env.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -387,7 +388,7 @@ static void guest_call_sites(uint64_t out[3]) {
 }
 void runtime_wait_note(int kind, uint64_t ns) {
     static int enabled=-1;
-    if (enabled<0) enabled=getenv("BB_FRAME_STATS")!=NULL;
+    if (enabled<0) enabled=pgg_getenv("FRAME_STATS")!=NULL;
     if (!enabled) return;
     if (!wait_tid) wait_tid=(int)gettid();
     uint64_t sites[3];
@@ -414,7 +415,7 @@ void runtime_wait_report(double frames) {
     }
     if (!n || frames<=0) return;
     static FILE *dump; static int dump_checked;
-    if (!dump_checked) { const char *path=getenv("BB_WAIT_LOG"); if (path && *path) dump=fopen(path,"w"); dump_checked=1; }
+    if (!dump_checked) { const char *path=pgg_getenv("WAIT_LOG"); if (path && *path) dump=fopen(path,"w"); dump_checked=1; }
     if (dump) {
         for (int i=0;i<n;++i)
             fprintf(dump,"%s %d %s %#lx %#lx %#lx %.2f %.3f\n", rows[i].w->name, rows[i].w->tid, kinds[rows[i].w->kind&3],
@@ -431,7 +432,7 @@ void runtime_wait_report(double frames) {
     printf("\n");
 }
 
-/* bbport BB_SAMPLE_THREAD=<name> (with frame stats): where that thread runs, sampled with SIGPROF
+/* bbport PGG_SAMPLE_THREAD=<name> (with frame stats): where that thread runs, sampled with SIGPROF
  * every 0.5 ms; reported with the wait profile. A thread that never blocks but waits for the GPU
  * shows up spinning in its polling loop. */
 #ifndef _WIN32
@@ -490,7 +491,7 @@ static void *sampler_main(void *arg) {
 }
 static void sample_start(void) {
     static int started;
-    const char *name=getenv("BB_SAMPLE_THREAD");
+    const char *name=pgg_getenv("SAMPLE_THREAD");
     if (started || !name || !*name) return;
     started=1;
     struct sigaction action={0};
@@ -506,7 +507,7 @@ static void sample_report(void) {
     static int got_dumped;
     if (!got_dumped) {
         got_dumped=1;
-        const char *got=getenv("BB_DUMP_GOT"); /* a guest GOT slot (offset): which host function it calls */
+        const char *got=pgg_getenv("DUMP_GOT"); /* a guest GOT slot (offset): which host function it calls */
         if (got && *got) {
             const uint64_t target=*(const uint64_t *)(0x800000000ull+strtoull(got,NULL,0));
             Dl_info dl={0};

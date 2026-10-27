@@ -21,14 +21,16 @@ set "RUN=%PGG_ROOT%\out-win\run"
 rem Only Windows on PATH: every DLL the game needs is in %RUN%.
 set "PATH=%SystemRoot%\System32;%SystemRoot%;%SystemRoot%\System32\WindowsPowerShell\v1.0"
 rem No watchdog while playing; frame statistics in the log.
-set "BB_TIMEOUT=0"
-set "BB_FRAME_STATS=1"
-set "BB_DATA_DIR=%PGG_DATA%"
+set "PGG_TIMEOUT=0"
+set "PGG_FRAME_STATS=1"
+set "PGG_DATA_DIR=%PGG_DATA%"
 set "XDG_DATA_HOME=%PGG_DATA%"
 rem The GPU library's folders and the port's settings in the data folder, never %APPDATA%\shadPS4.
-set "BB_GPU_USER_DIR=%PGG_DATA%\gpu"
-set "BB_GPU_CACHE_DIR=%PGG_DATA%\cache"
-set "BB_CONFIG=%PGG_DATA%\bbport.ini"
+set "PGG_GPU_USER_DIR=%PGG_DATA%\gpu"
+set "PGG_GPU_CACHE_DIR=%PGG_DATA%\cache"
+rem pgg.ini (bbport.ini until 0.1.2, copied the first time; the old file stays).
+if not exist "%PGG_DATA%\pgg.ini" if exist "%PGG_DATA%\bbport.ini" copy /y "%PGG_DATA%\bbport.ini" "%PGG_DATA%\pgg.ini" >nul
+set "PGG_CONFIG=%PGG_DATA%\pgg.ini"
 
 if not exist "%RUN%\bb-probe.exe" ( echo Missing "%RUN%\bb-probe.exe": run scripts\build-win.sh first. & goto :fail )
 if not exist "%PGG_DATA%\out\boot-linked.bin" ( echo Missing "%PGG_DATA%\out\boot-linked.bin": start the game once from the launcher, which prepares it. & goto :fail )

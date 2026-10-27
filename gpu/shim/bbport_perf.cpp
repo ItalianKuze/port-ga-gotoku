@@ -4,6 +4,7 @@
 // telemetry HUD (github.com/Mrsuss60/bloodborne_pc_windows_port, cdbf89b and 66a47ca,
 // GPL-2.0-or-later).
 #include "bbport_perf.h"
+#include "pgg_env.h"
 
 #include <algorithm>
 #include <chrono>
@@ -381,7 +382,7 @@ float LowFps(std::vector<float> values, double fraction) {
 }
 
 std::string LogsDir() {
-    const char* data = std::getenv("BB_DATA_DIR");
+    const char* data = pgg_getenv("DATA_DIR");
     return data && *data ? std::string(data) + "/logs" : std::string(".");
 }
 
@@ -556,8 +557,8 @@ void Init(const Vulkan::Instance& instance) {
     command_pool = commands;
     std::printf("Perf: telemetry ready (%s, timestamp period %.2f ns); HUD with F11 or the in-game menu\n",
                 gpu_name.c_str(), period_ns);
-    // BB_PERF_MEASURE=<delay s>:<length s>: a measurement that starts by itself (unattended runs).
-    if (const char* env = std::getenv("BB_PERF_MEASURE"); env && *env) {
+    // PGG_PERF_MEASURE=<delay s>:<length s>: a measurement that starts by itself (unattended runs).
+    if (const char* env = pgg_getenv("PERF_MEASURE"); env && *env) {
         int delay = 0, length = 0;
         if (std::sscanf(env, "%d:%d", &delay, &length) == 2 && delay >= 0 && length > 0) {
             std::thread([delay, length] {

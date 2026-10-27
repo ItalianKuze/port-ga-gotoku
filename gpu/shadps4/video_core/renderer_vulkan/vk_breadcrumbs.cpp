@@ -16,6 +16,7 @@
 extern "C" int runtime_memory_vma_info(uintptr_t address, int* prot, int* type, uintptr_t* end);
 
 #include <vk_mem_alloc.h>
+#include "pgg_env.h"
 
 namespace Vulkan::Breadcrumbs {
 
@@ -56,7 +57,7 @@ struct ArgsNote {
 std::array<ArgsNote, ArgSlots> args_notes{};
 
 void Init(const Instance& instance) {
-    const char* env = std::getenv("BB_BREADCRUMBS");
+    const char* env = pgg_getenv("BREADCRUMBS");
     if (env && env[0] == '0') {
         return;
     }

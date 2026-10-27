@@ -297,6 +297,6 @@ if __name__ == '__main__':
     try:
         prepare(args.game, args.out, experimental_elf=args.experimental_elf)
     except GameCheckError as error:
-        parser.exit(2, f'\nUnsupported game files: {error}\nSet BB_SKIP_GAME_CHECK=1 to start anyway.\n')
+        parser.exit(2, f'\nUnsupported game files: {error}\nSet PGG_SKIP_GAME_CHECK=1 to start anyway.\n')
     except (ValueError, OSError, StopIteration, KeyError, IndexError) as error:
         parser.exit(1, f'prepare failed: {error}\n')

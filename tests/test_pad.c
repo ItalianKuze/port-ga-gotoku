@@ -11,7 +11,7 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
     return 0;
 }
 /* Defined in runtime_memory.c, which this test does not link. Only report_guest_heap's
- * speculative libc.prx read touches it, and that needs BB_FRAME_STATS: unreached here. */
+ * speculative libc.prx read touches it, and that needs PGG_FRAME_STATS: unreached here. */
 __thread sigjmp_buf *runtime_fault_recover;
 
 static void inject(const char *path, const char *tokens) {
@@ -27,8 +27,8 @@ int main(void) {
     int fd=mkstemp(path);
     assert(fd>=0);
     close(fd);
-    setenv("BB_PAD_FILE",path,1);
-    /* bbport.ini controls: buttons moved, a trigger as a button and a button as a trigger. */
+    setenv("PGG_PAD_FILE",path,1);
+    /* pgg.ini controls: buttons moved, a trigger as a button and a button as a trigger. */
     char config[]="/tmp/bbport-pad-config-XXXXXX";
     int config_fd=mkstemp(config);
     assert(config_fd>=0);
@@ -36,7 +36,7 @@ int main(void) {
                           "pad.r1=righttrigger\nkey.cross=X, Space\npad.bogus=a\n";
     assert(write(config_fd,controls,sizeof(controls)-1)==(ssize_t)(sizeof(controls)-1));
     close(config_fd);
-    setenv("BB_CONFIG",config,1);
+    setenv("PGG_CONFIG",config,1);
     setenv("SDL_VIDEODRIVER","dummy",1);
     /* Only the virtual test controller is a gamepad, whatever is plugged in. */
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT,"0x1d50/0x6189");

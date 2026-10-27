@@ -98,11 +98,12 @@ Linux: not maintained in this fork for now (the code stays portable; see the roa
 ## Data folder
 
 Everything the port writes goes to `PortGaGotoku-data`, next to the project (or package) folder
-(`BB_DATA_DIR` changes it):
+(`PGG_DATA_DIR` changes it; the port's environment variables are named `PGG_*`, and bbport's
+`BB_*` names still work):
 
 | Folder / file | What |
 |---|---|
-| `launcher.json`, `bbport.ini` | launcher settings, in-game menu settings |
+| `launcher.json`, `pgg.ini` | launcher settings, in-game menu settings and controls (`pgg.ini` was `bbport.ini` until 0.1.2: copied the first time, the old file stays) |
 | `out/` | the boot image prepared from your dump |
 | `user/savedata/1/CUSA12776/` | saves (one folder per slot, plus `<slot>.sce_sys`) |
 | `save-backups/` | a copy of a slot before the game writes it (the last 10 per slot) |

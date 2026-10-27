@@ -19,6 +19,7 @@
 #include "video_core/texture_cache/host_compatibility.h"
 #include "video_core/texture_cache/texture_cache.h"
 #include "video_core/texture_cache/tile_manager.h"
+#include "pgg_env.h"
 
 namespace VideoCore {
 
@@ -121,7 +122,7 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
         .imageOffset = {0, 0, 0},
         .imageExtent = {image.info.size.width, image.info.size.height, image.info.size.depth},
     };
-    // bbport BB_GUEST_IN_PLACE: the GPU copies the image into the game's memory itself, in stream
+    // bbport PGG_GUEST_IN_PLACE: the GPU copies the image into the game's memory itself, in stream
     // order: before the fences that follow, no wait here and no CPU copy afterwards.
     if (GuestInPlace() && image.info.guest_address != 0) {
         const auto [arena, offset] =
@@ -1089,9 +1090,9 @@ void TextureCache::GarbageCollectImages() {
         // ~1 GB after its 8 GB system reserve: usage stayed above the critical mark, so the
         // collector evicted images used two or three frames ago on every submission and wrote
         // GPU-written ones back. Compare with the driver's current budget instead.
-        // BB_GC_BUDGET_MB=N: this rule with a fixed budget on any GPU (tests on a desktop).
+        // PGG_GC_BUDGET_MB=N: this rule with a fixed budget on any GPU (tests on a desktop).
         static const u64 forced_budget = [] {
-            const char* env = std::getenv("BB_GC_BUDGET_MB");
+            const char* env = pgg_getenv("GC_BUDGET_MB");
             return env ? std::strtoull(env, nullptr, 10) << 20 : 0;
         }();
         if (instance.IsIntegrated() || forced_budget) {
@@ -1109,7 +1110,7 @@ void TextureCache::GarbageCollectImages() {
     // seconds, for ages in seconds. The usage compared is all of our VRAM, not only images: on a
     // discrete GPU it stays over the trigger, where an age of 16 ticks (~3 frames) evicted every
     // texture briefly off screen and uploaded it again. Below the pressure mark an image goes
-    // once unused for BB_GC_IDLE_SECONDS (20): the textures of an area left behind.
+    // once unused for PGG_GC_IDLE_SECONDS (20): the textures of an area left behind.
     const u64 second = u64(std::chrono::duration_cast<std::chrono::seconds>(
                                std::chrono::steady_clock::now().time_since_epoch())
                                .count());
@@ -1125,7 +1126,7 @@ void TextureCache::GarbageCollectImages() {
         return;
     }
     static const u64 idle_seconds = [] {
-        const char* env = std::getenv("BB_GC_IDLE_SECONDS");
+        const char* env = pgg_getenv("GC_IDLE_SECONDS");
         return std::clamp<u64>(env ? std::strtoull(env, nullptr, 10) : 20, 1, 63);
     }();
     // The tick at the start of that second (an older one where no submission came then).
@@ -1199,7 +1200,7 @@ void TextureCache::GarbageCollectImages() {
         configure(true);
         lru_cache.ForEachItemBelow(below_tick, clean_up);
     }
-    // bbport: evictions under memory pressure, at most every 5 s (BB_FRAME_STATS or not).
+    // bbport: evictions under memory pressure, at most every 5 s (PGG_FRAME_STATS or not).
     if (pressured || gc_downloads != 0) {
         const auto now = std::chrono::steady_clock::now();
         if (now - gc_report_time >= std::chrono::seconds(5)) {

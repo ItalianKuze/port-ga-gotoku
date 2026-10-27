@@ -34,8 +34,10 @@ on Windows, and why. Useful to whoever continues the work, and to upstream where
 - **Closing the window**: `std::_Exit` went through `ExitProcess` and hung. The window's X now calls
   `runtime_quit`: it waits up to 5 s while a `/savedataN` file is open or a slot is mounted for writing,
   prints the report and ends with `TerminateProcess`, exit code 0.
-- **Watchdog and diagnostics**: `BB_TIMEOUT` dumps every thread without taking locks; `BB_FILE_TRACE`,
-  `BB_SAVE_TRACE`, `BB_IMPORT_TRACE`, `BB_IMPORT_REPORT`, `BB_PAD_TRACE`, `BB_EXIT_TRACE`.
+- **Environment variables**: `PGG_<name>`, read through `pgg_getenv` (`gpu/shim/pgg_env.h`, runtime and
+  GPU library) and `env_var` (launcher); bbport's `BB_<name>` is still read when `PGG_<name>` is unset.
+- **Watchdog and diagnostics**: `PGG_TIMEOUT` dumps every thread without taking locks; `PGG_FILE_TRACE`,
+  `PGG_SAVE_TRACE`, `PGG_IMPORT_TRACE`, `PGG_IMPORT_REPORT`, `PGG_PAD_TRACE`, `PGG_EXIT_TRACE`.
 
 ## PS4 libraries (as shadPS4 implements them)
 
@@ -55,10 +57,10 @@ on Windows, and why. Useful to whoever continues the work, and to upstream where
 ## GPU library
 
 - **Folders**: the shadPS4 code kept its user folder and shader cache in `%APPDATA%\shadPS4`, which a
-  real shadPS4 installation owns. `BB_GPU_USER_DIR` / `BB_GPU_CACHE_DIR` are always honoured and the
-  launcher puts both in `PortGaGotoku-data`; `bbport.ini` too (`BB_CONFIG`).
-- **Vulkan device**: every device is listed with the reason for the choice; `BB_GPU_DEVICE` (part of the
-  name) or `BB_GPU_ID` forces one (a laptop with an AMD iGPU and an NVIDIA dGPU loads both ICDs).
+  real shadPS4 installation owns. `PGG_GPU_USER_DIR` / `PGG_GPU_CACHE_DIR` are always honoured and the
+  launcher puts both in `PortGaGotoku-data`; `pgg.ini` too (`PGG_CONFIG`).
+- **Vulkan device**: every device is listed with the reason for the choice; `PGG_GPU_DEVICE` (part of the
+  name) or `PGG_GPU_ID` forces one (a laptop with an AMD iGPU and an NVIDIA dGPU loads both ICDs).
 - **Game profile**: `gpu/shim/bbport_game.*` maps the TITLE_ID to a game (Hokuto only). The in-game
   menu shows the language (English / Italian), the FPS counter, the statistics HUD and the
   measurement. bbport's Bloodborne-specific parts were removed from this fork: `patches/Bloodborne.xml`
@@ -79,6 +81,6 @@ on Windows, and why. Useful to whoever continues the work, and to upstream where
 
 `scripts/bench_hokuto.py record|walk|still`: a fresh copy of the data per run, Cross pressed until the
 save list (Continue), gameplay detected from the frame statistics (the loading screen runs at a fixed
-20 FPS), the recorded pad route (`BB_PAD_RECORD` / `BB_PAD_REPLAY`) and the measurement started on the
+20 FPS), the recorded pad route (`PGG_PAD_RECORD` / `PGG_PAD_REPLAY`) and the measurement started on the
 same frame, the game closed like its X. Standing: within 3% over three runs; walking: FPS and p99
 within 2–5%, CPU and GPU time per frame vary more (the replay is time-based and the path can drift).

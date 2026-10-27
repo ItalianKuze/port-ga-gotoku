@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// bbport BB_HEAP_SITES=1 (diagnostics): the game's malloc replacement (the pointers libc.prx calls
+// bbport PGG_HEAP_SITES=1 (diagnostics): the game's malloc replacement (the pointers libc.prx calls
 // through, libc+0xba190: malloc, free, calloc, realloc, memalign, posix_memalign) is wrapped, and
 // the live allocations are counted per call site in the game (the first two return addresses into
 // its code on the stack). Report() prints the sites whose live bytes grew since the last report:
@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include "pgg_env.h"
 
 namespace BbHeapSites {
 namespace {
@@ -60,7 +61,7 @@ std::vector<Alloc> allocs;
 u64 untracked_frees = 0, table_full = 0;
 
 std::atomic_flag lock = ATOMIC_FLAG_INIT;
-bool tracking = false; ///< BB_HEAP_SITES=1: per call site; else only the counters below
+bool tracking = false; ///< PGG_HEAP_SITES=1: per call site; else only the counters below
 std::atomic<u64> count_allocs{0}, count_frees{0};
 std::atomic<u64> release_ok{0}, release_busy{0}, release_missing{0}, release_other{0};
 struct Guard {
@@ -217,7 +218,7 @@ bool InGame(u64 v) {
 namespace {
 void InstallWrappers(bool counters) {
     static const bool wanted = [] {
-        const char* env = std::getenv("BB_HEAP_SITES");
+        const char* env = pgg_getenv("HEAP_SITES");
         return env && env[0] == '1';
     }();
     static bool done = false;

@@ -3,10 +3,10 @@
 //
 // Per frame: the present interval (FPS, frame time, 1% low). Per second: the CPU time of the GPU
 // command thread (PM4 translation and handing the work to the recording threads; BbStats, needs
-// BB_FRAME_STATS), the GPU's busy time from timestamp queries around each queue submission, GPU
+// PGG_FRAME_STATS), the GPU's busy time from timestamp queries around each queue submission, GPU
 // utilisation (NVML, else Windows PDH), VRAM (VMA budgets), system CPU and RAM, pipeline compiles,
 // and the CPU use of every thread of the process. A measurement records all of it for a fixed
-// time (F9, the in-game menu, or BB_PERF_MEASURE=<delay s>:<length s> by itself) into
+// time (F9, the in-game menu, or PGG_PERF_MEASURE=<delay s>:<length s> by itself) into
 // PortGaGotoku-data/logs/perf-<date-time>-*.csv and prints a summary (scripts/
 // perf_report.py turns it into a report). Self-contained on purpose: the measurement must run the
 // same way after the update from upstream, so the renderer is touched in two places only

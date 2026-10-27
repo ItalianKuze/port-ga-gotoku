@@ -5,6 +5,7 @@
  * encode 40-bit addresses, so host-default 0x7f... addresses would not fit. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/shim/pgg_env.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,12 +25,12 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
-/* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. BB_DMEM_MB raises it (the resolution
+/* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. PGG_DMEM_MB raises it (the resolution
  * patches above 1080p need about 4 GiB more; run.sh sets it). */
 static uint64_t pool_size_bytes(void) {
     static uint64_t size;
     if (!size) {
-        const char *env = getenv("BB_DMEM_MB");
+        const char *env = pgg_getenv("DMEM_MB");
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
         if (mb < 5056 || mb > 16384) mb = 5056;
         size = mb * 1024 * 1024;
@@ -85,7 +86,7 @@ static Vma *vmas; static size_t vma_count, vma_capacity;
 static int pool_fd=-1;
 #endif
 /* bbport: direct memory in GPU-visible system memory the GPU library allocates (dma-buf chunks,
- * BB_GUEST_GPU_MEMORY=1): the GPU reads the game's data in place instead of the CPU copying it
+ * PGG_GUEST_GPU_MEMORY=1): the GPU reads the game's data in place instead of the CPU copying it
  * into staging buffers first. Chunks are allocated when the game allocates direct memory in them;
  * a chunk the GPU library cannot provide stays in the memfd. */
 #define CHUNK (UINT64_C(256) << 20)
@@ -1078,7 +1079,7 @@ void *runtime_low_map(size_t size, int prot) {
 }
 /* ---- GPU library interface (gpu/shim/bbgpu.cpp) ---- */
 /* Optimizations switched off at run time (diagnostics): the number in the file named by
- * BB_TOGGLE_FILE, re-read every 250 ms. Bits: 1 region cache, 2 fetch shader cache,
+ * PGG_TOGGLE_FILE, re-read every 250 ms. Bits: 1 region cache, 2 fetch shader cache,
  * 4 page tracking early exit, 8 pending-op poll limit, 16 threaded Vulkan recording,
  * 32 texture descriptor cache, 64 lock-free upload check, 128 image lookup cache,
  * 256 buffer uploads on the recording thread, 512 barrier tracker insert memo,
@@ -1086,10 +1087,10 @@ void *runtime_low_map(size_t size, int prot) {
  * 4096 resource sharps read by the draw-preparation workers,
  * 8192 prepared draws from the draw-preparation workers,
  * 16384 small read-only buffer copies on the recording thread,
- * 32768 hot pages (opt-in with BB_HOT_PAGES=1),
- * 65536 unprotect the 256 KiB window around a guest write fault (BB_FAULT_WINDOW KiB),
- * 131072 large guest memory copies split across copy threads (BB_COPY_THREADS),
- * 262144 with BB_ASYNC_FENCES=1: wait for guest copies at fences again,
+ * 32768 hot pages (opt-in with PGG_HOT_PAGES=1),
+ * 65536 unprotect the 256 KiB window around a guest write fault (PGG_FAULT_WINDOW KiB),
+ * 131072 large guest memory copies split across copy threads (PGG_COPY_THREADS),
+ * 262144 with PGG_ASYNC_FENCES=1: wait for guest copies at fences again,
  * 524288 small guest copies batched for the copy threads instead of the recording thread,
  * 1073741824 the lock-free UpdateImage path for clean, tracked images. */
 /* Bits 32 and up: the draw pipeline and related GPU thread work (gpu/shim/bbport_toggles.h). */
@@ -1098,7 +1099,7 @@ uint64_t runtime_disabled_optimizations;
 uint64_t runtime_get_disabled_optimizations(void) {
     return __atomic_load_n(&runtime_disabled_optimizations, __ATOMIC_ACQUIRE);
 }
-/* bbport: a second number in BB_TOGGLE_FILE: temporary experiment bits (BbToggle::Experiment). */
+/* bbport: a second number in PGG_TOGGLE_FILE: temporary experiment bits (BbToggle::Experiment). */
 uint64_t runtime_experiment_bits;
 uint64_t runtime_get_experiment_bits(void) {
     return __atomic_load_n(&runtime_experiment_bits, __ATOMIC_ACQUIRE);
@@ -1131,7 +1132,7 @@ void runtime_memory_set_guest_chunk_allocator(int (*alloc)(uint64_t phys, uint64
     write_unlock();
 }
 void runtime_memory_set_gpu_hooks(GpuRange map, GpuRange unmap, GpuRange invalidate) {
-    const char *toggles=getenv("BB_TOGGLE_FILE");
+    const char *toggles=pgg_getenv("TOGGLE_FILE");
     static pthread_t watcher;
     if (toggles && !watcher) pthread_create(&watcher,NULL,toggle_watcher,(void *)toggles);
     write_lock();
@@ -1160,7 +1161,7 @@ void runtime_memory_note_write(uintptr_t address, uint64_t size) {
     GpuRange hook=hook_note_write ? hook_note_write : hook_invalidate;
     for (int i=0;i<n;++i) hook(starts[i],ends[i]-starts[i]);
 }
-/* bbport BB_GUEST_IN_PLACE without page protection: pages whose CPU writes the GPU side must hear
+/* bbport PGG_GUEST_IN_PLACE without page protection: pages whose CPU writes the GPU side must hear
  * of (a VRAM copy of them, a texture made from them), one bit per 4 KiB page below 2^40. The GPU
  * side sets and clears them where it used to protect; the writers it cannot see coming (libc
  * imports, file reads, hooked game code) check them after writing and tell it, as a driver is
@@ -1199,7 +1200,7 @@ void runtime_memory_note_cpu_write(uintptr_t address, uint64_t size) {
         }
     }
 }
-/* bbport: where direct memory at a guest address lives (BB_GUEST_IN_PLACE: the GPU uses the game's
+/* bbport: where direct memory at a guest address lives (PGG_GUEST_IN_PLACE: the GPU uses the game's
  * memory where it is): its offset in direct memory and the end of the mapping, which is contiguous
  * there. 0 for anything else (flexible memory, reserved or unmapped addresses). */
 int runtime_memory_direct_phys(uintptr_t address, uint64_t *phys, uintptr_t *end) {
@@ -1258,7 +1259,7 @@ int runtime_memory_write_backing(uintptr_t address, const void *data, uint64_t s
     return ok;
 }
 /* Reads through the backing view: the host's copies of guest memory (uploads), which the GPU's
- * read protection (BB_READBACKS=2: GPU-written pages) must not stop. A fault there would ask the
+ * read protection (PGG_READBACKS=2: GPU-written pages) must not stop. A fault there would ask the
  * GPU thread for a readback while it waits for these very copies (a hang at start). Gaps read
  * as zeros. */
 void runtime_memory_read_backing(uintptr_t address, void *data, uint64_t size) {

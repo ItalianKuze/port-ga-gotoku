@@ -28,6 +28,7 @@
 #include "video_core/renderer_vulkan/vk_breadcrumbs.h"
 #include "video_core/renderer_vulkan/vk_resource_pool.h"
 #include "video_core/renderer_vulkan/vk_semaphore.h"
+#include "pgg_env.h"
 
 namespace tracy {
 class VkCtxScope;
@@ -76,7 +77,7 @@ struct SubmitInfo {
     u32 num_wait_semas;
     u32 num_signal_semas;
     /// bbport: queue operations that go out right before the submission, in queue order (sparse
-    /// binds): with BB_ASYNC_SUBMIT the submission itself goes out later, on a recording thread.
+    /// binds): with PGG_ASYNC_SUBMIT the submission itself goes out later, on a recording thread.
     std::vector<std::function<void()>> before_submit;
 
     void AddWait(vk::Semaphore semaphore, u64 tick = 1) {
@@ -583,7 +584,7 @@ struct DynamicState {
 using SubmitFunc = Common::UniqueFunction<void, SubmitInfo&>;
 
 /// bbport: the command buffer segments of one submission and their chunk counters (guarded by the
-/// scheduler's recorder_mutex). With BB_ASYNC_SUBMIT several are in flight: a submission goes
+/// scheduler's recorder_mutex). With PGG_ASYNC_SUBMIT several are in flight: a submission goes
 /// out from a recording thread once its segments are recorded.
 struct SubmissionBatch {
     static constexpr u32 MaxSegments = 64;
@@ -759,7 +760,7 @@ public:
         return current_cmdbuf;
     }
 
-    /// BB_RECORDER_TRACE=1: prints the most frequent CommandBuffer() callers every 2000 calls.
+    /// PGG_RECORDER_TRACE=1: prints the most frequent CommandBuffer() callers every 2000 calls.
     static void TraceDirectRecording(void* caller);
 
     /// bbport: the recording side (current chunks, segments) is used by one thread at a time.
@@ -778,11 +779,11 @@ public:
                 Leave();
             }
         }
-        /// BB_PRODUCER_CHECK=1 (the launcher's crash diagnostics); off otherwise, the check
+        /// PGG_PRODUCER_CHECK=1 (the launcher's crash diagnostics); off otherwise, the check
         /// costs an atomic exchange per recorded command.
         static bool ProducerCheck() noexcept {
             static const bool enabled = [] {
-                const char* env = std::getenv("BB_PRODUCER_CHECK");
+                const char* env = pgg_getenv("PRODUCER_CHECK");
                 return env && env[0] == '1';
             }();
             return enabled;
@@ -837,7 +838,7 @@ public:
     }
 
     /// bbport: waits until the submission signalling `tick` is in the queue. Another thread's
-    /// submission waiting for the tick on the same queue must not go first (BB_ASYNC_SUBMIT
+    /// submission waiting for the tick on the same queue must not go first (PGG_ASYNC_SUBMIT
     /// submits from the recording threads): the queue would wait for a later submission.
     void WaitSubmitted(u64 tick) {
         u64 submitted = submitted_tick.load(std::memory_order_acquire);
@@ -932,7 +933,7 @@ public:
     /// may free memory the earlier fence then writes into (corrupted heap, guest fault).
     void WaitDeferredSignals();
 
-    /// bbport BB_STALL_TRACE=1: waits like WaitDeferredSignals, then reports why a signal has
+    /// bbport PGG_STALL_TRACE=1: waits like WaitDeferredSignals, then reports why a signal has
     /// not run (the ordered chunk not picked up, or a copy callback still owed).
     void ReportDeferredStall(u64 issued);
     /// Whether a render pass with exactly this state is open.
@@ -945,9 +946,9 @@ public:
         return !(is_rendering && render_state == state);
     }
 
-    /// CommandBuffer() calls that waited for a recording thread (BB_FRAME_STATS).
+    /// CommandBuffer() calls that waited for a recording thread (PGG_FRAME_STATS).
     static inline std::atomic<u64> direct_recordings{0};
-    /// Command buffer segments submitted (BB_FRAME_STATS: segments per submission).
+    /// Command buffer segments submitted (PGG_FRAME_STATS: segments per submission).
     static inline std::atomic<u64> recorded_segments{0};
     static inline std::atomic<u64> recorded_submissions{0};
 
@@ -1008,7 +1009,7 @@ private:
 
     void AllocateWorkerCommandBuffers();
     SubmissionBatch* AcquireBatch();
-    /// BB_ASYNC_SUBMIT: hands the submission to the recording threads (it goes out once its
+    /// PGG_ASYNC_SUBMIT: hands the submission to the recording threads (it goes out once its
     /// segments are recorded) instead of waiting for them here.
     void SubmitAsync(SubmitInfo& info);
 
@@ -1043,7 +1044,7 @@ private:
     }
 
     /// Waits for the recording threads, then records on this thread into the current segment's
-    /// command buffer until the next KickRecording(). bbport: with BB_ASYNC_SUBMIT, into a
+    /// command buffer until the next KickRecording(). bbport: with PGG_ASYNC_SUBMIT, into a
     /// segment of its own instead, without waiting (direct_segment).
     void EnterDirectMode();
 
@@ -1132,12 +1133,12 @@ private:
     // before it are recorded.
     std::vector<std::unique_ptr<Worker>> workers; ///< empty: recording on the calling thread
     /// The current submission's segments and the chunks of each handed to the recording threads
-    /// and recorded (guarded by recorder_mutex); with BB_ASYNC_SUBMIT earlier ones may still be
+    /// and recorded (guarded by recorder_mutex); with PGG_ASYNC_SUBMIT earlier ones may still be
     /// in flight (free_batches: those submitted).
     SubmissionBatch* batch = nullptr;
     std::vector<std::unique_ptr<SubmissionBatch>> all_batches;
     std::vector<SubmissionBatch*> free_batches; ///< guarded by recorder_mutex
-    bool async_submit = false; ///< BB_ASYNC_SUBMIT (default on)
+    bool async_submit = false; ///< PGG_ASYNC_SUBMIT (default on)
     std::atomic<u64> submitted_tick{0}; ///< the last tick handed to the queue (WaitSubmitted)
     u32 current_segment = 0;
     std::atomic<u32> active_worker{0}; ///< the worker of current_segment (it spins for work)

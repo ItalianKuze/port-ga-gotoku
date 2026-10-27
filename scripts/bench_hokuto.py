@@ -28,13 +28,13 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
-REAL_DATA = Path(os.environ.get('BB_DATA_DIR') or ROOT.parent / 'PortGaGotoku-data')
+REAL_DATA = Path(os.environ.get('PGG_DATA_DIR') or os.environ.get('BB_DATA_DIR') or ROOT.parent / 'PortGaGotoku-data')
 BENCH_DATA = REAL_DATA.parent / (REAL_DATA.name + '-bench')
 ROUTE = REAL_DATA / 'bench' / 'route.txt'          # the recorded pad route (kept with the real data)
 ROUTE_META = REAL_DATA / 'bench' / 'route.json'    # the delay from "Load completed." to F9
-COPIED = ('user', 'cache', 'gpu', 'bbport.ini', 'launcher.json')
+COPIED = ('user', 'cache', 'gpu', 'pgg.ini', 'bbport.ini', 'launcher.json')  # bbport.ini: until 0.1.2
 
-os.environ['BB_DATA_DIR'] = str(BENCH_DATA)  # pgg_game reads it at import
+os.environ['PGG_DATA_DIR'] = str(BENCH_DATA)  # pgg_game reads it at import
 sys.path.insert(0, str(ROOT / 'launcher'))
 import pgg_game as game  # noqa: E402
 
@@ -151,7 +151,7 @@ def close(process, job):
 def record():
     copy_data()
     ROUTE.parent.mkdir(parents=True, exist_ok=True)
-    process, job, log = start({'BB_PAD_RECORD': str(ROUTE)}, 'record')
+    process, job, log = start({'PGG_PAD_RECORD': str(ROUTE)}, 'record')
     print('\n  In the game: Continue (slot 02). When you have control, without moving, press F9.\n'
           '  0-60 s: the baseline route (walk towards the Eden gate, camera turns at ~20 and ~40 s);\n'
           '  60-90 s: stand still; then F9 again (stops the recording) and close the window.\n', flush=True)
@@ -178,9 +178,9 @@ def run(kind, index):
     copy_data()
     pad = BENCH_DATA / 'bench-pad.txt'
     pad.write_text('', encoding='ascii')
-    env = {'BB_PAD_FILE': str(pad)}
+    env = {'PGG_PAD_FILE': str(pad)}
     if kind == 'walk':
-        env['BB_PAD_REPLAY'] = str(ROUTE)
+        env['PGG_PAD_REPLAY'] = str(ROUTE)
     process, job, log = start(env, f'{kind}{index}')
     try:
         log.wait('Overlay: menu ready', 300, process)

@@ -130,7 +130,7 @@ public:
     /// Attempts to obtain a buffer without modifying the cache contents.
     [[nodiscard]] std::pair<const Buffer*, u64> ObtainBufferForImage(VAddr device_addr, u32 size);
 
-    /// bbport BB_GUEST_IN_PLACE: where a command processor write (WRITE_DATA) the GPU performs in
+    /// bbport PGG_GUEST_IN_PLACE: where a command processor write (WRITE_DATA) the GPU performs in
     /// stream order lands: the arena over the game's memory, if the range is bound there in place.
     /// Not counted as a GPU write of the block (those move blocks to VRAM): it is CPU data, as a PC
     /// game's constant updates. The range counts as GPU-modified until the GPU has done it, so no
@@ -150,24 +150,24 @@ public:
     /// Synchronizes all buffers needed for DMA.
     void SynchronizeDmaBuffers();
 
-    /// bbport (BB_PREUPLOAD): notes a guest mapping or unmapping (Rasterizer::MapMemory): the
+    /// bbport (PGG_PREUPLOAD): notes a guest mapping or unmapping (Rasterizer::MapMemory): the
     /// game's GPU memory (direct memory of type 3 with GPU access) is pre-uploaded.
     void NotePreuploadMapping(VAddr addr, u64 size, bool mapped);
-    /// bbport (BB_PREUPLOAD): uploads up to `budget` bytes of that memory which the CPU changed and
+    /// bbport (PGG_PREUPLOAD): uploads up to `budget` bytes of that memory which the CPU changed and
     /// then left alone for a few frames into the arena, ahead of its use (draw recording thread).
     void Preupload(u64 budget);
-    /// bbport (BB_GPU_WRITE_TWINS): forgets the twins of unmapped guest memory.
+    /// bbport (PGG_GPU_WRITE_TWINS): forgets the twins of unmapped guest memory.
     void DropTwins(VAddr addr, u64 size);
 
     /// Commits pending sparse buffer memory binds. Must be called before every scheduler submit.
     void SubmitPendingArenaBinds(Vulkan::SubmitInfo& info);
 
-    /// bbport BB_GUEST_IN_PLACE: the game unmapped [addr, addr + size) (a guest thread): arena
+    /// bbport PGG_GUEST_IN_PLACE: the game unmapped [addr, addr + size) (a guest thread): arena
     /// blocks bound to its memory there are unbound before the next binding (GPU side).
     void UnmapInPlace(VAddr addr, u64 size);
     /// Whether the range is bound to the game's own memory (no uploads, tracking or readbacks).
     [[nodiscard]] bool IsInPlace(VAddr addr, u64 size) const;
-    /// bbport BB_GUEST_IN_PLACE without write tracking: [addr, addr + size) gets data through a path
+    /// bbport PGG_GUEST_IN_PLACE without write tracking: [addr, addr + size) gets data through a path
     /// the GPU side hears of (file reads, the game's resource loaders, DMA): its blocks may then
     /// keep a VRAM copy (any thread).
     void NoteAssetWrite(VAddr addr, u64 size);
@@ -220,7 +220,7 @@ private:
     /// image: a VRAM copy of it would only cost an upload).
     void EnsureResident(const Buffer* arena, u64 first_block, u64 last_block,
                         bool in_place = false);
-    /// BB_GUEST_IN_PLACE: binds the blocks of [start, end) that are direct memory in a guest memory
+    /// PGG_GUEST_IN_PLACE: binds the blocks of [start, end) that are direct memory in a guest memory
     /// chunk to that memory; the others are added to `rest` (VRAM, as before).
     struct ResidentBind {
         u64 start, end; ///< blocks
@@ -243,7 +243,7 @@ private:
         return TrackedIntervalList<Backing>::generation + TrackedIntervalList<>::generation;
     }
     void ProcessPendingUnmaps();
-    /// bbport BB_GUEST_IN_PLACE: a write fault (guest thread). Blocks the CPU keeps writing (faults in
+    /// bbport PGG_GUEST_IN_PLACE: a write fault (guest thread). Blocks the CPU keeps writing (faults in
     /// 3 frames of 60) move from VRAM to the game's memory in place: dynamic data, like an upload
     /// heap; static data stays in VRAM, like a default heap.
     void NoteCpuWrite(VAddr address, u64 guest_rip);
@@ -252,10 +252,10 @@ private:
     void ProcessDemotions();
     void ProcessPendingAssets();
     void ProcessLateWrites();
-    /// BB_FRAME_STATS: GPU-written bindings over 64 KiB, reported every 5 s (where they are bound,
+    /// PGG_FRAME_STATS: GPU-written bindings over 64 KiB, reported every 5 s (where they are bound,
     /// which images lie over them).
     void NoteLargeGpuWrite(VAddr addr, u64 size);
-    /// bbport BB_GUEST_IN_PLACE on a discrete GPU, BB_SHADOWS=1 (off by default: 85 copies, 20 MB a
+    /// bbport PGG_GUEST_IN_PLACE on a discrete GPU, PGG_SHADOWS=1 (off by default: 85 copies, 20 MB a
     /// frame in Yahar'gul cost more than reading in place, 48 -> 44 FPS): a read-only binding of data the
     /// CPU writes in place is copied once per submission by the GPU into VRAM and bound there, as a
     /// PC game copies an upload heap into a default heap: one sequential copy over PCIe instead of
@@ -268,7 +268,7 @@ private:
     std::unique_ptr<StreamBuffer> shadow_buffer;
     std::vector<Shadow> shadows; ///< this submission's copies
     u64 shadow_tick = 0;
-    /// BB_TRACE_SIZE=bytes (diagnostics): bindings over GPU-written buffers of that size, counted by
+    /// PGG_TRACE_SIZE=bytes (diagnostics): bindings over GPU-written buffers of that size, counted by
     /// the path they take, reported every 5 s.
     void TraceBinding(VAddr addr, u64 size, bool is_written, int kind);
     std::vector<std::pair<VAddr, u64>> traced_ranges;
@@ -307,7 +307,7 @@ private:
     /// Unbinds a VRAM block of memory the game unmapped (uploaded again if mapped and used).
     void EvictVramBlock(u64 block);
     [[nodiscard]] static u32 VramIdleSeconds();
-    /// BB_CHUNK_TEXTURES: texture data read by the GPU straight from the guest memory chunk it is
+    /// PGG_CHUNK_TEXTURES: texture data read by the GPU straight from the guest memory chunk it is
     /// in (no CPU copy, no VRAM buffer copy), when the range is contiguous there.
     std::optional<std::pair<const Buffer*, u64>> GuestChunkSource(VAddr address, u64 size);
 
@@ -354,7 +354,7 @@ private:
     std::mutex preupload_mutex;               ///< the map hooks come from guest threads
     std::map<VAddr, VAddr> preupload_ranges; ///< start -> end of pre-uploaded guest memory
     VAddr preupload_cursor = 0;
-    u64 preupload_first_bytes = 0, preupload_again_bytes = 0; ///< BB_FRAME_STATS report
+    u64 preupload_first_bytes = 0, preupload_again_bytes = 0; ///< PGG_FRAME_STATS report
     Vulkan::Semaphore memory_semaphore;
 
     struct Backing : public Interval {
@@ -368,7 +368,7 @@ private:
         }
     };
     TrackedIntervalList<Backing> resident_ranges;
-    /// bbport BB_GUEST_IN_PLACE: blocks bound to the game's own memory, and guest unmaps to apply.
+    /// bbport PGG_GUEST_IN_PLACE: blocks bound to the game's own memory, and guest unmaps to apply.
     TrackedIntervalList<> in_place_blocks;
     std::mutex pending_unmaps_mutex;
     std::vector<std::pair<VAddr, u64>> pending_unmaps;
@@ -382,7 +382,7 @@ private:
         u64 block;
         u64 tick;         ///< requested at
         bool cpu_written; ///< written by the CPU often: in place from now on (else: handed out again)
-        bool idle = false;  ///< bbport: not bound for BB_VRAM_IDLE_SECONDS (ProcessIdleBlocks)
+        bool idle = false;  ///< bbport: not bound for PGG_VRAM_IDLE_SECONDS (ProcessIdleBlocks)
         bool force = false; ///< bbport: its chunk is emptied, idle or not (back once bound)
     };
     std::vector<Demotion> demotions_waiting;
@@ -418,7 +418,7 @@ private:
     u64 residency_size = 0, residency_used = 0;
     std::future<vk::DeviceMemory> spare_residency; ///< the next block, allocated in the background
     /// bbport: VRAM blocks no longer needed. Per 2 MiB of guest addresses, the second
-    /// (BbStats::coarse_second) it was last bound: blocks in VRAM unused for BB_VRAM_IDLE_SECONDS
+    /// (BbStats::coarse_second) it was last bound: blocks in VRAM unused for PGG_VRAM_IDLE_SECONDS
     /// (60, 0: never) go back to the game's memory, and residency chunks left without blocks
     /// go back to the driver (ProcessIdleBlocks). Blocks of unmapped memory leave VRAM too.
     static constexpr u64 USE_GROUP_BITS = 21;

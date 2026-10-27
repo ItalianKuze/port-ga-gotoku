@@ -20,6 +20,7 @@
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/texture_cache.h"
+#include "pgg_env.h"
 
 namespace AmdGpu {
 struct Liverpool;
@@ -103,7 +104,7 @@ public:
     /// is in VRAM the bytes go into it in stream order, else the caches are invalidated (no write
     /// tracking). `recording_thread`: the draw recording thread, which owns the caches (no drain).
     void NoteCommandWrite(VAddr addr, const void* data, u64 size, bool recording_thread);
-    /// bbport (stage A, BB_CONSTRAM_PIPE, default on): before the command processor writes guest
+    /// bbport (stage A, PGG_CONSTRAM_PIPE, default on): before the command processor writes guest
     /// memory with the CPU (a constant RAM dump), waits until the recording thread has run the
     /// queued packets that read those bytes (their buffer bindings, DMA), not all of them.
     void WaitForPendingReads(VAddr address, u64 size);
@@ -119,11 +120,11 @@ public:
         scheduler.WaitHostCopies();
     }
     /// Before a write into [address, address + size): waits only when a host copy may still read
-    /// it (Scheduler::WaitHostCopiesFor). BB_HOST_COPY_WAITS=all: always (the old behaviour).
+    /// it (Scheduler::WaitHostCopiesFor). PGG_HOST_COPY_WAITS=all: always (the old behaviour).
     void WaitHostCopiesFor(VAddr address, u64 size) {
         DrainDrawPipe();
         static const bool all = [] {
-            const char* env = std::getenv("BB_HOST_COPY_WAITS");
+            const char* env = pgg_getenv("HOST_COPY_WAITS");
             return env && std::string_view{env} == "all";
         }();
         if (all) {
@@ -178,7 +179,7 @@ public:
     void SignalAfterHostCopies(std::function<void()> signal) {
         scheduler.SignalAfterHostCopies(std::move(signal));
     }
-    /// bbport BB_HONEST_LABELS=1: runs `signal` once the GPU has finished every command recorded
+    /// bbport PGG_HONEST_LABELS=1: runs `signal` once the GPU has finished every command recorded
     /// before this call (the submission of the current tick), in call order, on a thread that
     /// waits on the work semaphore: fences the guest sees when the work is done, not when it is
     /// recorded. `label` and `value`: the fence it writes (PendingSignalValue).
@@ -186,20 +187,20 @@ public:
     /// Whether signals wait for work not submitted yet (the GPU command thread submits it when
     /// it runs out of work, or the guest could wait for them forever).
     bool HasUnsubmittedSignals();
-    /// bbport BB_GUEST_IN_PLACE (draw recording thread): `data` written into the game's memory by the
+    /// bbport PGG_GUEST_IN_PLACE (draw recording thread): `data` written into the game's memory by the
     /// GPU in stream order, like the command processor's writes; false when the range is not
     /// bound in place (the caller writes it with the CPU).
     bool WriteGuestMemory(VAddr address, const void* data, u32 size);
-    /// bbport BB_GUEST_IN_PLACE (in stream order: the recording thread): a WRITE_DATA performed by
+    /// bbport PGG_GUEST_IN_PLACE (in stream order: the recording thread): a WRITE_DATA performed by
     /// the GPU, as the command processor does, instead of a CPU store now (ahead of the GPU work
     /// recorded before it). Values of up to 8 bytes are registered for WAIT_REG_MEM until the GPU
-    /// has written them. False: not in place (or BB_GPU_COMMAND_WRITES=0), the caller stores it.
+    /// has written them. False: not in place (or PGG_GPU_COMMAND_WRITES=0), the caller stores it.
     bool WriteDataOnGpu(VAddr address, const void* data, u32 size);
     /// End of a guest submission: submits the work recorded so far when signals wait for it and
-    /// the last submission is BB_HONEST_FLUSH_US (1000) old: the GPU starts on it as the hardware
+    /// the last submission is PGG_HONEST_FLUSH_US (1000) old: the GPU starts on it as the hardware
     /// would, instead of at the end of the frame, and the guest's mid-frame waits end sooner.
     void SubmitForSignals();
-    /// bbport BB_PIPE_SIGNALS (default on with honest labels; 0: off): on the GPU command thread with
+    /// bbport PGG_PIPE_SIGNALS (default on with honest labels; 0: off): on the GPU command thread with
     /// the draw pipe, fences, the GPU idle and frame signals and the submissions for them are
     /// handed to the draw recording thread as ordered tasks instead of that thread being drained
     /// first (the GPU command thread waited for it ~15 times a frame and the GPU ran dry meanwhile).
@@ -207,7 +208,7 @@ public:
     /// Stage A: the fences the recording thread ran up to `position` are in the signal queue (or
     /// written): a fence it ran but holds still (PublishSignals) is not visible there yet.
     bool SignalsPublished(u64 position) const;
-    /// Stage A (BB_PIPE_SIGNALS): the recording thread hands over its signals and submits the work
+    /// Stage A (PGG_PIPE_SIGNALS): the recording thread hands over its signals and submits the work
     /// they wait for, in order, when it gets there (one request in flight at a time).
     void RequestSignalFlush();
     u64 CurrentTick() const {
@@ -372,9 +373,9 @@ private:
     static void RunTextureTask(void* rasterizer);
     static void JoinBindHelper(void* rasterizer);
 
-    /// Display pass: counts the frame (BbStats::gpu_frames) and, with BB_BUFFER_STATS, the lag.
+    /// Display pass: counts the frame (BbStats::gpu_frames) and, with PGG_BUFFER_STATS, the lag.
     void NoteFrameStart();
-    /// BB_GPU_PROFILE: a timestamp where a render pass starts (vk_gpu_profiler.h).
+    /// PGG_GPU_PROFILE: a timestamp where a render pass starts (vk_gpu_profiler.h).
     void MarkPass(const GraphicsPipeline* pipeline, const RenderState& state);
     void BindVertexBuffers(const GraphicsPipeline* pipeline,
                            const PreparedDraw* prepared = nullptr);
@@ -530,7 +531,7 @@ private:
         u32 completed = 0; ///< stages the helper bound; the rest are bound after the join
         bool barrier = false;
     } texture_task;
-    /// Draws whose textures the helper bound completely, partly or not at all (BB_FRAME_STATS).
+    /// Draws whose textures the helper bound completely, partly or not at all (PGG_FRAME_STATS).
     u64 helper_full = 0, helper_partial = 0, helper_serial = 0;
     /// The memoized cache entry of each image binding (FindImage memo taken), else null.
     boost::container::static_vector<ImageDescCacheEntry*, Shader::NUM_IMAGES> image_binding_entries;
@@ -620,7 +621,7 @@ private:
     std::deque<std::pair<u64, std::shared_ptr<const void>>> pipe_keepalive;
     std::unique_ptr<DrawPipe> draw_pipe;
 
-    /// BB_HONEST_LABELS (SignalAfterGpu). Last: its thread stops before the scheduler goes.
+    /// PGG_HONEST_LABELS (SignalAfterGpu). Last: its thread stops before the scheduler goes.
     struct GpuSignal {
         u64 tick;
         std::function<void()> signal;

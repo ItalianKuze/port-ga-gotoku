@@ -36,7 +36,7 @@ public:
     /// stats): which game functions write GPU memory, to replace tracking by explicit hooks.
     static void ReportFaultSites();
     /// bbport: the write fault being handled on this thread hit an image (diagnostics: which guest
-    /// code writes textures, BB_WRITE_TRACKING=1).
+    /// code writes textures, PGG_WRITE_TRACKING=1).
     static void NoteImageFault(VAddr image_address, u64 image_size, u32 width, u32 height,
                                u32 format, u32 tiling);
 

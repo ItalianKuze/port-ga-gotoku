@@ -90,7 +90,7 @@ public:
     }
 
     /// bbport: a compute/transfer queue beside the graphics one (null when the device has none
-    /// or BB_READBACK_QUEUE=0), for reading back finished GPU writes.
+    /// or PGG_READBACK_QUEUE=0), for reading back finished GPU writes.
     static constexpr u32 NoFamily = ~0u;
     vk::Queue GetReadbackQueue() const {
         return readback_queue;

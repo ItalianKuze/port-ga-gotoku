@@ -50,7 +50,7 @@
 
 Other ways to start: `scripts/Start Hokuto.cmd` (double-click; the data folder and the game folder come
 from the launcher's settings, or `PGG_DATA` / `PGG_GAME`), `scripts/run-hokuto-win.sh` (from the
-UCRT64 shell; `BB_DATA_DIR`, `BB_GAME_DIR`, `BB_TIMEOUT`).
+UCRT64 shell; `PGG_DATA_DIR`, `PGG_GAME_DIR`, `PGG_TIMEOUT`).
 
 Tests: `out-win/pyenv-ui/Scripts/python.exe -m unittest tests.test_launcher`.
 
@@ -59,5 +59,5 @@ Tests: `out-win/pyenv-ui/Scripts/python.exe -m unittest tests.test_launcher`.
 The code stays portable (Windows-only parts are under `#ifdef _WIN32` or in Windows-only files), but the
 Linux build and tests have not been run since the work moved to Windows. bbport's instructions still
 describe it: `build.sh` (`bash build.sh --test`), `python3 -m unittest discover -s tests`, the GPU tests
-under `out/gpu`, and `run-hokuto.sh` to start the game (`BB_GAME_DIR`, `BB_DATA_DIR`). Expect fixes to be
+under `out/gpu`, and `run-hokuto.sh` to start the game (`PGG_GAME_DIR`, `PGG_DATA_DIR`). Expect fixes to be
 needed.

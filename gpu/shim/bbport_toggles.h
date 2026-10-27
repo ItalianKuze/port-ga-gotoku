@@ -1,4 +1,4 @@
-// bbport: optimizations that can be switched off while the game runs (BB_TOGGLE_FILE,
+// bbport: optimizations that can be switched off while the game runs (PGG_TOGGLE_FILE,
 // see runtime_memory.c), to find which one changes rendering without restarting.
 #pragma once
 #include <array>
@@ -13,12 +13,13 @@
 /// The live toggle mask (runtime_memory.c). A function, not the variable: on Windows an imported
 /// variable without dllimport resolves to the import thunk's code bytes, not to the data.
 extern "C" std::uint64_t runtime_get_disabled_optimizations(void);
-/// Temporary experiment bits: the second number in BB_TOGGLE_FILE (runtime_memory.c), read through
+/// Temporary experiment bits: the second number in PGG_TOGGLE_FILE (runtime_memory.c), read through
 /// a function for the same reason.
 extern "C" std::uint64_t runtime_get_experiment_bits(void);
 /// Recovery point for speculative guest memory reads on this thread: one declaration shared with
 /// the runtime (BbRecoverBuf, BB_RECOVER_SET, BB_RECOVER_ARM).
 #include "bbport_recover.h"
+#include "pgg_env.h"
 
 namespace BbToggle {
 enum : std::uint64_t {
@@ -61,20 +62,20 @@ enum : std::uint64_t {
     UpdateImageFastPath = 1u << 30,
     /// Bit set: the texture collector frees nothing (A/B of its evictions while the game runs).
     TextureCollector = 1ull << 31,
-    /// The command stream is cut into segments recorded in parallel (BB_VK_RECORD_THREADS);
+    /// The command stream is cut into segments recorded in parallel (PGG_VK_RECORD_THREADS);
     /// bit set: no new cuts, one recording thread at a time.
     ParallelRecording = 1ull << 58,
     /// Finished GPU writes are read back on the readback queue (BufferCache::DownloadMemory);
     /// bit set: on the graphics queue after everything queued, as before.
     ReadbackQueue = 1ull << 59,
-    /// Scene textures use BB_ANISO (16) times anisotropic filtering instead of the game's
+    /// Scene textures use PGG_ANISO (16) times anisotropic filtering instead of the game's
     /// ratio; bit set: the game's own samplers (A/B while the game runs).
     ForcedAniso = 1ull << 61,
 };
 inline bool Disabled(std::uint64_t bit) {
     return (runtime_get_disabled_optimizations() & bit) != 0;
 }
-/// A temporary experiment switched on by bit `bit` of the second number in BB_TOGGLE_FILE.
+/// A temporary experiment switched on by bit `bit` of the second number in PGG_TOGGLE_FILE.
 inline bool Experiment(std::uint64_t bit) {
     return (runtime_get_experiment_bits() & bit) != 0;
 }
@@ -85,9 +86,9 @@ namespace BbStats {
 inline std::atomic<std::uint64_t> tracker_faults{0};
 /// Writes the GPU side heard of from the writers (libc copies over watched pages, no write tracking).
 inline std::atomic<std::uint64_t> cpu_write_notes{0}, cpu_write_note_bytes{0};
-/// Ranges the game's GPU memory allocator handed out (guest hook, BB_GUEST_IN_PLACE).
+/// Ranges the game's GPU memory allocator handed out (guest hook, PGG_GUEST_IN_PLACE).
 inline std::atomic<std::uint64_t> gpu_range_allocs{0}, gpu_range_alloc_bytes{0};
-/// Buffer bindings (BB_GUEST_IN_PLACE): bytes bound where the game's memory is (read over PCIe on a
+/// Buffer bindings (PGG_GUEST_IN_PLACE): bytes bound where the game's memory is (read over PCIe on a
 /// discrete GPU) and bytes bound to VRAM copies.
 inline std::atomic<std::uint64_t> bound_in_place_bytes{0}, bound_vram_bytes{0};
 inline std::atomic<std::uint64_t> bound_in_place_written_bytes{0};
@@ -95,22 +96,22 @@ inline std::atomic<std::uint64_t> bound_in_place_written_bytes{0};
 /// back to the game's memory before moving in place; downloads of GPU data (readbacks).
 inline std::atomic<std::uint64_t> gpu_data_updates{0}, copied_back_blocks{0}, readbacks{0};
 inline std::atomic<std::uint64_t> late_vram_writes{0}; ///< labels and the like put into VRAM copies
-/// BB_GUEST_IN_PLACE: copies of in-place data the CPU writes into VRAM for reading (ShadowCopy).
+/// PGG_GUEST_IN_PLACE: copies of in-place data the CPU writes into VRAM for reading (ShadowCopy).
 inline std::atomic<std::uint64_t> shadow_copies{0}, shadow_bytes{0};
-/// BB_HONEST_LABELS: submissions sent early because the GPU had finished everything before them.
+/// PGG_HONEST_LABELS: submissions sent early because the GPU had finished everything before them.
 inline std::atomic<std::uint64_t> idle_flushes{0};
 /// EOP fences with data: decoded, and their labels written (a growing gap: lost fences, guest leaks).
 inline std::atomic<std::uint64_t> eop_decoded{0}, eop_written{0};
 /// sceGnmAreSubmitsAllowed calls, and those that answered no (submission lock held).
 inline std::atomic<std::uint64_t> submits_allowed_queries{0}, submits_refused{0}, submit_done_calls{0};
-/// Guest time blocked in Gnm submissions on the previous frame (submission lock or BB_SUBMIT_LOCK=frame).
+/// Guest time blocked in Gnm submissions on the previous frame (submission lock or PGG_SUBMIT_LOCK=frame).
 inline std::atomic<std::uint64_t> gnm_frame_waits{0}, gnm_frame_wait_ns{0};
 /// Submissions to the compute queues (sceGnmDingDong).
 inline std::atomic<std::uint64_t> asc_submits{0};
 /// The game's GPU range allocators (seen at their collector, 0x26aa860): object, live ranges, bytes.
 inline std::array<std::atomic<std::uint64_t>, 4> range_allocators{}, range_live{}, range_bytes{};
 inline std::atomic<std::int64_t> hot_pages{0};
-/// Stall diagnostics (BB_FRAME_STATS): per-frame deltas printed for frames over 40 ms.
+/// Stall diagnostics (PGG_FRAME_STATS): per-frame deltas printed for frames over 40 ms.
 inline std::atomic<std::uint64_t> images_registered{0};
 inline std::atomic<std::uint64_t> image_upload_bytes{0};
 inline std::atomic<std::uint64_t> buffer_upload_bytes{0};
@@ -122,9 +123,9 @@ inline std::atomic<std::uint64_t> gpu_frames{0};
 inline std::atomic<std::uint64_t> t_resident{0}, t_protect{0}, t_image_create{0}, t_refresh{0},
     t_staging{0}, t_host_wait{0}, t_copy{0}, copy_bytes{0}, t_read_faults{0}, read_faults{0},
     t_write_faults{0}, t_copy_cpu{0}, copy_sys_us{0}, copy_minflt{0};
-/// Diagnostics are collected only with BB_FRAME_STATS=1.
+/// Diagnostics are collected only with PGG_FRAME_STATS=1.
 inline const bool enabled = [] {
-    const char* env = std::getenv("BB_FRAME_STATS");
+    const char* env = pgg_getenv("FRAME_STATS");
     return env && env[0] == '1';
 }();
 struct Timer {
@@ -147,8 +148,8 @@ inline std::atomic<std::uint64_t> gpu_idle_ns{0};
 /// for host copies before a submission or fence, and for GPU ticks.
 inline std::atomic<std::uint64_t> sync_recording_ns{0}, host_copies_wait_ns{0}, tick_wait_ns{0},
     copy_threads_wait_ns{0}, host_copy_waits{0}, host_copy_waits_skipped{0};
-/// Wall time the frame preparation waited for the GPU to finish an earlier frame (BB_FRAMES_AHEAD):
-/// how GPU-bound the frames are (BB_FRAME_LOG).
+/// Wall time the frame preparation waited for the GPU to finish an earlier frame (PGG_FRAMES_AHEAD):
+/// how GPU-bound the frames are (PGG_FRAME_LOG).
 inline std::atomic<std::uint64_t> present_wait_ns{0};
 /// Frames shown (Presenter::PrepareFrame), and bytes the background pre-upload put into the arena.
 inline std::atomic<std::uint32_t> frame_number{0};

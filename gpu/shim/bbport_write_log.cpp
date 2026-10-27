@@ -9,6 +9,7 @@
 #include <ucontext.h>
 #include <unistd.h>
 #include <x86intrin.h>
+#include "pgg_env.h"
 
 namespace BbWriteLog {
 namespace {
@@ -33,7 +34,7 @@ void Record(std::uint64_t address, const void* data, std::uint64_t size, Source 
 
 int Mode() {
     static const int mode = [] {
-        const char* env = std::getenv("BB_WRITE_LOG");
+        const char* env = pgg_getenv("WRITE_LOG");
         return env ? std::atoi(env) : 0;
     }();
     return mode;
@@ -79,7 +80,7 @@ void Record(std::uint64_t address, const void* data, std::uint64_t size, Source 
 }
 void DumpRange(std::uint64_t address, std::uint64_t size) {
     if (Mode() == 0) {
-        std::fprintf(stderr, "Write log: off (BB_WRITE_LOG=1 lists the writes into this range)\n");
+        std::fprintf(stderr, "Write log: off (PGG_WRITE_LOG=1 lists the writes into this range)\n");
         return;
     }
     const char* sources[] = {"backing",      "WriteData",           "fence",

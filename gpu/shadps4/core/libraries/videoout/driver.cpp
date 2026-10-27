@@ -34,6 +34,7 @@ extern "C" void runtime_wait_report(double frames);
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "pgg_env.h"
 
 extern std::unique_ptr<Vulkan::Presenter> presenter;
 extern std::unique_ptr<AmdGpu::Liverpool> liverpool;
@@ -72,7 +73,7 @@ VideoOutDriver::VideoOutDriver(u32 width, u32 height) {
     main_port.resolution.full_height = height;
     main_port.resolution.pane_width = width;
     main_port.resolution.pane_height = height;
-    const char* separate = std::getenv("BB_PRESENT_THREAD");
+    const char* separate = pgg_getenv("PRESENT_THREAD");
     separate_swap = !(separate && separate[0] == '0');
     if (separate_swap) {
         swap_thread = std::jthread([&](std::stop_token token) { SwapThread(token); });
@@ -376,8 +377,8 @@ void VideoOutDriver::Flip(const Request& req) {
     Vulkan::FrameCapture::OnFlip(req.index >= 0 ? req.port->buffer_slots[req.index].address_left
                                                 : 0);
 
-    // bbport: BB_FRAME_STATS=1 prints flip rate and frame time spread every 5 seconds.
-    static const bool frame_stats = EmulatorSettingsImpl::Flag("BB_FRAME_STATS", false);
+    // bbport: PGG_FRAME_STATS=1 prints flip rate and frame time spread every 5 seconds.
+    static const bool frame_stats = EmulatorSettingsImpl::Flag("FRAME_STATS", false);
     if (frame_stats) {
         using Clock = std::chrono::steady_clock;
         static Clock::time_point window_start = Clock::now(), last = window_start;
@@ -475,10 +476,10 @@ void VideoOutDriver::Flip(const Request& req) {
                         static_cast<unsigned long long>(copy_flt - last_copy_flt),
                         double(copy_bytes - last_copy_bytes) / double(copy_ns - last_copy_ns));
         }
-        // bbport: BB_FRAME_LOG=path (with BB_FRAME_STATS): one line per flip, to find what the
+        // bbport: PGG_FRAME_LOG=path (with PGG_FRAME_STATS): one line per flip, to find what the
         // long frames (stutter) have in common.
         static FILE* const frame_log = [] () -> FILE* {
-            const char* path = std::getenv("BB_FRAME_LOG");
+            const char* path = pgg_getenv("FRAME_LOG");
             FILE* file = path && *path ? std::fopen(path, "w") : nullptr;
             if (file) {
                 std::fprintf(file, "t_s,frame_ms,present_wait_ms,tick_wait_ms,stage_a_cpu_ms,"

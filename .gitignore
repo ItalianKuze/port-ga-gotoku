@@ -3,6 +3,7 @@ __pycache__/
 user/
 *.mp4
 bbport.ini
+pgg.ini
 pgo/
 *.png
 last_run.log

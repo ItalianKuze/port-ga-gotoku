@@ -2,6 +2,7 @@
  * Priority-ordered semaphores are approximated by FIFO order. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/shim/pgg_env.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,11 +53,11 @@ static uint64_t now_ns(void) {
     if (clock_gettime(SEMA_CLOCK,&t)) { perror("clock_gettime"); exit(1); }
     return (uint64_t)t.tv_sec*1000000000+(uint64_t)t.tv_nsec;
 }
-/* BB_TRACE_SEMA: per-thread wait/signal lifecycle with the guest call sites, so a
+/* PGG_TRACE_SEMA: per-thread wait/signal lifecycle with the guest call sites, so a
    stalled run shows which semaphore each guest thread blocks on and who signals it. */
 static int sema_trace_enabled = -1;
 static void sema_trace(const char *op, uint32_t id, int32_t need, int32_t count) {
-    if (sema_trace_enabled < 0) sema_trace_enabled = getenv("BB_TRACE_SEMA") != NULL;
+    if (sema_trace_enabled < 0) sema_trace_enabled = pgg_getenv("TRACE_SEMA") != NULL;
     if (!sema_trace_enabled) return;
     uint64_t sites[3];
     runtime_guest_call_sites(sites);

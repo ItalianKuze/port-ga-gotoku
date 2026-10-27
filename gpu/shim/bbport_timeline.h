@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// bbport BB_TIMELINE=<file>: a timeline of the frame's way to the GPU (guest submissions and
+// bbport PGG_TIMELINE=<file>: a timeline of the frame's way to the GPU (guest submissions and
 // waits, decoding, Vulkan submissions, GPU completion), to see where the GPU waits for work.
-// Recording starts BB_TIMELINE_START seconds (default 30) after the first event and stops when
+// Recording starts PGG_TIMELINE_START seconds (default 30) after the first event and stops when
 // the buffer is full (~15 s of play); the file is then written once: "ns event arg arg2" per line.
 #pragma once
 
@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include "pgg_env.h"
 
 namespace BbTimeline {
 
@@ -39,9 +40,9 @@ struct Entry {
 inline constexpr std::uint64_t Capacity = 400000;
 
 struct State {
-    const char* path = std::getenv("BB_TIMELINE");
+    const char* path = pgg_getenv("TIMELINE");
     std::int64_t start_ns = [] {
-        const char* env = std::getenv("BB_TIMELINE_START");
+        const char* env = pgg_getenv("TIMELINE_START");
         return std::int64_t(env ? std::atof(env) * 1e9 : 30e9);
     }();
     std::atomic<std::int64_t> first_ns{0};

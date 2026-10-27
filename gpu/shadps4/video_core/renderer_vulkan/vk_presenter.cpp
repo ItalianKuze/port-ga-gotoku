@@ -37,6 +37,7 @@
 #include <system_error>
 #include <vector>
 #include <vk_mem_alloc.h>
+#include "pgg_env.h"
 
 namespace Vulkan {
 
@@ -404,13 +405,13 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     draw_scheduler.Flush(info);
     BbTimeline::Note(BbTimeline::PipeTask, 5, frame->ready_tick);
 
-    // bbport: the GPU command thread runs at most BB_FRAMES_AHEAD (default 1) guest frames
+    // bbport: the GPU command thread runs at most PGG_FRAMES_AHEAD (default 1) guest frames
     // ahead of the GPU: it waits here for the frame that many flips back. When the GPU is the
     // bottleneck it finishes frames at an even rate; without this bound the command thread ran
     // ahead and then blocked wherever a resource ran out, so flips (and the guest's frame
     // timing) came in bursts: 12.5/25 ms alternation at 80 FPS. 0 turns it off.
     static const u32 frames_ahead = [] {
-        const char* env = std::getenv("BB_FRAMES_AHEAD");
+        const char* env = pgg_getenv("FRAMES_AHEAD");
         return env ? u32(std::max(0, std::atoi(env))) : 1u;
     }();
     if (frames_ahead) {
@@ -654,7 +655,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
 
     // Flush vulkan commands.
 
-    // bbport: the frame's submission goes out from a recording thread (BB_ASYNC_SUBMIT); this
+    // bbport: the frame's submission goes out from a recording thread (PGG_ASYNC_SUBMIT); this
     // one, waiting for it on the same queue, must not get there first.
     if (frame->ready_semaphore == draw_scheduler.GetWorkSemaphore()->Handle()) {
         draw_scheduler.WaitSubmitted(frame->ready_tick);

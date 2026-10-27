@@ -11,6 +11,7 @@
 #include "video_core/host_shaders/buffer_multi_copy_comp.h"
 #include "bbport_toggles.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
+#include "pgg_env.h"
 
 extern std::unique_ptr<AmdGpu::Liverpool> liverpool;
 
@@ -171,9 +172,9 @@ static bool ExecuteCopyShaderHLE(const Shader::Info& info, const AmdGpu::Compute
     // bbport: 64 KiB instead of 64 MiB. The copies are a few KiB spread over up to 57 MiB, and
     // each batch synchronizes (uploads, marks GPU-modified) its whole range: GPU time of the copy
     // shader 1.5 -> 0.6 ms/frame, GPU busy 85% -> 77%, frame rate no lower.
-    // BB_COPY_MERGE_KB overrides it.
+    // PGG_COPY_MERGE_KB overrides it.
     static const vk::DeviceSize MaxDistanceForMerge = [] {
-        const char* env = std::getenv("BB_COPY_MERGE_KB");
+        const char* env = pgg_getenv("COPY_MERGE_KB");
         return env ? vk::DeviceSize(std::strtoull(env, nullptr, 10)) * 1024 : vk::DeviceSize(64_KB);
     }();
     u32 batch_start = 0;

@@ -6,11 +6,12 @@
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "pgg_env.h"
 
 namespace Vulkan {
 
 void GpuProfiler::Init(const Instance& instance, Scheduler& scheduler) {
-    const char* env = std::getenv("BB_GPU_PROFILE");
+    const char* env = pgg_getenv("GPU_PROFILE");
     if (!env || env[0] != '1' || instance_ptr) {
         return;
     }

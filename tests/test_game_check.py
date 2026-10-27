@@ -36,8 +36,11 @@ class GameCheckTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         os.environ.pop('BB_SKIP_GAME_CHECK', None)
+        os.environ.pop('PGG_SKIP_GAME_CHECK', None)
 
     def tearDown(self):
+        os.environ.pop('BB_SKIP_GAME_CHECK', None)
+        os.environ.pop('PGG_SKIP_GAME_CHECK', None)
         self.tmp.cleanup()
 
     def test_hokuto_passes(self):
@@ -59,6 +62,10 @@ class GameCheckTests(unittest.TestCase):
         self.assertEqual(game_check.problem(path)[0], 'unreadable')
 
     def test_skip_switch(self):
+        os.environ['PGG_SKIP_GAME_CHECK'] = '1'
+        self.assertIsNone(game_check.problem(self.game('CUSA03173', '01.00')))
+
+    def test_skip_switch_old_name(self):
         os.environ['BB_SKIP_GAME_CHECK'] = '1'
         self.assertIsNone(game_check.problem(self.game('CUSA03173', '01.00')))
 

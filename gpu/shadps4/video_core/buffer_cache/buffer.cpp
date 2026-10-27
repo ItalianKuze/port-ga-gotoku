@@ -107,7 +107,7 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
     } else {
         buffer_ci.flags |=
             vk::BufferCreateFlagBits::eSparseBinding | vk::BufferCreateFlagBits::eSparseResidency;
-        // Bound to exported guest memory chunks (BB_GUEST_IN_PLACE) as well as VRAM blocks.
+        // Bound to exported guest memory chunks (PGG_GUEST_IN_PLACE) as well as VRAM blocks.
         const vk::ExternalMemoryBufferCreateInfo external{
             .handleTypes = vk::ExternalMemoryHandleTypeFlagBits::eDmaBufEXT,
         };

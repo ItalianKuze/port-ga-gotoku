@@ -10,6 +10,7 @@
 #include <string.h>
 #include <pthread.h>
 #include "third_party/LibAtrac9/C/src/libatrac9.h"
+#include "../gpu/shim/pgg_env.h"
 
 #define ERR_INVALID_CONTEXT ((int32_t)0x80930002)
 #define ERR_INVALID_INSTANCE ((int32_t)0x80930003)
@@ -74,10 +75,10 @@ static Context *contexts[MAX_CONTEXTS+1];
 static Batch batches[MAX_BATCHES];
 static size_t jobs_run, frames_decoded, batches_run;
 
-/* BB_AUDIO_TRACE=1: instance configurations and jobs that return a non-zero result. */
+/* PGG_AUDIO_TRACE=1: instance configurations and jobs that return a non-zero result. */
 static int trace_left=-1;
 static int ajm_trace(void) {
-    if (trace_left<0) { const char *e=getenv("BB_AUDIO_TRACE"); trace_left=e && e[0]=='1' ? 400 : 0; }
+    if (trace_left<0) { const char *e=pgg_getenv("AUDIO_TRACE"); trace_left=e && e[0]=='1' ? 400 : 0; }
     return trace_left>0 && trace_left--;
 }
 static uint32_t ident(uint32_t word) { return word & 0x3f; }

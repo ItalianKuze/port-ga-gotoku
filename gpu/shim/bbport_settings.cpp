@@ -10,14 +10,15 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include "pgg_env.h"
 
 namespace BbSettings {
 
 namespace {
 
 const char* Path() {
-    const char* env = std::getenv("BB_CONFIG");
-    return env && env[0] ? env : "bbport.ini";
+    const char* env = pgg_getenv("CONFIG");
+    return env && env[0] ? env : "pgg.ini";
 }
 
 void Set(Values& v, const std::string& key, const std::string& value) {
@@ -64,7 +65,7 @@ constexpr std::pair<const char*, const char*> ItalianTexts[] = {
     {"Other", "Altro"},
     {"FPS counter in corner", "Contatore FPS nell'angolo"},
     {"Close", "Chiudi"},
-    {"Settings are saved to bbport.ini", "Le impostazioni sono salvate in bbport.ini"},
+    {"Settings are saved to pgg.ini", "Le impostazioni sono salvate in pgg.ini"},
 };
 
 const char* MenuText(const char* english) {
@@ -80,10 +81,10 @@ const char* MenuText(const char* english) {
 
 void Load() {
     auto& v = Get();
-    // bbport: the menu's language until one is chosen in it (menu_language in bbport.ini): the
-    // launcher's (BB_MENU_LANGUAGE), else the system's, as the launcher picks its own.
+    // bbport: the menu's language until one is chosen in it (menu_language in pgg.ini): the
+    // launcher's (PGG_MENU_LANGUAGE), else the system's, as the launcher picks its own.
     {
-        const char* lang = std::getenv("BB_MENU_LANGUAGE");
+        const char* lang = pgg_getenv("MENU_LANGUAGE");
         if (!lang || !*lang) {
             for (const char* key : {"LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"}) {
                 if (const char* value = std::getenv(key); value && *value) {
@@ -160,7 +161,7 @@ void Save() {
         std::fclose(file);
     }
     if (!had_lines) {
-        out = "# bbport settings (in-game menu: Insert / L3+R3)\n";
+        out = "# PortGaGotoku settings (in-game menu: Insert / L3+R3)\n";
     }
     for (size_t k = 0; k < keys.size(); ++k) {
         if (!written[k]) {

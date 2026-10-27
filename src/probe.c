@@ -1,6 +1,7 @@
 /* Minimal x86-64 native loader experiment. Not a PS4 emulator or game port. */
 #define _GNU_SOURCE
 #include <stdint.h>
+#include "../gpu/shim/pgg_env.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,9 +56,9 @@ static void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message);
 /* The game's code was compiled for the PS4's CPU (AMD Jaguar) and runs as it is: AVX, BMI1
  * (andn/bextr/blsr/tzcnt), MOVBE, LZCNT and POPCNT, thousands of each in eboot.bin. A CPU without
  * them stops at the first one with SIGILL (exit code 132, issue #26), and lzcnt/tzcnt even run as
- * bsr/bsf there, with other results. Said before the game starts; BB_SKIP_CPU_CHECK=1 skips it. */
+ * bsr/bsf there, with other results. Said before the game starts; PGG_SKIP_CPU_CHECK=1 skips it. */
 static void check_cpu(void) {
-    const char *skip = getenv("BB_SKIP_CPU_CHECK");
+    const char *skip = pgg_getenv("SKIP_CPU_CHECK");
     if (skip && !strcmp(skip, "1")) return;
     unsigned a, b, c, d, leaf1_c = 0, leaf7_b = 0, ext1_c = 0;
     if (__get_cpuid(1, &a, &b, &c, &d)) leaf1_c = c;
@@ -84,7 +85,7 @@ static void check_cpu(void) {
     fprintf(stderr,
             "ERROR: this CPU lacks %s. Fist of the North Star: Lost Paradise's code was compiled for "
             "the PS4's CPU and uses these instructions directly: it needs an Intel Haswell (4th "
-            "generation Core, 2013) or newer, or an AMD Ryzen. BB_SKIP_CPU_CHECK=1 starts anyway.\n",
+            "generation Core, 2013) or newer, or an AMD Ryzen. PGG_SKIP_CPU_CHECK=1 starts anyway.\n",
             missing);
     exit(1);
 }
@@ -1012,7 +1013,7 @@ int main(int argc, char **argv) {
         t[8] = 0x48; t[9] = 0xb8; memcpy(t + 10, &handler, 8);
         t[18] = 0xff; t[19] = 0xe0;
     }
-    /* BB_IMPORT_REPORT=<file>: how every referenced import was bound (runtime HLE, the game's own
+    /* PGG_IMPORT_REPORT=<file>: how every referenced import was bound (runtime HLE, the game's own
      * libc/module export, or nothing -- an unresolved import stops the game when it is called). */
     unsigned char *bound = calloc(import_count ? import_count : 1, 1); /* 0 unused, 1 none, 2 runtime, 3 native */
     unsigned char *bound_kind = calloc(import_count ? import_count : 1, 1);
@@ -1023,7 +1024,7 @@ int main(int argc, char **argv) {
                         : (uintptr_t)image + relocs[i].value;
         if (relocs[i].kind) {
             uintptr_t resolved = runtime_resolve(names[relocs[i].value], relocs[i].kind == 2);
-            /* BB_IMPORT_TRACE: function imports go through a logging stub (import_trace.c). */
+            /* PGG_IMPORT_TRACE: function imports go through a logging stub (import_trace.c). */
             if (resolved && relocs[i].kind == 1 && !relocs[i].addend) resolved = import_trace_wrap(names[relocs[i].value], resolved);
             uint32_t index = (uint32_t)relocs[i].value;
             bound_kind[index] = (unsigned char)relocs[i].kind;
@@ -1037,7 +1038,7 @@ int main(int argc, char **argv) {
         }
         memcpy(image + relocs[i].target, &value, 8);
     }
-    const char *report_path = getenv("BB_IMPORT_REPORT");
+    const char *report_path = pgg_getenv("IMPORT_REPORT");
     if (report_path && *report_path) {
         FILE *report = fopen(report_path, "w");
         if (!report) fprintf(stderr, "Import report: cannot open %s\n", report_path);

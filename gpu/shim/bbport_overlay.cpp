@@ -18,6 +18,7 @@
 #include "imgui_impl_vulkan.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "pgg_env.h"
 
 // DejaVu Sans (Cyrillic), embedded (third_party/fonts, Bitstream Vera license), and Figtree.
 #ifdef _WIN32
@@ -211,7 +212,7 @@ void HokutoSections(BbSettings::Values& s) {
 void Menu() {
     auto& s = BbSettings::Get();
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    // Where it was moved last (bbport.ini menu_pos, a fraction of the screen), kept on screen.
+    // Where it was moved last (pgg.ini menu_pos, a fraction of the screen), kept on screen.
     ImVec2 pos(viewport->WorkPos.x + 40.0f * base_scale, viewport->WorkPos.y + 40.0f * base_scale);
     if (s.menu_x >= 0.0f && s.menu_y >= 0.0f) {
         const float margin = 80.0f * base_scale;
@@ -259,7 +260,7 @@ void Menu() {
         keep_open = false;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", BbSettings::MenuText("Settings are saved to bbport.ini"));
+    ImGui::TextDisabled("%s", BbSettings::MenuText("Settings are saved to pgg.ini"));
     ImGui::End();
     if (!keep_open) {
         SetOpen(false);
@@ -440,7 +441,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     io.IniFilename = nullptr; // window positions are not kept
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
-    io.BackendPlatformName = "bbport";
+    io.BackendPlatformName = "PortGaGotoku";
 
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
@@ -536,8 +537,8 @@ bool HandleEvent(const SDL_Event& event) {
             BbSettings::Save();
             return true;
         }
-        // While the pad is recorded (BB_PAD_RECORD), F9 is the recording's key.
-        static const bool pad_recording = std::getenv("BB_PAD_RECORD") && *std::getenv("BB_PAD_RECORD");
+        // While the pad is recorded (PGG_PAD_RECORD), F9 is the recording's key.
+        static const bool pad_recording = pgg_getenv("PAD_RECORD") && *pgg_getenv("PAD_RECORD");
         if (down && !event.key.repeat && event.key.key == SDLK_F9 && !pad_recording) {
             BbPerf::StartMeasurement(90);
             return true;

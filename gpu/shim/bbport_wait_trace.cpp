@@ -13,6 +13,7 @@
 #include <dlfcn.h>
 #include <execinfo.h>
 #include <pthread.h>
+#include "pgg_env.h"
 
 namespace BbWaitTrace {
 namespace {
@@ -60,7 +61,7 @@ std::string Describe(void* address) {
 
 bool Enabled() {
     static const bool enabled = [] {
-        const char* env = std::getenv("BB_WAIT_TRACE");
+        const char* env = pgg_getenv("WAIT_TRACE");
         return env && env[0] == '1';
     }();
     return enabled;

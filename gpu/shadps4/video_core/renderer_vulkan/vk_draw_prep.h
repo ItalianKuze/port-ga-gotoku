@@ -112,7 +112,7 @@ public:
     /// GPU thread: the prepared state for the next direct draw of the current submission.
     const PreparedDraw* NextDraw();
 
-    /// GPU thread: counts whether a prepared draw was used; prints every 5 s (BB_FRAME_STATS).
+    /// GPU thread: counts whether a prepared draw was used; prints every 5 s (PGG_FRAME_STATS).
     void Count(bool used);
 
     struct Submission {
@@ -142,7 +142,7 @@ private:
     std::unique_ptr<AmdGpu::Regs> tail_regs;
     u64 tail_seq{};
     u64 tail_checksum{};
-    u64 rebases = 0; ///< scanner restarts from the GPU thread state (BB_FRAME_STATS)
+    u64 rebases = 0; ///< scanner restarts from the GPU thread state (PGG_FRAME_STATS)
     bool baseline_ready{}; ///< guarded by `mutex`
     std::mutex mutex;
     std::condition_variable_any cv;

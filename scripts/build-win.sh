@@ -11,11 +11,11 @@
 #                       names the real runtime module instead of the stub
 #
 # Usage:  bash scripts/build-win.sh [--clean]
-# Env:    BB_BUILD_TYPE (RelWithDebInfo), BB_LTO (ON)
+# Env:    PGG_BUILD_TYPE (RelWithDebInfo), PGG_LTO (ON)
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-build=${BB_BUILD_DIR:-$root/out-win}
+build=${PGG_BUILD_DIR:-${BB_BUILD_DIR:-$root/out-win}}
 gpu_dir=$build/gpu
 rt_dir=$build/runtime
 
@@ -27,8 +27,8 @@ fi
 export PATH=/ucrt64/bin:$PATH
 export PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig
 
-build_type=${BB_BUILD_TYPE:-RelWithDebInfo}
-lto=${BB_LTO:-ON}
+build_type=${PGG_BUILD_TYPE:-${BB_BUILD_TYPE:-RelWithDebInfo}}
+lto=${PGG_LTO:-${BB_LTO:-ON}}
 
 # The source tree's location stays out of the binaries: __FILE__ (log messages, asserts) and the
 # debug information name files relative to it. CMake hands gcc Windows paths (C:/...).

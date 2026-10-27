@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include "pgg_env.h"
 #include <chrono>
 #include <cstdlib>
 
@@ -249,12 +250,12 @@ private:
     // cost a protection fault in the writing thread plus an mprotect with TLB shootdowns on
     // every upload. After HotFaults faults a page stays writable and counts as always CPU
     // modified, so it is uploaded on every use instead. The set is rebuilt every HotPeriod.
-    // Opt-in (BB_HOT_PAGES=1): in Hunter's Nightmare the set grew to ~14k pages (56 MB), each
+    // Opt-in (PGG_HOT_PAGES=1): in Hunter's Nightmare the set grew to ~14k pages (56 MB), each
     // re-uploaded on every binding, which cost far more than the faults (33 FPS) and preceded
     // a GPU ring timeout.
     static bool HotPagesEnabled() {
         static const bool enabled = [] {
-            const char* env = std::getenv("BB_HOT_PAGES");
+            const char* env = pgg_getenv("HOT_PAGES");
             return env && env[0] == '1';
         }();
         return enabled && !BbToggle::Disabled(BbToggle::HotPages);

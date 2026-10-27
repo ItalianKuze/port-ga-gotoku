@@ -61,7 +61,7 @@ int vulkan_smoke(void) {
     return ok ? 0 : 1;
 }
 
-/* bb-probe --devices: the Vulkan devices (index as BB_GPU_ID, name as BB_GPU_DEVICE matches it)
+/* bb-probe --devices: the Vulkan devices (index as PGG_GPU_ID, name as PGG_GPU_DEVICE matches it)
  * and the connected gamepads, one per line, for the launcher. Nothing of the game is loaded. */
 void runtime_pad_list(void);
 int probe_devices(void) {

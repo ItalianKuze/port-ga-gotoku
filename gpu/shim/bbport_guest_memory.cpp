@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include "video_core/renderer_vulkan/vk_instance.h"
+#include "pgg_env.h"
 
 extern "C" void runtime_memory_set_guest_chunk_allocator(int (*alloc)(uint64_t phys,
                                                                       uint64_t size));
@@ -126,12 +127,12 @@ bool PcModelGpu(const Vulkan::Instance& instance) {
     static const bool ok = [&] {
         constexpr std::uint32_t AmdVendor = 0x1002;
         const std::uint32_t vendor = instance.GetVendorID();
-        const char* any = std::getenv("BB_PC_MODEL_ANY_GPU");
+        const char* any = pgg_getenv("PC_MODEL_ANY_GPU");
         if (vendor == AmdVendor || (any && any[0] == '1')) {
             return true;
         }
         std::printf("Guest memory: the new memory model is tested on AMD GPUs only; this GPU "
-                    "(vendor 0x%04x) uses the model of 0.3 (BB_PC_MODEL_ANY_GPU=1: try it)\n",
+                    "(vendor 0x%04x) uses the model of 0.3 (PGG_PC_MODEL_ANY_GPU=1: try it)\n",
                     vendor);
         return false;
     }();
@@ -189,8 +190,8 @@ bool Usable(const Vulkan::Instance& instance) {
             // The whole buffer and one page inside it, writing through one, reading through the other.
             void* whole = mmap(nullptr, Size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
             void* page = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, Offset);
-            // BB_GUEST_WHOLE_CHUNKS=1: as if the offset mapping failed (tests the NVIDIA path).
-            const char* force_whole = std::getenv("BB_GUEST_WHOLE_CHUNKS");
+            // PGG_GUEST_WHOLE_CHUNKS=1: as if the offset mapping failed (tests the NVIDIA path).
+            const char* force_whole = pgg_getenv("GUEST_WHOLE_CHUNKS");
             if (force_whole && force_whole[0] == '1' && page != MAP_FAILED) {
                 munmap(page, 4096);
                 page = MAP_FAILED;
@@ -232,9 +233,9 @@ bool Usable(const Vulkan::Instance& instance) {
 }
 
 void Install(const Vulkan::Instance& instance) {
-    // BB_GUEST_IN_PLACE (the GPU uses this memory in place) needs it too.
-    const char* env = std::getenv("BB_GUEST_GPU_MEMORY");
-    const char* in_place = std::getenv("BB_GUEST_IN_PLACE");
+    // PGG_GUEST_IN_PLACE (the GPU uses this memory in place) needs it too.
+    const char* env = pgg_getenv("GUEST_GPU_MEMORY");
+    const char* in_place = pgg_getenv("GUEST_IN_PLACE");
     if (!(env && env[0] == '1') && !(in_place && in_place[0] == '1' && PcModelGpu(instance))) {
         return;
     }
@@ -246,7 +247,7 @@ void Install(const Vulkan::Instance& instance) {
     memory_properties = instance.GetPhysicalDevice().getMemoryProperties();
     runtime_memory_set_guest_chunk_whole(whole_only ? 1 : 0);
     runtime_memory_set_guest_chunk_allocator(&AllocChunk);
-    std::printf("Guest memory: direct memory chunks come from Vulkan (BB_GUEST_GPU_MEMORY=1)\n");
+    std::printf("Guest memory: direct memory chunks come from Vulkan (PGG_GUEST_GPU_MEMORY=1)\n");
 }
 
 const Chunk* Find(std::uint64_t phys) {

@@ -3,7 +3,7 @@
 
 The check reads sce_sys/param.sfo: another TITLE_ID (another game, edition or region) is refused;
 another APP_VER than the one tested (01.00) only gets a warning, as in the launcher.
-BB_SKIP_GAME_CHECK=1 skips it.
+PGG_SKIP_GAME_CHECK=1 (or bbport's BB_SKIP_GAME_CHECK=1) skips it.
 """
 import os
 from pathlib import Path
@@ -15,7 +15,7 @@ TESTED_VERSION = '01.00'
 def problem(game):
     """None for the supported game, else (kind, title, version): kind is 'other_title' or
     'unreadable' (no readable param.sfo)."""
-    if os.environ.get('BB_SKIP_GAME_CHECK') == '1':
+    if (os.environ.get('PGG_SKIP_GAME_CHECK') or os.environ.get('BB_SKIP_GAME_CHECK')) == '1':
         return None
     from prepare import sfo  # same directory
     try:

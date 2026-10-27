@@ -150,7 +150,7 @@ const char *runtime_file_user_dir(void);
 void runtime_savedata_configure(const char *title);
 uintptr_t runtime_savedata_resolve(const char *name);
 void runtime_savedata_report(void);
-/* BB_SAVE_TRACE=1: every sceSaveData* call and every file operation on /savedataN is logged. */
+/* PGG_SAVE_TRACE=1: every sceSaveData* call and every file operation on /savedataN is logged. */
 int runtime_save_trace(void);
 /* For the save data dialog: 1 when save slot <dir> of <user>/<title> (NULL: the game's) exists with
  * its param.bin; copies the OrbisSaveDataParam (1328 bytes) to param and its last write to mtime. */

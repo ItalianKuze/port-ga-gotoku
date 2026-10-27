@@ -22,7 +22,7 @@ int bbgpu_init(const BbGpuConfig *config);
 uintptr_t bbgpu_resolve(const char *scoped_nid);
 /* Called first by the loader's SIGSEGV handler: 1 when a GPU page-tracking fault was handled. */
 int bbgpu_handle_fault(void *ucontext, void *address);
-/* BB_WRITE_LOG=1: prints the logged GPU-side writes to guest memory near the fault. */
+/* PGG_WRITE_LOG=1: prints the logged GPU-side writes to guest memory near the fault. */
 void bbgpu_dump_guest_writes(void *ucontext);
 /* Keyboard text entry through the game window (IME dialog). begin returns 0 when
  * no window exists; poll returns 0 typing, 1 confirmed, 2 cancelled (UTF-8 text). */
@@ -33,7 +33,7 @@ int bbgpu_overlay_captures_input(void);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned bbgpu_symbol_count(void);
 /* PortGaGotoku: starts a performance measurement of `seconds` (gpu/shim/bbport_perf.h); 0 when one
- * already runs. The pad's scripted input asks for it (BB_PAD_FILE token measure=N). */
+ * already runs. The pad's scripted input asks for it (PGG_PAD_FILE token measure=N). */
 int bbgpu_perf_start(int seconds);
 #ifdef __cplusplus
 }

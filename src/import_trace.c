@@ -1,4 +1,4 @@
-/* BB_IMPORT_TRACE=<file>: every HLE import call made by the game's main thread, with its first
+/* PGG_IMPORT_TRACE=<file>: every HLE import call made by the game's main thread, with its first
  * four arguments and its return value, to compare two builds call by call.
  *
  * Each resolved function import is bound to a 20-byte stub instead (mov r11d, index; jmp common).
@@ -9,6 +9,7 @@
  * (setjmp/longjmp, exit) keep their direct binding. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/shim/pgg_env.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -129,7 +130,7 @@ static int wants_string(const char *symbol) {
 uintptr_t import_trace_wrap(const char *nid, uintptr_t target) {
     static int enabled = -1;
     if (enabled < 0) {
-        const char *path = getenv("BB_IMPORT_TRACE");
+        const char *path = pgg_getenv("IMPORT_TRACE");
         enabled = path && *path;
         if (!enabled) return target;
         out = fopen(path, "w");

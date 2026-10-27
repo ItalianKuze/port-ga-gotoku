@@ -6,6 +6,7 @@
  * Metadata lives beside the directory so the guest's own files are untouched. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "../gpu/shim/pgg_env.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,7 +66,7 @@ _Static_assert(sizeof(SearchCond)==64 && sizeof(SearchResult)==56,"dir name sear
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 int runtime_save_trace(void) {
     static int enabled=-1;
-    if (enabled<0) { const char *e=getenv("BB_SAVE_TRACE"); enabled=e && e[0]=='1'; }
+    if (enabled<0) { const char *e=pgg_getenv("SAVE_TRACE"); enabled=e && e[0]=='1'; }
     return enabled;
 }
 #define SAVE_TRACE(...) do { if (runtime_save_trace()) printf("SaveTrace: " __VA_ARGS__); } while (0)
@@ -459,7 +460,7 @@ static int32_t memory_io(void *buffer, uint64_t size, int64_t offset, int write)
 static ABI int32_t memory_get(int32_t user, void *buffer, uint64_t size, int64_t offset) { (void)user; return memory_io(buffer,size,offset,0); }
 static ABI int32_t memory_set(int32_t user, void *buffer, uint64_t size, int64_t offset) { (void)user; return memory_io(buffer,size,offset,1); }
 
-/* BB_SAVE_TRACE: each export goes through a wrapper that logs its arguments and result. */
+/* PGG_SAVE_TRACE: each export goes through a wrapper that logs its arguments and result. */
 static const char *dir_text(const DirName *d) { return d ? d->data : "(null)"; }
 static const char *title_text(const TitleId *t) { return t && t->data[0] ? t->data : "(game)"; }
 static ABI int32_t t_initialize(const void *p) { int32_t r=save_initialize(p); SAVE_TRACE("sceSaveDataInitialize = %#x\n",(unsigned)r); return r; }

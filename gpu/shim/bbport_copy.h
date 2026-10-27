@@ -37,7 +37,7 @@ void FlushBatch();
 /// has finished.
 void WaitAsync();
 
-/// bbport BB_STALL_TRACE=1: tasks passed to Async() that have not finished yet.
+/// bbport PGG_STALL_TRACE=1: tasks passed to Async() that have not finished yet.
 unsigned long long Pending();
 
 /// Starts the calling thread's batch and runs `callback` once every task passed to Async() so

@@ -15,6 +15,7 @@
 
 #include "bbport_toggles.h"
 #include "common/thread.h"
+#include "pgg_env.h"
 
 namespace BbCopy {
 namespace {
@@ -27,7 +28,7 @@ public:
         // Copies are on the critical path (fences wait for them): normal priority, a quarter
         // of the hardware threads available to the process (Steam Deck 2).
         unsigned count = std::clamp(BbThreads::Available() / 4, 1u, 4u);
-        if (const char* env = std::getenv("BB_COPY_THREADS")) {
+        if (const char* env = pgg_getenv("COPY_THREADS")) {
             count = static_cast<unsigned>(std::clamp(std::atoi(env), 0, 16));
         }
         epochs.emplace_back();
@@ -96,7 +97,7 @@ public:
         }
     }
 
-    /// bbport BB_STALL_TRACE=1: copies still owed (queued or running).
+    /// bbport PGG_STALL_TRACE=1: copies still owed (queued or running).
     unsigned long long PendingTasks() {
         std::scoped_lock lk{mutex};
         return static_cast<unsigned long long>(pending) +

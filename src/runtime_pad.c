@@ -17,6 +17,7 @@
 #include <time.h>
 #include <SDL3/SDL.h>
 #include <sys/stat.h>
+#include "../gpu/shim/pgg_env.h"
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
 #define ERR_INVALID_HANDLE ((int32_t)0x80920003)
@@ -74,11 +75,11 @@ static void touch_click(PadData *d, int right) {
     d->touches[0]=(PadTouch){.x=right ? 1440 : 480,.y=471,.id=0};
 }
 
-/* BB_GAMEPAD (the launcher's controller choice): its SDL GUID, or part of its name. Issue #15:
+/* PGG_GAMEPAD (the launcher's controller choice): its SDL GUID, or part of its name. Issue #15:
  * wheels and other controllers connected for good came first. */
 static const char *preferred_gamepad(void) {
     static const char *want; static int read;
-    if (!read) { want=getenv("BB_GAMEPAD"); if (want && !*want) want=NULL; read=1; }
+    if (!read) { want=pgg_getenv("GAMEPAD"); if (want && !*want) want=NULL; read=1; }
     return want;
 }
 static int is_preferred(SDL_JoystickID id, const char *want) {
@@ -122,7 +123,7 @@ static SDL_Gamepad *current_gamepad(void) {
 typedef struct { uint16_t size, version; uint32_t reserved; uint64_t max_system, system, max_in_use, in_use; } MallocManagedSize;
 static void report_guest_heap(void) {
     static int enabled=-1; static uint64_t last;
-    if (enabled<0) enabled=getenv("BB_FRAME_STATS")!=NULL;
+    if (enabled<0) enabled=pgg_getenv("FRAME_STATS")!=NULL;
     const uint64_t now=now_us();
     if (!enabled || now-last<5000000) return;
     last=now;
@@ -150,7 +151,7 @@ static void report_guest_heap(void) {
                m.in_use/1048576.0,m.max_in_use/1048576.0,m.system/1048576.0,m.max_system/1048576.0);
     }
 }
-/* Controls: what each PS4 input is bound to. Defaults below; bbport.ini (BB_CONFIG) lines
+/* Controls: what each PS4 input is bound to. Defaults below; pgg.ini (PGG_CONFIG) lines
  * key.<input>=<SDL key names> and pad.<input>=<SDL gamepad button names>, comma-separated,
  * replace an input's binding (empty: unbound). Inputs: the buttons (cross ... right, touchpad =
  * a left-side click, touchpad_right), and on the keyboard the sticks: move_* (left), look_*
@@ -219,7 +220,7 @@ static int pad_button_from_name(const char *name) {
 /* key.<input>= / pad.<input>= lines of the settings file. */
 static void load_bindings(void) {
     bind_defaults();
-    const char *path=getenv("BB_CONFIG");
+    const char *path=pgg_getenv("CONFIG");
     FILE *f=path ? fopen(path,"r") : NULL;
     if (!f) return;
     char line[512];
@@ -324,18 +325,18 @@ static void sample_host(PadData *d) {
     if (k) apply_keyboard(d,k);
 }
 
-/* BB_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
+/* PGG_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
  * tokens, re-read when it changes: button names (cross circle square triangle l1 r1 l2 r2 l3 r3
  * options touchpad touchpad_left touchpad_right up down left right) are held while listed;
  * touchpad defaults to a left-side click; lx= ly= rx= ry= (0..255) override
  * the sticks; measure=N starts an N-second performance measurement (bbgpu_perf_start: benchmarks,
  * scripts/bench_hokuto.py). An empty file releases everything. */
 static struct { uint32_t buttons; int stick[4]; int touch_side; } injected={0,{-1,-1,-1,-1},-1};
-static int replay_armed;      /* 1 while a BB_PAD_REPLAY recording plays, 2 once it ended */
+static int replay_armed;      /* 1 while a PGG_PAD_REPLAY recording plays, 2 once it ended */
 static uint64_t replay_start; /* 0: (re)start at the next sample */
 static void read_inject(void) {
     static const char *path; static int checked; static uint64_t last_check; static struct timespec mtime;
-    if (!checked) { path=getenv("BB_PAD_FILE"); checked=1; }
+    if (!checked) { path=pgg_getenv("PAD_FILE"); checked=1; }
     if (!path || !*path) return;
     uint64_t now=now_us();
     if (now-last_check<20000) return;
@@ -365,7 +366,7 @@ static void read_inject(void) {
     for (int i=0;i<4;++i) injected.stick[i]=-1;
     char token[64];
     while (fscanf(f,"%63s",token)==1) {
-        if (!strcmp(token,"replay") && replay_armed!=1) { replay_armed=1; replay_start=0; } /* BB_PAD_REPLAY */
+        if (!strcmp(token,"replay") && replay_armed!=1) { replay_armed=1; replay_start=0; } /* PGG_PAD_REPLAY */
         if (!strncmp(token,"measure=",8) && atoi(token+8)>0) bbgpu_perf_start(atoi(token+8));
         if (!strcmp(token,"touchpad_left") || !strcmp(token,"touchpad_right")) {
             injected.buttons|=BTN_TOUCHPAD;
@@ -378,9 +379,9 @@ static void read_inject(void) {
     printf("Runtime: pad file: buttons 0x%x sticks %d %d %d %d\n",injected.buttons,
            injected.stick[0],injected.stick[1],injected.stick[2],injected.stick[3]);
 }
-/* BB_PAD_RECORD=<file>: F9 starts and stops recording the pad state (gamepad or keyboard) with
- * the time since F9; BB_PAD_REPLAY=<file> plays such a recording back, started by the token
- * "replay" in BB_PAD_FILE (scripted tests repeat a route the player ran once). Lines: ms buttons
+/* PGG_PAD_RECORD=<file>: F9 starts and stops recording the pad state (gamepad or keyboard) with
+ * the time since F9; PGG_PAD_REPLAY=<file> plays such a recording back, started by the token
+ * "replay" in PGG_PAD_FILE (scripted tests repeat a route the player ran once). Lines: ms buttons
  * lx ly rx ry l2 r2, written when the state changes. */
 typedef struct { uint32_t ms, buttons; uint8_t axes[4], l2, r2; } PadSample;
 static FILE *record_file;
@@ -388,7 +389,7 @@ static uint64_t record_start;
 static PadSample record_last;
 static void record_sample(const PadData *d) {
     static const char *path; static int checked, f9_was_down;
-    if (!checked) { path=getenv("BB_PAD_RECORD"); checked=1; }
+    if (!checked) { path=pgg_getenv("PAD_RECORD"); checked=1; }
     if (!path || !*path || !sdl_ready) return;
     const bool *k=SDL_GetKeyboardState(NULL);
     const int f9=k && k[SDL_SCANCODE_F9];
@@ -420,7 +421,7 @@ static void replay_sample(PadData *d) {
         static int loaded;
         if (!loaded) {
             loaded=1;
-            const char *path=getenv("BB_PAD_REPLAY");
+            const char *path=pgg_getenv("PAD_REPLAY");
             FILE *f=path ? fopen(path,"r") : NULL;
             PadSample s; unsigned v[8]; size_t cap=0;
             while (f && fscanf(f,"%u %u %u %u %u %u %u %u",&v[0],&v[1],&v[2],&v[3],&v[4],&v[5],&v[6],&v[7])==8) {
@@ -495,11 +496,11 @@ static ABI int32_t pad_close(int32_t handle) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     opened=0; return 0;
 }
-/* BB_PAD_TRACE=1: what the game receives, printed whenever buttons, sticks, triggers, connection
+/* PGG_PAD_TRACE=1: what the game receives, printed whenever buttons, sticks, triggers, connection
  * or the overlay's input capture change. */
 static void pad_trace(const PadData *d) {
     static int enabled=-1, last_capture=-1; static PadData last;
-    if (enabled<0) enabled=getenv("BB_PAD_TRACE")!=NULL;
+    if (enabled<0) enabled=pgg_getenv("PAD_TRACE")!=NULL;
     if (!enabled) return;
     const int capture=bbgpu_overlay_captures_input();
     if (capture==last_capture && d->buttons==last.buttons && d->left_x==last.left_x && d->left_y==last.left_y &&

@@ -44,13 +44,14 @@ BbRecoverBuf *runtime_recover_take(void) {
     recover_point = NULL;
     return buf;
 }
-/* BB_EXIT_TRACE=1: when the process ends through exit(), _exit() or ExitProcess(), print the
+/* PGG_EXIT_TRACE=1: when the process ends through exit(), _exit() or ExitProcess(), print the
  * terminating thread's stack -- host frames as module+offset, then every stack word that points
  * into a loaded image -- so an exit that leaves no message of its own can be traced to its caller.
  * TerminateProcess from another thread does not come through here. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../gpu/shim/pgg_env.h"
 static void exit_trace_address(const char *what, void *address) {
     HMODULE module = NULL;
     char name[MAX_PATH] = "?";
@@ -67,7 +68,7 @@ static void exit_trace_address(const char *what, void *address) {
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     (void)instance;
     if (reason != DLL_PROCESS_DETACH || !reserved) return TRUE; /* reserved != NULL: process exit */
-    const char *trace = getenv("BB_EXIT_TRACE");
+    const char *trace = pgg_getenv("EXIT_TRACE");
     if (!trace || strcmp(trace, "1")) return TRUE;
     fprintf(stderr, "Exit trace: process ending on thread %lu\n", GetCurrentThreadId());
     void *frames[48];

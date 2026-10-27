@@ -8,7 +8,7 @@ scripts/run-hokuto-win.sh; the launcher structure follows Supermedo's Windows la
 Folders:
   PORT_DIR   the package folder (PortGaGotoku.exe) or, from the sources, the repository;
   RUN_DIR    bb-probe.exe and its DLLs: <package>/bin, or out-win/run from the sources;
-  DATA_DIR   PortGaGotoku-data next to PORT_DIR (BB_DATA_DIR overrides): settings
+  DATA_DIR   PortGaGotoku-data next to PORT_DIR (PGG_DATA_DIR overrides): settings
              (launcher.json), the prepared boot image (out/), saves (user/), save backups
              (save-backups/), logs (logs/), shader cache (cache/), GPU library folder (gpu/).
 """
@@ -31,11 +31,18 @@ SAVE_TITLE_ID = 'CUSA12776'
 TESTED_VERSION = '01.00'
 PRESENT_MODES = ('Mailbox', 'Fifo', 'Immediate')
 
+
+
+def env_var(name):
+    """The environment variable PGG_<name>, else bbport's BB_<name> (still read), else None."""
+    return os.environ.get('PGG_' + name) or os.environ.get('BB_' + name)
+
+
 FROZEN = getattr(sys, 'frozen', False)
 PORT_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
 RUN_DIR = PORT_DIR / 'bin' if FROZEN else PORT_DIR / 'out-win' / 'run'
 SCRIPTS_DIR = PORT_DIR / 'scripts'
-DATA_DIR = Path(os.environ.get('BB_DATA_DIR') or PORT_DIR.parent / 'PortGaGotoku-data')
+DATA_DIR = Path(env_var('DATA_DIR') or PORT_DIR.parent / 'PortGaGotoku-data')
 SETTINGS_FILE = DATA_DIR / 'launcher.json'
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 # The game's exit code when Windows cannot give it its memory (RUNTIME_EXIT_NO_MEMORY, src/runtime.h).
@@ -46,7 +53,7 @@ DEFAULTS = {
     'present_mode': 'Mailbox',
     'fullscreen': False,
     'gpu': '',            # '' = automatic (discrete GPU preferred), else the Vulkan device name
-    'frame_stats': True,  # BB_FRAME_STATS: frame statistics in the log
+    'frame_stats': True,  # PGG_FRAME_STATS: frame statistics in the log
     'ui_language': 'en',  # 'en' (the default), 'it', or '' for Windows' language
     'experimental_title': '',  # another edition's TITLE_ID the user chose to try (not supported)
 }
@@ -275,7 +282,7 @@ def prepare(game, output, experimental=False):
     steps = (('prepare.py', game, '--experimental-elf', '--out', str(new)),
              ('link_modules.py', game, '--out', str(new)),
              ('content_profile.py', game, '--out', str(new), '--sku', 'full'))
-    env = {**os.environ, 'BB_SKIP_GAME_CHECK': '1'} if experimental else None
+    env = {**os.environ, 'PGG_SKIP_GAME_CHECK': '1'} if experimental else None
     for name, *args in steps:
         output(f'== {name} ==\n')
         process = subprocess.Popen(script_command(name, *args), cwd=str(SCRIPTS_DIR), env=env, stdin=subprocess.DEVNULL,
@@ -327,34 +334,44 @@ def devices():
 
 def game_path_env():
     """The environment without other programs' DLLs: bb-probe's folder and Windows only, and no
-    BB_* variables from the shell that started the launcher."""
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith('BB_')}
+    PGG_* (or bbport's BB_*) variables from the shell that started the launcher."""
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('PGG_', 'BB_'))}
     root = os.environ.get('SystemRoot', r'C:\Windows')
     env['PATH'] = os.pathsep.join((str(RUN_DIR), rf'{root}\System32', root))
     return env
 
 
+def config_file():
+    """The in-game settings and controls file, pgg.ini in the data folder. The first time, an
+    existing bbport.ini (its name until 0.1.2) is copied to it; the old file stays."""
+    config = DATA_DIR / 'pgg.ini'
+    old = DATA_DIR / 'bbport.ini'
+    if not config.exists() and old.is_file():
+        shutil.copy2(old, config)
+    return config
+
+
 def game_environment(settings):
     env = game_path_env()
     env.update({
-        'BB_DATA_DIR': str(DATA_DIR),
+        'PGG_DATA_DIR': str(DATA_DIR),
         'XDG_DATA_HOME': str(DATA_DIR),
         # The GPU library's folders and the port's settings file in the data folder, never
         # %APPDATA%\shadPS4 (the real shadPS4's) or the program folder.
-        'BB_GPU_USER_DIR': str(DATA_DIR / 'gpu'),
-        'BB_GPU_CACHE_DIR': str(DATA_DIR / 'cache'),
-        'BB_CONFIG': str(DATA_DIR / 'bbport.ini'),
-        'BB_TIMEOUT': '0',
-        'BB_PRESENT_MODE': settings['present_mode'],
-        # The in-game menu's language until one is chosen in it (bbport.ini): the launcher's.
-        'BB_MENU_LANGUAGE': settings['ui_language'] or windows_language(),
+        'PGG_GPU_USER_DIR': str(DATA_DIR / 'gpu'),
+        'PGG_GPU_CACHE_DIR': str(DATA_DIR / 'cache'),
+        'PGG_CONFIG': str(config_file()),
+        'PGG_TIMEOUT': '0',
+        'PGG_PRESENT_MODE': settings['present_mode'],
+        # The in-game menu's language until one is chosen in it (pgg.ini): the launcher's.
+        'PGG_MENU_LANGUAGE': settings['ui_language'] or windows_language(),
     })
     if settings['fullscreen']:
-        env['BB_FULLSCREEN'] = '1'
+        env['PGG_FULLSCREEN'] = '1'
     if settings['gpu']:
-        env['BB_GPU_DEVICE'] = settings['gpu']
+        env['PGG_GPU_DEVICE'] = settings['gpu']
     if settings['frame_stats']:
-        env['BB_FRAME_STATS'] = '1'
+        env['PGG_FRAME_STATS'] = '1'
     return env
 
 

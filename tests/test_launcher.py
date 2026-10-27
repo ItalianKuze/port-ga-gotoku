@@ -66,6 +66,7 @@ class GameFolder(unittest.TestCase):
 
     def tearDown(self):
         os.environ.pop('BB_DATA_DIR', None)
+        os.environ.pop('PGG_DATA_DIR', None)
         self.dir.cleanup()
 
     def folder(self, title='CUSA12781', version='01.00', eboot=True, sfo=True):
@@ -113,24 +114,53 @@ class GameFolder(unittest.TestCase):
 
     def test_environment(self):
         os.environ['BB_FILE_TRACE'] = '1'
+        os.environ['PGG_WAIT_LOG'] = '1'
         try:
             settings = {**self.game.DEFAULTS, 'game_dir': self.folder(), 'gpu': 'RTX 5070', 'fullscreen': True}
             env = self.game.game_environment(settings)
         finally:
             os.environ.pop('BB_FILE_TRACE')
+            os.environ.pop('PGG_WAIT_LOG')
+        # setUp names the data folder with bbport's BB_DATA_DIR: still read.
         data = Path(os.environ['BB_DATA_DIR'])
+        self.assertEqual(self.game.DATA_DIR, data)
         self.assertNotIn('BB_FILE_TRACE', env)
-        self.assertEqual(env['BB_GPU_USER_DIR'], str(data / 'gpu'))
-        self.assertEqual(env['BB_GPU_CACHE_DIR'], str(data / 'cache'))
-        self.assertEqual(env['BB_CONFIG'], str(data / 'bbport.ini'))
-        self.assertEqual((env['BB_PRESENT_MODE'], env['BB_FULLSCREEN'], env['BB_GPU_DEVICE']),
+        self.assertNotIn('PGG_WAIT_LOG', env)
+        self.assertFalse([k for k in env if k.startswith('BB_')])
+        self.assertEqual(env['PGG_DATA_DIR'], str(data))
+        self.assertEqual(env['PGG_GPU_USER_DIR'], str(data / 'gpu'))
+        self.assertEqual(env['PGG_GPU_CACHE_DIR'], str(data / 'cache'))
+        self.assertEqual(env['PGG_CONFIG'], str(data / 'pgg.ini'))
+        self.assertEqual((env['PGG_PRESENT_MODE'], env['PGG_FULLSCREEN'], env['PGG_GPU_DEVICE']),
                          ('Mailbox', '1', 'RTX 5070'))
-        self.assertIn(env['BB_MENU_LANGUAGE'], ('it', 'en'))
-        self.assertEqual(self.game.game_environment({**settings, 'ui_language': 'en'})['BB_MENU_LANGUAGE'], 'en')
-        self.assertNotIn('APPDATA', ''.join(v for k, v in env.items() if k.startswith('BB_')))
+        self.assertIn(env['PGG_MENU_LANGUAGE'], ('it', 'en'))
+        self.assertEqual(self.game.game_environment({**settings, 'ui_language': 'en'})['PGG_MENU_LANGUAGE'], 'en')
+        self.assertNotIn('APPDATA', ''.join(v for k, v in env.items() if k.startswith('PGG_')))
         command = self.game.game_command(settings)
         self.assertEqual(command[command.index('--timeout') + 1], '0')
         self.assertEqual(command[command.index('--app0') + 1], settings['game_dir'])
+
+    def test_config_file_copied_from_bbport_ini(self):
+        data = self.game.DATA_DIR
+        data.mkdir(parents=True, exist_ok=True)
+        (data / 'bbport.ini').write_text('show_fps=1\nkey.cross=X\n', encoding='utf-8')
+        self.assertEqual(self.game.config_file(), data / 'pgg.ini')
+        self.assertEqual((data / 'pgg.ini').read_text(encoding='utf-8'), 'show_fps=1\nkey.cross=X\n')
+        self.assertTrue((data / 'bbport.ini').exists())  # the old file stays
+        # Once pgg.ini exists it is the file, whatever bbport.ini holds.
+        (data / 'bbport.ini').write_text('show_fps=0\n', encoding='utf-8')
+        self.game.config_file()
+        self.assertEqual((data / 'pgg.ini').read_text(encoding='utf-8'), 'show_fps=1\nkey.cross=X\n')
+
+    def test_env_var_prefers_pgg(self):
+        os.environ['BB_USER_NAME'] = 'old'
+        try:
+            self.assertEqual(self.game.env_var('USER_NAME'), 'old')
+            os.environ['PGG_USER_NAME'] = 'new'
+            self.assertEqual(self.game.env_var('USER_NAME'), 'new')
+        finally:
+            os.environ.pop('BB_USER_NAME')
+            os.environ.pop('PGG_USER_NAME', None)
 
     def test_log_header_names_the_version(self):
         import hashlib
@@ -151,7 +181,7 @@ class GameFolder(unittest.TestCase):
             (scripts / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
         self.game.SCRIPTS_DIR = scripts
         self.game._image_format.update(value=image_format, problem='')
-        out = Path(os.environ['BB_DATA_DIR']) / 'out'
+        out = self.game.DATA_DIR / 'out'
         out.mkdir(parents=True)
         (out / 'boot-linked.bin').write_bytes(b'x')
         (out / 'content.bin').write_bytes(b'x')
@@ -226,13 +256,14 @@ class Helpers(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.root = Path(self.dir.name)
-        os.environ['BB_DATA_DIR'] = str(self.root / 'data')
+        os.environ['PGG_DATA_DIR'] = str(self.root / 'data')
         import importlib
         import pgg_game
         self.game = importlib.reload(pgg_game)
 
     def tearDown(self):
         os.environ.pop('BB_DATA_DIR', None)
+        os.environ.pop('PGG_DATA_DIR', None)
         self.dir.cleanup()
 
     def test_parent_folder_is_accepted(self):

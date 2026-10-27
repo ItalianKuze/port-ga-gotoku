@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <fstream>
+#include "pgg_env.h"
 #include <unordered_map>
 #include "common/logging/log.h"
 #include "common/path_util.h"
@@ -85,11 +86,11 @@ static std::optional<std::filesystem::path> GetBundleParentDirectory() {
 #endif
 
 static auto UserPaths = [] {
-    // bbport: the port's GPU folder is BB_GPU_USER_DIR when the launcher sets it before the process
+    // bbport: the port's GPU folder is PGG_GPU_USER_DIR when the launcher sets it before the process
     // starts (scripts/run-hokuto-win.sh, Avvia Hokuto.cmd): it is created if missing and always
     // used, never silently replaced by %APPDATA%\shadPS4, which belongs to the real shadPS4.
-    // (bbgpu_init sets BB_GPU_USER_DIR too, but only after these paths are fixed.)
-    const char* port_dir = std::getenv("BB_GPU_USER_DIR");
+    // (bbgpu_init sets PGG_GPU_USER_DIR too, but only after these paths are fixed.)
+    const char* port_dir = pgg_getenv("GPU_USER_DIR");
     auto user_dir = port_dir && *port_dir ? std::filesystem::path(port_dir)
                                           : std::filesystem::current_path() / PORTABLE_DIR;
     if (port_dir && *port_dir) {
@@ -143,8 +144,8 @@ static auto UserPaths = [] {
     create_path(PathType::MetaDataDir, user_dir / METADATA_DIR);
     create_path(PathType::CustomTrophy, user_dir / CUSTOM_TROPHY);
     create_path(PathType::CustomConfigs, user_dir / CUSTOM_CONFIGS);
-    // bbport: BB_GPU_CACHE_DIR puts the shader/pipeline cache in a folder of its own.
-    if (const char* cache_dir = std::getenv("BB_GPU_CACHE_DIR"); cache_dir && *cache_dir) {
+    // bbport: PGG_GPU_CACHE_DIR puts the shader/pipeline cache in a folder of its own.
+    if (const char* cache_dir = pgg_getenv("GPU_CACHE_DIR"); cache_dir && *cache_dir) {
         std::filesystem::create_directories(cache_dir);
         paths.insert_or_assign(PathType::CacheDir, std::filesystem::path(cache_dir));
     } else {

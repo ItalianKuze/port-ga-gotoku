@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// bbport_settings.cpp: the menu saves its keys into bbport.ini and keeps the launcher's (controls).
+// bbport_settings.cpp: the menu saves its keys into pgg.ini and keeps the launcher's (controls).
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -24,7 +24,7 @@ int main() {
                        "fullscreen_hint=1\n";
     assert(write(fd, ini, sizeof(ini) - 1) == ssize_t(sizeof(ini) - 1));
     close(fd);
-    setenv("BB_CONFIG", path, 1);
+    setenv("PGG_CONFIG", path, 1);
 
     BbSettings::Load();
     auto& s = BbSettings::Get();

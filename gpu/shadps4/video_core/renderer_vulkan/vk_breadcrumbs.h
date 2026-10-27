@@ -4,7 +4,7 @@
 // recording order, and the GPU writes 2n before command n and 2n+1 after it into a host-visible
 // buffer (VK_AMD_buffer_marker at the bottom of the pipe: written once all earlier work of the
 // queue has finished). On device lost the last value says which command never finished, and the
-// notes kept here say what it was. BB_BREADCRUMBS=0 turns them off.
+// notes kept here say what it was. PGG_BREADCRUMBS=0 turns them off.
 #pragma once
 
 #include "common/types.h"

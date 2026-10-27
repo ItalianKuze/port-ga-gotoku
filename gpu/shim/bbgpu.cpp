@@ -3,6 +3,7 @@
 #include "bbport_overlay.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
+#include "pgg_env.h"
 #include <sys/resource.h>
 #include "bbport_game.h"
 #include "bbport_perf.h"
@@ -154,7 +155,7 @@ u64 MemoryManager::ClampRangeSize(VAddr virtual_addr, u64 size) {
     return runtime_memory_clamp(virtual_addr, size);
 }
 static void CopySparseSerial(VAddr source, u8* dest, u64 size) {
-    // BB_READBACKS=2 protects GPU-written pages against reads: the copy threads and recorders
+    // PGG_READBACKS=2 protects GPU-written pages against reads: the copy threads and recorders
     // read through the backing view, as a read fault on them would wait for the GPU thread,
     // which waits for them.
     static const bool precise =
@@ -243,7 +244,7 @@ bool g_window_ready;
 #ifdef BB_PGO_GENERATE
 extern "C" void __gcov_dump(void);
 extern "C" void __gcov_reset(void);
-// Instrumented build (BB_PGO=generate): the game often ends through _exit (watchdog, guest
+// Instrumented build (CMake BB_PGO=generate, build.sh PGG_PGO=generate): the game often ends through _exit (watchdog, guest
 // exit), which skips the profile write at exit. Write every 30 s and reset: the files sum the
 // intervals.
 static void StartProfileWriter() {
@@ -261,7 +262,7 @@ static void StartProfileWriter() {
 
 extern "C" int bbgpu_init(const BbGpuConfig* config) {
     BbSettings::Load();
-    // Where the GPU library keeps its files (BB_GPU_USER_DIR / BB_GPU_CACHE_DIR, common/path_util.cpp).
+    // Where the GPU library keeps its files (PGG_GPU_USER_DIR / PGG_GPU_CACHE_DIR, common/path_util.cpp).
     std::printf("GPU: folders: user %s; cache %s; shader patches %s\n",
                 Common::FS::GetUserPath(Common::FS::PathType::UserDir).string().c_str(),
                 Common::FS::GetUserPath(Common::FS::PathType::CacheDir).string().c_str(),
@@ -270,7 +271,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     StartProfileWriter();
 #endif
     g_sdk_version = config->sdk_version;
-    if (config->user_dir) setenv("BB_GPU_USER_DIR", config->user_dir, 0);
+    if (config->user_dir && !pgg_getenv("GPU_USER_DIR")) setenv("PGG_GPU_USER_DIR", config->user_dir, 1);
     Core::Emulator::FillElfInfo(*config);
     BbGame::SetSerial(config->serial); // which game's menu entries and parts apply
     const std::string title = config->title ? config->title : "PortGaGotoku";
