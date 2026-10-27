@@ -1056,7 +1056,6 @@ int main(int argc, char **argv) {
     }
     free(bound); free(bound_kind);
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
-    if (!cpu_only) bbgpu_patch_image(image, size);
     protect(traps, round_page((import_count + 1) * 32), 5);
     protect(image, round_page(size), 0);
     int executable_entry = 0;

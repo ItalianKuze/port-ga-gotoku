@@ -27,8 +27,7 @@ python3 "$root/scripts/prepare.py" "$game" --experimental-elf --out "$out"
 python3 "$root/scripts/link_modules.py" "$game" --out "$out"
 python3 "$root/scripts/content_profile.py" "$game" --out "$out" --sku "${BB_CONTENT_SKU:-full}"
 
-# Bloodborne XML patches and opt-in GNM census/observation hooks are omitted.
-unset BB_GNM_CENSUS BB_GNM_OBSERVE BB_GNM_TRACE BB_GNM_CENSUS_RANGE BB_GNM_CENSUS_FILE
+# Bloodborne XML patches are omitted.
 unset BB_GUEST_IN_PLACE
 exec "$probe" "$out/boot-linked.bin" \
     --content-profile "$out/content.bin" \
