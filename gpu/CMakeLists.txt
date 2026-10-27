@@ -64,11 +64,6 @@ find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
 set(SIRIT_USE_SYSTEM_SPIRV_HEADERS OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/sirit EXCLUDE_FROM_ALL)
 
-# bbport: FSR 3.1 temporal upscaling / frame generation, native Vulkan (MIT, FireBurn/FSR-Vulkan).
-set(FFX_VK_PORTABLE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(FFX_VK_PORTABLE_BUILD_PROBE OFF CACHE BOOL "" FORCE)
-add_subdirectory(third_party/fsr-vulkan EXCLUDE_FROM_ALL)
-
 # Host shaders -> headers (same scheme as shadPS4's host_shaders/CMakeLists.txt).
 set(SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shadps4/video_core/host_shaders)
 set(SHADER_INCLUDE ${CMAKE_CURRENT_BINARY_DIR}/include)
@@ -94,9 +89,6 @@ add_host_shader(fs_tri.vert fs_tri_vert)
 add_host_shader(fsr.comp fsr_easu_comp SAMPLE_EASU=1)
 add_host_shader(fsr.comp fsr_rcas_comp SAMPLE_RCAS=1)
 add_host_shader(post_process.frag post_process_frag)
-add_host_shader(fsr4_color.comp fsr4_decode_comp)
-add_host_shader(fsr4_color.comp fsr4_encode_comp ENCODE=1)
-add_host_shader(fsr4_reactive.comp fsr4_reactive_comp)
 add_host_shader(buffer_multi_copy.comp buffer_multi_copy_comp)
 foreach(BPP IN ITEMS 8 16 32 64 96 128)
     add_host_shader(tiling.comp tiling_micro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=0)
@@ -162,7 +154,6 @@ if (NOT WIN32)
     # Runtime symbols (runtime_memory_*, runtime_process_*) resolve against bb-probe.
     target_link_options(bbgpu PRIVATE -Wl,--allow-shlib-undefined)
 endif()
-target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vulkan)
 set(BB_GPU_DEPENDENCIES Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::FFMPEG
     Zydis::Zydis sirit)
@@ -178,9 +169,3 @@ target_link_libraries(bbgpu PUBLIC ${BB_GPU_DEPENDENCIES})
 add_executable(settings-test EXCLUDE_FROM_ALL ../tests/test_settings.cpp shim/bbport_settings.cpp)
 target_compile_options(settings-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(settings-test PRIVATE .. shim)
-
-# bbport: FSR 4 benchmark outside the game (tools/fsr4_bench.cpp): ninja -C out/gpu fsr4-bench.
-add_executable(fsr4-bench EXCLUDE_FROM_ALL tools/fsr4_bench.cpp
-    shadps4/video_core/renderer_vulkan/fsr411/fsr411.cpp)
-target_include_directories(fsr4-bench PRIVATE shadps4/video_core/renderer_vulkan/fsr411)
-target_link_libraries(fsr4-bench PRIVATE ffx-vulkan::fsr4-v07-vulkan ffx-vulkan::fsr4-v07-assets Vulkan::Vulkan)

@@ -3,13 +3,11 @@ __pycache__/
 user/
 *.mp4
 bbport.ini
-fsr4_shaders/
 pgo/
 *.png
 last_run.log
 dist/
 packaging/runtime-paths.nix
-fsr4_411/
 vkd3d-proton.cache
 perf.data
 # Local leftovers: patch backups, generated SPIR-V, analysis outputs, test saves and routes
@@ -27,7 +25,7 @@ patches.json
 /message*.txt
 /*.zip
 /docs/ISSUE_ACTION_PLAN_*.md
-# AMD FidelityFX DLLs (FSR 4.1.1 is built from the user's own): never in the repository
+# DLLs (build outputs, third-party binaries): never in the repository
 *.dll
 # PortGaGotoku: build outputs, logs, binaries and temporary files
 out-win/

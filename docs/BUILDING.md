@@ -19,10 +19,9 @@
    bash scripts/build-win.sh
    ```
 
-   `build-win.sh` applies `gpu/patches/fsr-vulkan/*.patch` to the FSR-Vulkan submodule, builds the GPU
-   library and the runtime in three passes (they import from each other), and lays out `out-win/run`:
-   `bb-probe.exe`, `bbport_runtime.dll`, `libbbgpu.dll` and the UCRT64 DLLs they need (never
-   `vulkan-1.dll`: the loader is the driver's). The build id (version in `VERSION`, commit, date) is the
+   `build-win.sh` builds the GPU library and the runtime in three passes (they import from each other),
+   and lays out `out-win/run`: `bb-probe.exe`, `bbport_runtime.dll`, `libbbgpu.dll` and the UCRT64 DLLs
+   they need (never `vulkan-1.dll`: the loader is the driver's). The build id (version in `VERSION`, commit, date) is the
    first line of every game log and is in `out-win/run/build-info.txt`.
 
 4. The launcher, from the sources: a Windows Python 3 from python.org (not MSYS2's) and a private

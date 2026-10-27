@@ -61,9 +61,6 @@ enum : std::uint64_t {
     UpdateImageFastPath = 1u << 30,
     /// Bit set: the texture collector frees nothing (A/B of its evictions while the game runs).
     TextureCollector = 1ull << 31,
-    /// FSR 4 (4.0 and 4.1.1) gets the motion vectors with y negated (motionVectorScale.y = -1); FSR 3
-    /// and TAA keep them. A/B of the vertical convention FSR 4 expects.
-    Fsr4MotionYFlip = 1ull << 56,
     /// The command stream is cut into segments recorded in parallel (BB_VK_RECORD_THREADS);
     /// bit set: no new cuts, one recording thread at a time.
     ParallelRecording = 1ull << 58,

@@ -47,24 +47,18 @@ fi
 mkdir -p "$build"
 
 # The build's identity, printed first in every log and shown by the launcher: the version in
-# VERSION, the commit, "+changes" when the working tree differs from it (submodules aside: the
-# fsr-vulkan patches are always applied), and the build date.
+# VERSION, the commit, "+changes" when the working tree differs from it (submodules aside), and
+# the build date.
 version=$(tr -d '[:space:]' < "$root/VERSION")
 commit=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)
 git -C "$root" diff --quiet --ignore-submodules HEAD 2>/dev/null || commit+="+changes"
 build_id="$version ($commit, $(date +%Y-%m-%d))"
 echo "== build $build_id =="
 
-# Submodules and this port's changes to FSR-Vulkan (gpu/patches/fsr-vulkan), applied once, as in
-# build.sh; 0002 adds the includes MinGW needs.
-if [[ ! -f $root/gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f $root/gpu/third_party/imgui/imgui.h ]]; then
+# Submodules, as in build.sh.
+if [[ ! -f $root/gpu/third_party/imgui/imgui.h ]]; then
     git -C "$root" submodule update --init --recursive
 fi
-for patch in "$root"/gpu/patches/fsr-vulkan/*.patch; do
-    if ! git -C "$root/gpu/third_party/fsr-vulkan" apply --reverse --check "$patch" 2>/dev/null; then
-        git -C "$root/gpu/third_party/fsr-vulkan" apply "$patch"
-    fi
-done
 
 # ---------------------------------------------------------------- pass 1: GPU against a stub
 # The stub only has to satisfy the linker; it is replaced in pass 3 and never loaded.

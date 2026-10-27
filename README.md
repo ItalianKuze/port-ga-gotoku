@@ -137,9 +137,8 @@ GPL-2.0-or-later.
 - Fonts: [Figtree](https://github.com/erikdkennedy/figtree) by Erik Kennedy (SIL Open Font License 1.1,
   `launcher/ui/fonts/Figtree-OFL.txt`, `gpu/third_party/fonts/LICENSE-Figtree.txt`) and DejaVu Sans
   (Bitstream Vera license, `gpu/third_party/fonts/LICENSE-DejaVu.txt`).
-- Third-party components inherited from bbport keep their licenses: sirit, half, FSR-Vulkan (MIT), AMD
-  FidelityFX SDK (MIT), LibAtrac9 (MIT), Dear ImGui (MIT), and the others under `gpu/third_party` and
-  `third_party`. The launcher window uses [pywebview](https://pywebview.flowrl.com/) (BSD).
+- Third-party components inherited from bbport keep their licenses: sirit, half, LibAtrac9 (MIT), Dear
+  ImGui (MIT), and the others under `gpu/third_party` and `third_party`. The launcher window uses [pywebview](https://pywebview.flowrl.com/) (BSD).
 
 ## License
 

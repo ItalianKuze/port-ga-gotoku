@@ -26,12 +26,6 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         if (value == "en") v.menu_language = MenuLanguage::English;
         else if (value == "it") v.menu_language = MenuLanguage::Italian;
         else std::printf("Settings: unknown menu_language '%s' (expected en or it)\n", value.c_str());
-    } else if (key == "upscaler") {
-        for (int u = 0; u < UpscalerCount; ++u) {
-            if (value == UpscalerName(u)) {
-                v.upscaler = u;
-            }
-        }
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
     } else if (key == "show_hud") {
@@ -118,13 +112,6 @@ void Load() {
         std::fclose(file);
         std::printf("Settings: %s\n", Path());
     }
-    // Environment overrides (scripts, A/B tests).
-    if (const char* env = std::getenv("BB_UPSCALER")) {
-        v.upscaler = UpscalerOff;
-        for (int u = 0; u < UpscalerCount; ++u) {
-            if (std::strcmp(env, UpscalerName(u)) == 0) v.upscaler = u;
-        }
-    }
 }
 
 void Save() {
@@ -140,7 +127,6 @@ void Save() {
     };
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
     put("menu_language", v.menu_language == MenuLanguage::Italian ? "it" : "en");
-    put("upscaler", UpscalerName(v.upscaler));
     put("show_fps", flag(v.show_fps));
     put("show_hud", flag(v.show_hud));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {
@@ -189,11 +175,6 @@ void Save() {
     if (!ok || std::rename(temporary.c_str(), Path()) != 0) {
         std::printf("Settings: cannot write %s\n", Path());
     }
-}
-
-const char* UpscalerName(int upscaler) {
-    static constexpr const char* names[UpscalerCount] = {"off", "fsr3", "fsr4", "fsr411", "taa"};
-    return names[std::clamp(upscaler, 0, UpscalerCount - 1)];
 }
 
 } // namespace BbSettings

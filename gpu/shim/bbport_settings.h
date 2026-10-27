@@ -9,14 +9,11 @@
 
 namespace BbSettings {
 
-enum Upscaler : int { UpscalerOff = 0, UpscalerFsr3 = 1, UpscalerFsr4 = 2, UpscalerFsr411 = 3,
-                      UpscalerTaa = 4, UpscalerCount };
 /// Italian is offered where the menu has Italian texts (PortGaGotoku, Hokuto's entries).
 enum class MenuLanguage { English, Italian };
 
 struct Values {
     std::atomic<MenuLanguage> menu_language{MenuLanguage::English};
-    std::atomic<int> upscaler{UpscalerFsr3};
     std::atomic<bool> show_fps{false};
     std::atomic<bool> show_hud{false}; ///< PortGaGotoku: the statistics HUD (F11)
     /// The settings menu's position (fraction of the screen), -1 until it is moved.
@@ -33,6 +30,5 @@ void Load();
 /// Writes the file (menu changes).
 void Save();
 
-const char* UpscalerName(int upscaler);
 
 } // namespace BbSettings

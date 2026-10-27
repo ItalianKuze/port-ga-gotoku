@@ -161,10 +161,6 @@ source_component() {  # name|version|license|home|license file(s)
 }
 submodule_rev() { git -C "$1" describe --tags --always 2>/dev/null || git -C "$1" rev-parse --short HEAD; }
 source_component 'Dear ImGui' "$(submodule_rev gpu/third_party/imgui)" MIT https://github.com/ocornut/imgui gpu/third_party/imgui/LICENSE.txt
-source_component 'FSR-Vulkan' "$(git -C gpu/third_party/fsr-vulkan rev-parse --short HEAD)" MIT \
-    https://github.com/deadinside28/bloodborne_pc gpu/third_party/fsr-vulkan/LICENSE.txt
-source_component 'AMD FidelityFX SDK' 1.1.4 MIT https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK \
-    gpu/third_party/fsr-vulkan/upstream/ffx-1.1.4/sdk/LICENSE.txt
 source_component LibAtrac9 "$(submodule_rev third_party/LibAtrac9)" MIT https://github.com/Thealexbarney/LibAtrac9 third_party/LibAtrac9/LICENSE
 source_component sirit in-tree MIT https://github.com/shadps4-emu/sirit gpu/third_party/sirit/LICENSE.txt
 source_component half in-tree MIT https://half.sourceforge.net/ gpu/third_party/half/LICENSE.txt
