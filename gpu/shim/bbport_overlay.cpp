@@ -394,8 +394,9 @@ void TextPrompt() {
     ImGui::End();
 }
 
-// The save data dialog, centred: up to 5 slots around the focused one (name, date, subtitle, the
-// detail's first line) or a question with Yes and No; the buttons to press at the bottom.
+// The save data dialog, centred: up to 5 slots (as many as fit) around the focused one (name, date,
+// subtitle, the detail's first line) or a question with Yes and No; the buttons to press at the
+// bottom. Drawn at twice the overlay's size (font, box, padding), as large as the game's own menus.
 void SaveDialog() {
     std::scoped_lock lock{save_mutex};
     const auto& d = save_dialog;
@@ -403,7 +404,15 @@ void SaveDialog() {
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
                                    viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    const float width = 640.0f * base_scale;
+    constexpr float save_scale = 2.0f;
+    const float k = save_scale * base_scale;
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImGui::PushFont(nullptr, style.FontSizeBase * save_scale);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                        ImVec2(style.WindowPadding.x * save_scale, style.WindowPadding.y * save_scale));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+                        ImVec2(style.ItemSpacing.x * save_scale, style.ItemSpacing.y * save_scale));
+    const float width = 640.0f * k;
     ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.95f);
     ImGui::Begin("##savedialog", nullptr,
@@ -422,16 +431,17 @@ void SaveDialog() {
         const ImU32 full = ImGui::GetColorU32(palette.chosen), fade = ImGui::GetColorU32(palette.chosen_edge);
         draw->AddRectFilledMultiColor(a, b, full, fade, fade, full);
         const ImU32 line = ImGui::GetColorU32(palette.chosen_line), line_fade = line & ~IM_COL32_A_MASK;
-        const float h = std::max(2.0f * base_scale, 1.0f);
+        const float h = std::max(2.0f * k, 1.0f);
         draw->AddRectFilledMultiColor(ImVec2(a.x, b.y - h), b, line, line_fade, line_fade, line);
     };
     ImGui::TextUnformatted(d.heading.c_str());
     ImGui::Separator();
     const float line = ImGui::GetTextLineHeightWithSpacing();
     const float inner = ImGui::GetContentRegionAvail().x;
-    const float pad = 8.0f * base_scale;
+    const float pad = 8.0f * k;
     if (d.kind == 1) {
-        constexpr int shown = 5;
+        // As many slots as fit in about 70% of the window's height (a slot is about three lines).
+        const int shown = std::clamp(int(viewport->WorkSize.y * 0.7f / (3.0f * line + 2.0f * pad)), 1, 5);
         const int count = int(d.items.size());
         const int first = std::clamp(d.selected - shown / 2, 0, std::max(count - shown, 0));
         if (first > 0) {
@@ -478,7 +488,7 @@ void SaveDialog() {
         ImGui::TextUnformatted(d.question.c_str());
         ImGui::PopTextWrapPos();
         ImGui::Spacing();
-        const float button = 140.0f * base_scale, height = line + 2.0f * pad;
+        const float button = 140.0f * k, height = line + 2.0f * pad;
         const char* labels[] = {BbSettings::MenuText("Yes"), BbSettings::MenuText("No")};
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (inner - 2.0f * button - pad) * 0.5f);
         for (int i = 0; i < 2; ++i) {
@@ -495,6 +505,8 @@ void SaveDialog() {
         ImGui::TextColored(muted, "%s", BbSettings::MenuText("Left/Right: move   Cross: choose   Circle: cancel"));
     }
     ImGui::End();
+    ImGui::PopStyleVar(2);
+    ImGui::PopFont();
 }
 
 } // namespace
