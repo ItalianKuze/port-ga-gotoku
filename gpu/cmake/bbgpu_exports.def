@@ -13,5 +13,6 @@ EXPORTS
     bbgpu_text_input_begin
     bbgpu_text_input_poll
     bbgpu_overlay_captures_input
+    bbgpu_save_dialog_show
     bbgpu_symbol_count
     bbgpu_perf_start

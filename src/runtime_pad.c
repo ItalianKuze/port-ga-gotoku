@@ -462,6 +462,7 @@ static void touch_ids(PadData *d) {
     else if (!since) since=d->timestamp;
     d->touch_held_time=d->touch_count ? (uint32_t)(d->timestamp-since) : 0;
 }
+static int save_dialog_open; /* for PGG_PAD_TRACE */
 static void sample(PadData *d) {
     sample_host(d);
     if (bbgpu_overlay_captures_input()) return;
@@ -475,7 +476,26 @@ static void sample(PadData *d) {
     if (injected.buttons & BTN_R2) d->r2=255;
     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
+    /* The save data dialog on screen takes the input; the game gets none (sample_host's neutral state). */
+    int dialog_open=0;
+    const uint32_t hidden=runtime_save_dialog_input(d->buttons,d->left_y,&dialog_open);
+    if (dialog_open) {
+        d->buttons=0; d->touch_count=0; d->l2=d->r2=0;
+        d->left_x=d->left_y=d->right_x=d->right_y=128;
+    } else {
+        d->buttons&=~hidden;
+        if (hidden & BTN_L2) d->l2=0;
+        if (hidden & BTN_R2) d->r2=0;
+    }
+    save_dialog_open=dialog_open;
     touch_ids(d);
+}
+
+void runtime_pad_poll(void) {
+    PadData d;
+    pthread_mutex_lock(&lock);
+    sample(&d);
+    pthread_mutex_unlock(&lock);
 }
 
 static ABI int32_t pad_init(void) { pthread_mutex_lock(&lock); initialized=1; pthread_mutex_unlock(&lock); return 0; }
@@ -496,21 +516,22 @@ static ABI int32_t pad_close(int32_t handle) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     opened=0; return 0;
 }
-/* PGG_PAD_TRACE=1: what the game receives, printed whenever buttons, sticks, triggers, connection
- * or the overlay's input capture change. */
+/* PGG_PAD_TRACE=1: what the game receives, printed whenever buttons, sticks, triggers, connection,
+ * the overlay's input capture or the save data dialog on screen change. */
 static void pad_trace(const PadData *d) {
-    static int enabled=-1, last_capture=-1; static PadData last;
+    static int enabled=-1, last_capture=-1, last_dialog=-1; static PadData last;
     if (enabled<0) enabled=pgg_getenv("PAD_TRACE")!=NULL;
     if (!enabled) return;
     const int capture=bbgpu_overlay_captures_input();
-    if (capture==last_capture && d->buttons==last.buttons && d->left_x==last.left_x && d->left_y==last.left_y &&
+    if (capture==last_capture && save_dialog_open==last_dialog && d->buttons==last.buttons && d->left_x==last.left_x && d->left_y==last.left_y &&
         d->right_x==last.right_x && d->right_y==last.right_y && d->l2==last.l2 && d->r2==last.r2 &&
         d->connected==last.connected)
         return;
-    printf("Pad trace: read %zu buttons 0x%08x L(%u,%u) R(%u,%u) L2 %u R2 %u connected %u overlay %s\n",
+    printf("Pad trace: read %zu buttons 0x%08x L(%u,%u) R(%u,%u) L2 %u R2 %u connected %u overlay %s%s\n",
            reads,(unsigned)d->buttons,d->left_x,d->left_y,d->right_x,d->right_y,d->l2,d->r2,d->connected,
-           capture ? "captures input" : "no");
-    last=*d; last_capture=capture;
+           capture ? "captures input" : "no",
+           save_dialog_open ? ", save dialog open (game input neutral)" : "");
+    last=*d; last_capture=capture; last_dialog=save_dialog_open;
 }
 static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;

@@ -475,18 +475,23 @@ static ABI int32_t msg_term(void) {
     if (MSG_DIALOG->status==2) msg_close();
     return dialog_term(1);
 }
-/* SaveDataDialog, as shadPS4 (libraries/save_data/dialog/savedatadialog_ui.cpp) but without a list
- * on screen yet: each dialog is answered the way pressing Cross at once would answer it on the PS4.
+/* SaveDataDialog, as shadPS4 (libraries/save_data/dialog/savedatadialog_ui.cpp).
  *   LIST: the slots the game names (items->dirName[]) that exist on disk, after a "new save" entry
- *         when saving with newItem; the item focusPos points at is chosen (LISTHEAD/DATAHEAD the
- *         first, LISTTAIL/DATATAIL the last, DATALTATEST the newest, DATAOLDEST the oldest, DIRNAME
- *         the named one) and its dirName and param are returned. Loading with nothing to load is
- *         USER_CANCELED. Before this the result never carried a dirName: every save created a new
- *         slot and "Continue" loaded nothing (2026-10-11).
- *   USER_MSG / SYSTEM_MSG: YES or OK (buttonId 1); dialogs without buttons (NONE, PROGRESS) stay
- *         open until the game closes them.
+ *         when saving with newItem; focusPos picks the focused item (LISTHEAD/DATAHEAD the first,
+ *         LISTTAIL/DATATAIL the last, DATALTATEST the newest, DATAOLDEST the oldest, DIRNAME the
+ *         named one). The overlay shows the list and the player chooses (Up/Down, Cross; Circle is
+ *         USER_CANCELED); the chosen dirName and param are returned. Loading with nothing to load is
+ *         USER_CANCELED. Before 2026-10-11 the result never carried a dirName: every save created a
+ *         new slot and "Continue" loaded nothing.
+ *   USER_MSG YESNO, SYSTEM_MSG CONFIRM / OVERWRITE: a question with Yes and No (No focused); Yes is
+ *         buttonId 1, No 2, Circle USER_CANCELED. Other messages: OK (buttonId 1) at once; dialogs
+ *         without buttons (NONE, PROGRESS) stay open until the game closes them.
  *   ERROR_CODE: the error code is always logged, then OK.
- *   PROGRESS_BAR: open until the game closes it (save_close). */
+ *   PROGRESS_BAR: open until the game closes it (save_close).
+ * PGG_SAVE_AUTO=1: nothing is shown; each dialog is answered the way pressing Cross at once would
+ * answer it (the focused item, YES): benchmarks and scripted runs (scripts/bench_hokuto.py).
+ * While the list or a question is open the game polls sceSaveDataDialogUpdateStatus, which reads the
+ * pad (runtime_pad_poll); the pad gives the game neutral input (runtime_save_dialog_input). */
 typedef struct { char data[32]; } SaveDialogDirName;
 typedef struct { char data[10]; char pad[6]; } SaveDialogTitleId;
 typedef struct { const char *title; void *icon; uint64_t icon_size; uint8_t reserved[32]; } SaveDialogNewItem;
@@ -516,8 +521,14 @@ _Static_assert(offsetof(SaveDialogParam,mode)==52 && offsetof(SaveDialogParam,it
 _Static_assert(offsetof(SaveDialogItems,dir_count)==24 && offsetof(SaveDialogItems,new_item)==32 &&
                offsetof(SaveDialogItems,focus)==40 && offsetof(SaveDialogItems,focus_dir)==48,"SaveDialogItems layout");
 static ABI int32_t save_init(void) { return dialog_init(2); }
-static ABI int32_t save_status(void) { printf("Runtime: save_status -> %d\n", dialogs[2].status); return dialog_status(2); }
-static ABI int32_t save_term(void) { return dialog_term(2); }
+static ABI int32_t save_status(void) {
+    static int last=-1;
+    runtime_pad_poll(); /* the list or a question on screen: the player's answer */
+    const int status=dialog_status(2);
+    if (status!=last) { printf("Runtime: save_status -> %d\n",status); last=status; }
+    return status;
+}
+static ABI int32_t save_term(void);
 enum { SAVE_LIST=1, SAVE_USER_MSG=2, SAVE_SYSTEM_MSG=3, SAVE_ERROR_CODE=4, SAVEDATA_DIALOG_PROGRESS_BAR=5 };
 enum { SAVE_TYPE_SAVE=1, SAVE_TYPE_LOAD=2, SAVE_TYPE_DELETE=3 };
 #define SAVEDATA_DIALOG_TARGET_DEFAULT 0u
@@ -527,24 +538,96 @@ static const char *save_type_name(uint32_t t) { return t==1 ? "save" : t==2 ? "l
 static void save_finish(uint32_t result, uint32_t button) {
     save_answer.result=result; save_answer.button=button; dialogs[2].status=3; /* FINISHED */
 }
-/* The LIST dialog's choice: index into the shown list (new item first), as shadPS4 focuses it. */
+static int save_auto(void) {
+    static int enabled=-1;
+    if (enabled<0) { const char *e=pgg_getenv("SAVE_AUTO"); enabled=e && e[0]=='1'; }
+    return enabled;
+}
+/* What the overlay shows (PGG_SAVE_AUTO unset; texts in English, the overlay translates them). The
+ * pad thread and the game's thread both touch it. */
+enum { SCREEN_NONE=0, SCREEN_LIST=1, SCREEN_QUESTION=2 };
+enum { SAVE_MAX_ITEMS=64 };
+enum { PAD_UP=0x10, PAD_RIGHT=0x20, PAD_DOWN=0x40, PAD_LEFT=0x80, PAD_CIRCLE=0x2000, PAD_CROSS=0x4000 }; /* OrbisPadButton */
+typedef struct { char dir[33], name[128], subtitle[128], detail[128], date[24]; int64_t mtime; } SaveSlot;
+static pthread_mutex_t screen_lock=PTHREAD_MUTEX_INITIALIZER;
+static struct {
+    int kind, cursor, count, new_item, yes;
+    uint32_t type; int32_t user; char title[16];
+    char question[160];
+    SaveSlot items[SAVE_MAX_ITEMS];
+    uint32_t prev, held; /* buttons down at the last sample; buttons kept from the game until released */
+} screen;
+static const char *save_heading(uint32_t type) {
+    return type==SAVE_TYPE_SAVE ? "Save" : type==SAVE_TYPE_DELETE ? "Delete" : "Load";
+}
+/* screen_lock held. */
+static void screen_publish(void) {
+    if (screen.kind==SCREEN_NONE) { bbgpu_save_dialog_show(NULL); return; }
+    BbSaveDialogItem items[SAVE_MAX_ITEMS+1];
+    int n=0;
+    if (screen.kind==SCREEN_LIST) {
+        if (screen.new_item) items[n++]=(BbSaveDialogItem){"New saved data",NULL,NULL,NULL};
+        for (int i=0;i<screen.count;++i)
+            items[n++]=(BbSaveDialogItem){screen.items[i].name[0] ? screen.items[i].name : screen.items[i].dir,
+                                          screen.items[i].subtitle,screen.items[i].detail,screen.items[i].date};
+    }
+    const BbSaveDialog d={screen.kind,save_heading(screen.type),screen.question,
+                          items,n,screen.cursor,screen.yes};
+    bbgpu_save_dialog_show(&d);
+}
+/* screen_lock held: buttons held when it opens answer nothing until released. */
+static void screen_open(int kind) {
+    screen.kind=kind; screen.prev=~0u; screen.held=0;
+    dialogs[2].status=2; /* RUNNING: the game waits for the player */
+    screen_publish();
+}
+static void screen_close(void) { screen.kind=SCREEN_NONE; screen_publish(); }
+
+/* screen_lock held: answers the LIST dialog with shown item `shown` (the new item first). */
+static void save_list_choose(int shown) {
+    const int choice=shown-screen.new_item; /* -1: the new item */
+    save_answer.has_param=0; save_answer.dir[0]=0;
+    if (choice<0) {
+        printf("Runtime: SaveDataDialog answered: new save (the game names the new slot when it mounts it)\n");
+    } else {
+        memcpy(save_answer.dir,screen.items[choice].dir,sizeof(save_answer.dir));
+        save_answer.has_param=runtime_savedata_slot(screen.user,screen.title[0] ? screen.title : NULL,
+                                                    screen.items[choice].dir,save_answer.param,NULL);
+        printf("Runtime: SaveDataDialog answered: %s slot %s\n",
+               screen.type==SAVE_TYPE_SAVE ? "overwrite" : screen.type==SAVE_TYPE_LOAD ? "load" : "delete",
+               screen.items[choice].dir);
+    }
+    save_finish(0,1); /* OK, buttonId OK */
+}
+/* The LIST dialog: the slots shown (new item first) and the one shadPS4 focuses. */
 static void save_list_answer(const SaveDialogParam *p) {
     const SaveDialogItems *it=p->items;
     if (!it) { printf("Runtime: SaveDataDialog LIST without items; cancelled\n"); save_finish(1,0); return; }
+    pthread_mutex_lock(&screen_lock);
     const char *title=it->title && it->title->data[0] ? it->title->data : NULL;
-    enum { MAX_ITEMS=64 };
-    struct { char dir[33]; int64_t mtime; } list[MAX_ITEMS];
+    snprintf(screen.title,sizeof(screen.title),"%s",title ? title : "");
+    screen.type=p->disp_type; screen.user=it->user; screen.question[0]=0;
     int count=0;
     const int new_item = p->disp_type==SAVE_TYPE_SAVE && it->new_item;
     char names[512]=""; size_t used=0;
-    for (uint32_t i=0;i<it->dir_count && it->dirs && count<MAX_ITEMS;++i) {
+    for (uint32_t i=0;i<it->dir_count && it->dirs && count<SAVE_MAX_ITEMS;++i) {
         char name[33]; memcpy(name,it->dirs[i].data,32); name[32]=0;
         int64_t mtime=0;
-        const int exists=name[0] && runtime_savedata_slot(it->user,title,name,NULL,&mtime);
+        uint8_t param[1328]; /* OrbisSaveDataParam: title, subtitle, detail */
+        const int exists=name[0] && runtime_savedata_slot(it->user,title,name,param,&mtime);
         if (used<sizeof(names)-40) used+=(size_t)snprintf(names+used,sizeof(names)-used," %s%s",name[0] ? name : "\"\"",exists ? "" : "(none)");
         if (!exists) continue;
-        memcpy(list[count].dir,name,sizeof(name)); list[count].mtime=mtime; ++count;
+        SaveSlot *item=&screen.items[count++];
+        memcpy(item->dir,name,sizeof(name)); item->mtime=mtime;
+        snprintf(item->name,sizeof(item->name),"%.127s",(const char *)param);
+        snprintf(item->subtitle,sizeof(item->subtitle),"%.127s",(const char *)param+128);
+        snprintf(item->detail,sizeof(item->detail),"%.127s",(const char *)param+256);
+        for (char *c=item->detail;*c;++c) if (*c=='\n' || *c=='\r') { *c=0; break; } /* first line */
+        const time_t seconds=(time_t)mtime; struct tm local;
+        item->date[0]=0;
+        if (mtime>0 && localtime_r(&seconds,&local)) strftime(item->date,sizeof(item->date),"%Y-%m-%d %H:%M",&local);
     }
+    screen.count=count; screen.new_item=new_item;
     static const char *focus_names[]={"LISTHEAD","LISTTAIL","DATAHEAD","DATATAIL","DATALATEST","DATAOLDEST","DIRNAME"};
     char focus_dir[33]=""; if (it->focus_dir) { memcpy(focus_dir,it->focus_dir->data,32); focus_dir[32]=0; }
     printf("Runtime: SaveDataDialog LIST (%s, title %s): slots%s; new item %s; focus %s%s%s\n",
@@ -552,10 +635,11 @@ static void save_list_answer(const SaveDialogParam *p) {
            it->focus<7 ? focus_names[it->focus] : "?",it->focus==6 ? " " : "",it->focus==6 ? focus_dir : "");
     /* Shown order: new item (dirName "") first, then the existing slots. */
     const int total=count+new_item;
-    int choice=-1; /* -1: the new item; otherwise index into list */
+    int choice=-1; /* -1: the new item; otherwise index into the slots */
     if (total==0) {
         printf("Runtime: SaveDataDialog: nothing to %s; cancelled\n",save_type_name(p->disp_type));
         save_finish(1,0); /* USER_CANCELED */
+        pthread_mutex_unlock(&screen_lock);
         return;
     }
     switch (it->focus) {
@@ -564,25 +648,80 @@ static void save_list_answer(const SaveDialogParam *p) {
     case 4: case 5: {                                                        /* newest / oldest */
         choice=new_item && !count ? -1 : 0;
         for (int i=1;i<count;++i)
-            if (it->focus==4 ? list[i].mtime>list[choice].mtime : list[i].mtime<list[choice].mtime) choice=i;
+            if (it->focus==4 ? screen.items[i].mtime>screen.items[choice].mtime : screen.items[i].mtime<screen.items[choice].mtime) choice=i;
         break;
     }
     case 6:                                                                  /* DIRNAME */
         choice=new_item ? -1 : 0;
-        for (int i=0;i<count;++i) if (!strcmp(list[i].dir,focus_dir)) choice=i;
+        for (int i=0;i<count;++i) if (!strcmp(screen.items[i].dir,focus_dir)) choice=i;
         break;
     default: choice=new_item ? -1 : 0; break;
     }
-    save_answer.has_param=0; save_answer.dir[0]=0;
-    if (choice<0) {
-        printf("Runtime: SaveDataDialog answered: new save (the game names the new slot when it mounts it)\n");
-    } else {
-        memcpy(save_answer.dir,list[choice].dir,sizeof(save_answer.dir));
-        save_answer.has_param=runtime_savedata_slot(it->user,title,list[choice].dir,save_answer.param,NULL);
-        printf("Runtime: SaveDataDialog answered: %s slot %s\n",
-               p->disp_type==SAVE_TYPE_SAVE ? "overwrite" : p->disp_type==SAVE_TYPE_LOAD ? "load" : "delete",list[choice].dir);
+    screen.cursor=choice+new_item;
+    if (save_auto()) save_list_choose(screen.cursor);
+    else {
+        printf("Runtime: SaveDataDialog LIST on screen (%d items, focus %s): waiting for the player\n",total,
+               choice<0 ? "new save" : screen.items[choice].dir);
+        screen_open(SCREEN_LIST);
     }
-    save_finish(0,1); /* OK, buttonId OK */
+    pthread_mutex_unlock(&screen_lock);
+}
+/* A question with Yes and No (No focused), or YES at once with PGG_SAVE_AUTO=1. */
+static void save_question(const char *question) {
+    if (save_auto()) { save_finish(0,1); puts("Runtime: SaveDataDialog answered: YES"); return; }
+    pthread_mutex_lock(&screen_lock);
+    snprintf(screen.question,sizeof(screen.question),"%s",question);
+    screen.yes=0;
+    printf("Runtime: SaveDataDialog question on screen: \"%s\" (No focused): waiting for the player\n",question);
+    screen_open(SCREEN_QUESTION);
+    pthread_mutex_unlock(&screen_lock);
+}
+/* screen_lock held: one newly pressed set of buttons. */
+static void screen_press(uint32_t pressed) {
+    if (screen.kind==SCREEN_LIST) {
+        const int total=screen.count+screen.new_item;
+        if (pressed & PAD_UP && screen.cursor>0) --screen.cursor;
+        if (pressed & PAD_DOWN && screen.cursor<total-1) ++screen.cursor;
+        if (pressed & PAD_CROSS) { screen_close(); save_list_choose(screen.cursor); return; }
+        if (pressed & PAD_CIRCLE) {
+            screen_close(); save_finish(1,0); /* USER_CANCELED */
+            puts("Runtime: SaveDataDialog answered: cancelled (Circle)");
+            return;
+        }
+    } else if (screen.kind==SCREEN_QUESTION) {
+        if (pressed & (PAD_LEFT|PAD_RIGHT|PAD_UP|PAD_DOWN)) screen.yes=!screen.yes;
+        if (pressed & PAD_CROSS) {
+            screen_close(); save_finish(0,screen.yes ? 1 : 2); /* buttonId YES / NO */
+            printf("Runtime: SaveDataDialog answered: %s\n",screen.yes ? "YES" : "NO");
+            return;
+        }
+        if (pressed & PAD_CIRCLE) {
+            screen_close(); save_finish(1,0);
+            puts("Runtime: SaveDataDialog answered: cancelled (Circle)");
+            return;
+        }
+    }
+    screen_publish();
+}
+uint32_t runtime_save_dialog_input(uint32_t buttons, uint8_t left_y, int *open) {
+    pthread_mutex_lock(&screen_lock);
+    if (left_y<64) buttons|=PAD_UP; else if (left_y>192) buttons|=PAD_DOWN;
+    const uint32_t pressed=buttons & ~screen.prev;
+    screen.prev=buttons;
+    screen.held&=buttons; /* released: the game sees it again */
+    const int was_open=screen.kind!=SCREEN_NONE;
+    if (was_open && pressed) screen_press(pressed);
+    if (was_open && screen.kind==SCREEN_NONE) screen.held=buttons; /* the answering press stays out of the game */
+    *open=screen.kind!=SCREEN_NONE;
+    const uint32_t hidden=*open ? ~0u : screen.held;
+    pthread_mutex_unlock(&screen_lock);
+    return hidden;
+}
+static ABI int32_t save_term(void) {
+    pthread_mutex_lock(&screen_lock);
+    if (screen.kind!=SCREEN_NONE) screen_close();
+    pthread_mutex_unlock(&screen_lock);
+    return dialog_term(2);
 }
 static ABI int32_t save_open(const SaveDialogParam *p) {
     if (!dialogs[2].initialized) return DIALOG_NOT_INITIALIZED;
@@ -608,7 +747,8 @@ static ABI int32_t save_open(const SaveDialogParam *p) {
                buttons==0 ? "OK" : buttons==1 ? "YESNO" : buttons==2 ? "NONE" : buttons==3 ? "OKCANCEL" : "?",
                m && m->msg_type ? "error" : "normal",text);
         if (buttons==2) { dialogs[2].status=2; puts("Runtime: SaveDataDialog has no buttons: open until the game closes it"); }
-        else { save_finish(0,1); printf("Runtime: SaveDataDialog answered: %s\n",buttons==1 ? "YES" : "OK"); }
+        else if (buttons==1) save_question(text);
+        else { save_finish(0,1); puts("Runtime: SaveDataDialog answered: OK"); }
         break;
     }
     case SAVE_SYSTEM_MSG: {
@@ -619,7 +759,10 @@ static ABI int32_t save_open(const SaveDialogParam *p) {
         printf("Runtime: SaveDataDialog SYSTEM_MSG (%s): %s (value %llu)\n",save_type_name(p->disp_type),
                type<15 ? types[type] : "?",p->sys_msg ? (unsigned long long)p->sys_msg->value : 0ull);
         if (type==5) { dialogs[2].status=2; puts("Runtime: SaveDataDialog progress message: open until the game closes it"); }
-        else { save_finish(0,1); printf("Runtime: SaveDataDialog answered: %s\n",type==2 || type==3 ? "YES" : "OK"); }
+        else if (type==3) save_question("Overwrite this saved data?");
+        else if (type==2) save_question(p->disp_type==SAVE_TYPE_SAVE ? "Save?" :
+                                        p->disp_type==SAVE_TYPE_DELETE ? "Delete this saved data?" : "Load this saved data?");
+        else { save_finish(0,1); puts("Runtime: SaveDataDialog answered: OK"); }
         break;
     }
     case SAVE_ERROR_CODE:
@@ -637,6 +780,9 @@ static ABI int32_t save_open(const SaveDialogParam *p) {
 static ABI int32_t save_close(void) {
     printf("Runtime: save_close called (status=%d)\n", dialogs[2].status);
     if (dialogs[2].status != 2) return (int32_t)0x80B8000B; /* NOT_RUNNING */
+    pthread_mutex_lock(&screen_lock);
+    if (screen.kind!=SCREEN_NONE) { screen_close(); save_answer.result=1; puts("Runtime: SaveDataDialog closed by the game while on screen"); }
+    pthread_mutex_unlock(&screen_lock);
     dialogs[2].status = 3; /* FINISHED */
     return ORBIS_OK;
 }

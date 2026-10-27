@@ -6,6 +6,9 @@
 static int capture;
 int bbgpu_overlay_captures_input(void) { return capture; }
 int bbgpu_perf_start(int seconds) { (void)seconds; return 0; }
+uint32_t runtime_save_dialog_input(uint32_t buttons, uint8_t left_y, int *open) {
+    (void)buttons; (void)left_y; *open=0; return 0;
+}
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
     return 0;

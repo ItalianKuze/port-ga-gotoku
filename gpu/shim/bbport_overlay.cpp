@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <SDL3/SDL.h>
 #include "bbport_game.h"
@@ -82,6 +83,20 @@ float base_scale = 1.0f;
 std::mutex prompt_mutex;
 std::atomic<bool> prompt_active{false};
 std::string prompt_title, prompt_text;
+
+// The save data dialog (bbgpu_save_dialog_show): src/runtime_services.c keeps its state and reads
+// the pad; this only draws the copy it is given.
+std::mutex save_mutex;
+std::atomic<bool> save_active{false};
+struct SaveItem {
+    std::string name, subtitle, detail, date;
+};
+struct {
+    int kind = 0, selected = 0;
+    bool yes = false;
+    std::string heading, question;
+    std::vector<SaveItem> items;
+} save_dialog;
 
 // Present rate for the FPS counter.
 std::chrono::steady_clock::time_point last_present{};
@@ -374,7 +389,123 @@ void TextPrompt() {
     ImGui::End();
 }
 
+// The save data dialog, centred: up to 5 slots around the focused one (name, date, subtitle, the
+// detail's first line) or a question with Yes and No; the buttons to press at the bottom.
+void SaveDialog() {
+    std::scoped_lock lock{save_mutex};
+    const auto& d = save_dialog;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                   viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    const float width = 640.0f * base_scale;
+    ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.95f);
+    ImGui::Begin("##savedialog", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                     ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
+    const ImVec4 muted = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    const ImU32 chosen = ImGui::GetColorU32(ImVec4(0.70f, 0.13f, 0.16f, 0.85f));
+    const ImU32 other = ImGui::GetColorU32(ImGuiCol_Header);
+    ImGui::TextUnformatted(d.heading.c_str());
+    ImGui::Separator();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const float line = ImGui::GetTextLineHeightWithSpacing();
+    const float inner = ImGui::GetContentRegionAvail().x;
+    const float pad = 8.0f * base_scale;
+    if (d.kind == 1) {
+        constexpr int shown = 5;
+        const int count = int(d.items.size());
+        const int first = std::clamp(d.selected - shown / 2, 0, std::max(count - shown, 0));
+        if (first > 0) {
+            ImGui::TextColored(muted, "...");
+        }
+        for (int i = first; i < std::min(count, first + shown); ++i) {
+            const SaveItem& item = d.items[i];
+            // The subtitle and the detail wrap within the box.
+            const float wrap = inner - 2.0f * pad;
+            float height = line;
+            for (const std::string* extra : {&item.subtitle, &item.detail}) {
+                if (!extra->empty()) {
+                    height += ImGui::CalcTextSize(extra->c_str(), nullptr, false, wrap).y +
+                              ImGui::GetStyle().ItemSpacing.y;
+                }
+            }
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            const ImVec2 size(inner, height + 2.0f * pad);
+            draw->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), i == d.selected ? chosen : other,
+                                6.0f * base_scale);
+            ImGui::Dummy(size);
+            const ImU32 text = ImGui::GetColorU32(ImGuiCol_Text), dim = ImGui::GetColorU32(muted);
+            float y = at.y + pad;
+            draw->AddText(ImVec2(at.x + pad, y), text, item.name.c_str());
+            y += line;
+            if (!item.date.empty()) {
+                const float w = ImGui::CalcTextSize(item.date.c_str()).x;
+                draw->AddText(ImVec2(at.x + size.x - pad - w, y), i == d.selected ? text : dim, item.date.c_str());
+            }
+            for (const std::string* extra : {&item.subtitle, &item.detail}) {
+                if (!extra->empty()) {
+                    draw->AddText(nullptr, 0.0f, ImVec2(at.x + pad, y), i == d.selected ? text : dim,
+                                  extra->c_str(), nullptr, wrap);
+                    y += ImGui::CalcTextSize(extra->c_str(), nullptr, false, wrap).y + ImGui::GetStyle().ItemSpacing.y;
+                }
+            }
+        }
+        if (first + shown < count) {
+            ImGui::TextColored(muted, "...");
+        }
+        ImGui::Separator();
+        ImGui::TextColored(muted, "%s", BbSettings::MenuText("Up/Down: move   Cross: choose   Circle: cancel"));
+    } else {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + inner);
+        ImGui::TextUnformatted(d.question.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        const float button = 140.0f * base_scale, height = line + 2.0f * pad;
+        const char* labels[] = {BbSettings::MenuText("Yes"), BbSettings::MenuText("No")};
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (inner - 2.0f * button - pad) * 0.5f);
+        for (int i = 0; i < 2; ++i) {
+            if (i) {
+                ImGui::SameLine(0.0f, pad);
+            }
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            draw->AddRectFilled(at, ImVec2(at.x + button, at.y + height), (i == 0) == d.yes ? chosen : other,
+                                6.0f * base_scale);
+            const float w = ImGui::CalcTextSize(labels[i]).x;
+            draw->AddText(ImVec2(at.x + (button - w) * 0.5f, at.y + pad), ImGui::GetColorU32(ImGuiCol_Text), labels[i]);
+            ImGui::Dummy(ImVec2(button, height));
+        }
+        ImGui::Separator();
+        ImGui::TextColored(muted, "%s", BbSettings::MenuText("Left/Right: move   Cross: choose   Circle: cancel"));
+    }
+    ImGui::End();
+}
+
 } // namespace
+
+void SetSaveDialog(const BbSaveDialog* dialog) {
+    {
+        std::scoped_lock lock{save_mutex};
+        auto& d = save_dialog;
+        d.items.clear();
+        if (dialog) {
+            // The runtime's own texts are English (heading, questions, "New saved data").
+            const auto text = [](const char* s) { return std::string(s ? s : ""); };
+            const auto own = [](const char* s) { return std::string(s ? BbSettings::MenuText(s) : ""); };
+            d.kind = dialog->kind;
+            d.selected = dialog->selected;
+            d.yes = dialog->yes != 0;
+            d.heading = own(dialog->heading);
+            d.question = own(dialog->question);
+            for (int i = 0; dialog->items && i < dialog->count; ++i) {
+                const BbSaveDialogItem& item = dialog->items[i];
+                d.items.push_back({own(item.name), text(item.subtitle), text(item.detail), text(item.date)});
+            }
+        }
+    }
+    save_active = dialog != nullptr;
+}
 
 void SetTextPrompt(bool active, const std::string& prompt, const std::string& text) {
     {
@@ -618,7 +749,7 @@ bool HandleEvent(const SDL_Event& event) {
 }
 
 bool Visible() {
-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || BbSettings::Get().show_hud ||
+    return initialized && (menu_open || prompt_active || save_active || BbSettings::Get().show_fps || BbSettings::Get().show_hud ||
                            BbPerf::MeasurementProgress().first >= 0.0f);
 }
 
@@ -672,6 +803,9 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     }
     if (prompt_active && !menu_open) {
         TextPrompt();
+    }
+    if (save_active && !menu_open) {
+        SaveDialog();
     }
     ImGui::Render();
 

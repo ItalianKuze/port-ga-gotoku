@@ -8,6 +8,7 @@
 #include <string>
 #include "common/types.h"
 #include "video_core/renderer_vulkan/vk_common.h"
+#include "../bbgpu.h"
 
 union SDL_Event;
 struct SDL_Window;
@@ -40,5 +41,9 @@ bool MenuOpen();
 
 /// Window thread: the game's text dialog (ImeDialog) state, drawn as a box over the frame.
 void SetTextPrompt(bool active, const std::string& prompt, const std::string& text);
+
+/// PortGaGotoku, any thread: the save data dialog to draw (copied), or nullptr to hide it. It does
+/// not capture input: the runtime reads the pad for it and holds the game's input neutral.
+void SetSaveDialog(const BbSaveDialog* dialog);
 
 } // namespace BbOverlay

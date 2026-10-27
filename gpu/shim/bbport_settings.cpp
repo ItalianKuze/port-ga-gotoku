@@ -66,6 +66,18 @@ constexpr std::pair<const char*, const char*> ItalianTexts[] = {
     {"FPS counter in corner", "Contatore FPS nell'angolo"},
     {"Close", "Chiudi"},
     {"Settings are saved to pgg.ini", "Le impostazioni sono salvate in pgg.ini"},
+    {"Up/Down: move   Cross: choose   Circle: cancel", "Su/Giù: sposta   Croce: scegli   Cerchio: annulla"},
+    {"Left/Right: move   Cross: choose   Circle: cancel", "Sinistra/Destra: sposta   Croce: scegli   Cerchio: annulla"},
+    {"Yes", "Sì"},
+    {"No", "No"},
+    {"Load", "Carica"},
+    {"Save", "Salva"},
+    {"Delete", "Elimina"},
+    {"New saved data", "Nuovo salvataggio"},
+    {"Overwrite this saved data?", "Sovrascrivere questo salvataggio?"},
+    {"Save?", "Salvare?"},
+    {"Load this saved data?", "Caricare questo salvataggio?"},
+    {"Delete this saved data?", "Eliminare questo salvataggio?"},
 };
 
 const char* MenuText(const char* english) {

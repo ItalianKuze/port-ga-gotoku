@@ -8,7 +8,8 @@
 Every run plays on a fresh copy of the data (PortGaGotoku-data-bench next to PortGaGotoku-data: saves,
 shader cache, settings and boot image copied from the real one, which is never written), so every run
 starts from the same save and cache. The script waits for the title screen, presses Cross until the
-game asks for the save list (the runtime answers it with the latest slot: Continue), waits for
+game asks for the save list (PGG_SAVE_AUTO=1: the runtime answers it at once with the latest slot,
+Continue, instead of showing it), waits for
 "Load completed.", for the end of the loading screen (frame statistics at 28 FPS or more) and for the
 delay the player took in the recording before pressing F9, then writes
 "replay measure=90" (walk) or "measure=30" (still) into the scripted pad file: the recorded route plays
@@ -151,7 +152,7 @@ def close(process, job):
 def record():
     copy_data()
     ROUTE.parent.mkdir(parents=True, exist_ok=True)
-    process, job, log = start({'PGG_PAD_RECORD': str(ROUTE)}, 'record')
+    process, job, log = start({'PGG_PAD_RECORD': str(ROUTE), 'PGG_SAVE_AUTO': '1'}, 'record')
     print('\n  In the game: Continue (slot 02). When you have control, without moving, press F9.\n'
           '  0-60 s: the baseline route (walk towards the Eden gate, camera turns at ~20 and ~40 s);\n'
           '  60-90 s: stand still; then F9 again (stops the recording) and close the window.\n', flush=True)
@@ -178,7 +179,7 @@ def run(kind, index):
     copy_data()
     pad = BENCH_DATA / 'bench-pad.txt'
     pad.write_text('', encoding='ascii')
-    env = {'PGG_PAD_FILE': str(pad)}
+    env = {'PGG_PAD_FILE': str(pad), 'PGG_SAVE_AUTO': '1'}
     if kind == 'walk':
         env['PGG_PAD_REPLAY'] = str(ROUTE)
     process, job, log = start(env, f'{kind}{index}')

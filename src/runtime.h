@@ -155,5 +155,12 @@ int runtime_save_trace(void);
 /* For the save data dialog: 1 when save slot <dir> of <user>/<title> (NULL: the game's) exists with
  * its param.bin; copies the OrbisSaveDataParam (1328 bytes) to param and its last write to mtime. */
 int runtime_savedata_slot(int32_t user, const char *title, const char *dir, void *param, int64_t *mtime);
+/* The save data dialog on screen (runtime_services.c): every pad sample (buttons, left stick y) goes
+ * through it. *open is 1 while the list or a question is open (the game must get neutral input);
+ * the result is the set of buttons the game must not see (all while open, then the press that
+ * answered it until released). */
+uint32_t runtime_save_dialog_input(uint32_t buttons, uint8_t left_y, int *open);
+/* Samples the pad once for the save data dialog, which the game polls without reading the pad. */
+void runtime_pad_poll(void);
 void runtime_thread_attach_host(const char *name);
 #endif
