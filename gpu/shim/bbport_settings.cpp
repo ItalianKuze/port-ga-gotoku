@@ -32,8 +32,6 @@ void Set(Values& v, const std::string& key, const std::string& value) {
                 v.upscaler = u;
             }
         }
-    } else if (key == "object_motion") {
-        v.object_motion = i != 0;
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
     } else if (key == "show_hud") {
@@ -127,14 +125,6 @@ void Load() {
             if (std::strcmp(env, UpscalerName(u)) == 0) v.upscaler = u;
         }
     }
-    if (const char* value = std::getenv("BB_OBJECT_MOTION")) {
-        Set(v, "object_motion", value);
-    }
-}
-
-bool UpscalerAvailable() {
-    const char* env = std::getenv("BB_UPSCALER");
-    return !(env && std::strcmp(env, "none") == 0) && !BbGame::IsHokuto();
 }
 
 void Save() {
@@ -151,7 +141,6 @@ void Save() {
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
     put("menu_language", v.menu_language == MenuLanguage::Italian ? "it" : "en");
     put("upscaler", UpscalerName(v.upscaler));
-    put("object_motion", flag(v.object_motion));
     put("show_fps", flag(v.show_fps));
     put("show_hud", flag(v.show_hud));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {

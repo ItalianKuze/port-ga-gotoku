@@ -94,12 +94,10 @@ add_host_shader(fs_tri.vert fs_tri_vert)
 add_host_shader(fsr.comp fsr_easu_comp SAMPLE_EASU=1)
 add_host_shader(fsr.comp fsr_rcas_comp SAMPLE_RCAS=1)
 add_host_shader(post_process.frag post_process_frag)
-add_host_shader(camera_motion.comp camera_motion_comp)
 add_host_shader(fsr4_color.comp fsr4_decode_comp)
 add_host_shader(fsr4_color.comp fsr4_encode_comp ENCODE=1)
 add_host_shader(fsr4_reactive.comp fsr4_reactive_comp)
 add_host_shader(buffer_multi_copy.comp buffer_multi_copy_comp)
-add_host_shader(camera_motion.comp camera_motion_debug_comp DEBUG_OVERLAY=1)
 foreach(BPP IN ITEMS 8 16 32 64 96 128)
     add_host_shader(tiling.comp tiling_micro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=0)
     add_host_shader(tiling.comp tiling_macro_${BPP}_comp BITS_PER_PIXEL=${BPP} IS_MACRO_TILED=1)
@@ -176,23 +174,10 @@ if (BB_PIPELINE_CACHE_ARCHIVE)
 endif()
 target_link_libraries(bbgpu PUBLIC ${BB_GPU_DEPENDENCIES})
 
-# Explicit test targets; neither launches the game nor needs a Vulkan device.
-add_executable(motion-history-test EXCLUDE_FROM_ALL ../tests/test_motion_history.cpp)
-target_compile_options(motion-history-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
-target_include_directories(motion-history-test PRIVATE ..)
-add_executable(motion-shader-test EXCLUDE_FROM_ALL ../tests/test_motion_shaders.cpp ../tests/test_gpu_runtime_stubs.cpp)
-target_include_directories(motion-shader-test PRIVATE shim shadps4 third_party/gcn/include)
-target_link_libraries(motion-shader-test PRIVATE bbgpu)
+# Explicit test target; it neither launches the game nor needs a Vulkan device.
 add_executable(settings-test EXCLUDE_FROM_ALL ../tests/test_settings.cpp shim/bbport_settings.cpp)
 target_compile_options(settings-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 target_include_directories(settings-test PRIVATE .. shim)
-
-add_executable(camera-motion-test EXCLUDE_FROM_ALL ../tests/test_camera_motion.cpp ../tests/test_gpu_runtime_stubs.cpp)
-target_include_directories(camera-motion-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
-target_compile_options(camera-motion-test PRIVATE -UNDEBUG -fPIC)
-target_link_libraries(camera-motion-test PRIVATE bbgpu)
-add_dependencies(camera-motion-test host_shaders)
-
 
 # bbport: FSR 4 benchmark outside the game (tools/fsr4_bench.cpp): ninja -C out/gpu fsr4-bench.
 add_executable(fsr4-bench EXCLUDE_FROM_ALL tools/fsr4_bench.cpp

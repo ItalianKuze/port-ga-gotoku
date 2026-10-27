@@ -14,7 +14,6 @@
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/renderer_vulkan/vk_draw_prep.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
-#include <xxhash.h>
 
 namespace Vulkan {
 
@@ -189,8 +188,6 @@ void PrepareVertexInputs(const Shader::Info& vs, const Shader::Gcn::FetchShaderD
     out.ranges = arena.AppendArray(merged.data(), merged.size());
     out.count = static_cast<u32>(attributes.size());
     out.num_ranges = static_cast<u32>(merged.size());
-    out.buffers_hash =
-        buffers.empty() ? 0 : XXH3_64bits(buffers.data(), buffers.size() * sizeof(AmdGpu::Buffer));
     out.valid = true;
 }
 

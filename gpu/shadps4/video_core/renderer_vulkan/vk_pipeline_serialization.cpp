@@ -116,12 +116,6 @@ bool LoadShaderMeta(Serialization::Archive& ar, Shader::Info& info,
     spec.Deserialize(ar);
     info.Deserialize(ar);
 
-    // Motion vertex shaders embed session-local buffer device addresses. They must be
-    // recompiled for the current allocation, never loaded from a previous process.
-    if (info.hw_stage == Shader::HwStage::Vertex && spec.runtime_info.hw.vs.motion_vectors) {
-        return false;
-    }
-
     fetch_shader_data = spec.fetch_shader_data;
     return true;
 }

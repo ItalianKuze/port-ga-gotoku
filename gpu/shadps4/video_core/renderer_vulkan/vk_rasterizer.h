@@ -14,9 +14,7 @@
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/page_manager.h"
 #include "video_core/renderer_vulkan/vk_bind_helper.h"
-#include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_constant_ring.h"
-#include "video_core/renderer_vulkan/vk_object_motion.h"
 #include "video_core/renderer_vulkan/vk_draw_pipe.h"
 #include "video_core/renderer_vulkan/vk_draw_prep.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
@@ -267,7 +265,6 @@ private:
         u32 mrt_mask = 0;
         u32 num_samples = 0;
         std::array<u8, AmdGpu::NUM_COLOR_BUFFERS> color_samples{};
-        bool motion = false;
         u64 generation = 0;
         u32 depth_control = 0;
         bool depth_valid = false;
@@ -410,11 +407,6 @@ private:
     Common::SharedFirstMutex mapped_ranges_mutex;
     PipelineCache pipeline_cache;
     std::unique_ptr<DrawPreparation> draw_prep;
-    std::unique_ptr<CameraMotion> camera_motion; // bbport: motion vectors (docs/upscaler.md)
-    std::unique_ptr<ObjectMotion> object_motion;
-    bool motion_draw = false;
-    u64 motion_geometry{};    ///< vertex-stream identity of the current direct draw
-    bool gbuffer_draw = false;
     const bool host_markers_enabled;
     const bool guest_markers_enabled;
 

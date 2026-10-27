@@ -225,7 +225,9 @@ struct PushData {
     float yscale;
     std::array<u32, NUM_USER_DATA_REGS> ud_regs;
     std::array<u8, NUM_BUFFERS> buf_offsets;
-    u32 motion_param; ///< bbport: object motion parameter index (0: off)
+    // bbport: the object motion parameter (removed) and the reduced scene size (removed, read
+    // with FragCoord): always zero, kept so cached shaders keep their push constant layout.
+    u32 motion_param;
     u32 scene_size; ///< reduced width | height << 16; zero means native pixel coordinates
 
     void AddOffset(u32 binding, u32 offset) {

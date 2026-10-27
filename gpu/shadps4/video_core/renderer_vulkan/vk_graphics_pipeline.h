@@ -43,7 +43,7 @@ struct GraphicsPipelineKey {
     u8 depth_samples;
     std::array<u8, AmdGpu::NUM_COLOR_BUFFERS> color_samples;
     u32 mrt_mask;
-    u32 motion_vectors = 0;
+    u32 motion_vectors = 0; ///< bbport: object motion vectors (removed); 0, kept in cached keys
     struct {
         AmdGpu::DepthBuffer::ZFormat z_format : 2;
         AmdGpu::DepthBuffer::StencilFormat stencil_format : 1;

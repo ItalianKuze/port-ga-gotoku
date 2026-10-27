@@ -72,7 +72,6 @@ struct PreparedVertexInputs {
     const u8* range_index; ///< per stream with memory: its entry in `ranges`
     const Range* ranges;
     u32 count, num_ranges;
-    u64 buffers_hash; ///< XXH3 of `buffers` (object motion stream identity)
     bool valid;
 };
 

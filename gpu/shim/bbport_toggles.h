@@ -70,16 +70,9 @@ enum : std::uint64_t {
     /// Finished GPU writes are read back on the readback queue (BufferCache::DownloadMemory);
     /// bit set: on the graphics queue after everything queued, as before.
     ReadbackQueue = 1ull << 59,
-    /// Camera vectors from the inverse of the view matrix itself instead of the game's stored
-    /// inverse; bit set: the other one of BB_CAMERA_INVERSE (A/B while the game runs).
-    CameraOwnInverse = 1ull << 60,
     /// Scene textures use BB_ANISO (16) times anisotropic filtering instead of the game's
     /// ratio; bit set: the game's own samplers (A/B while the game runs).
     ForcedAniso = 1ull << 61,
-    /// Camera motion vectors: the screen y sign derived from the G-buffer viewport, inverted
-    /// (A/B of the y convention while the game runs).
-    CameraYFlip = 1ull << 62,
-    // Bits 20-29 are used as raw debug toggles by the camera/object motion and the upscaler.
 };
 inline bool Disabled(std::uint64_t bit) {
     return (runtime_get_disabled_optimizations() & bit) != 0;

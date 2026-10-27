@@ -72,7 +72,7 @@ EmitContext::EmitContext(const Profile& profile_, const RuntimeInfo& runtime_inf
                          Bindings& binding_)
     : Sirit::Module(profile_.supported_spirv), info{info_}, runtime_info{runtime_info_},
       profile{profile_}, hw_stage{info.hw_stage}, sw_stage{info.sw_stage}, binding{binding_} {
-    if (info.uses_dma || VertexMotion()) {
+    if (info.uses_dma) {
         SetMemoryModel(spv::AddressingModel::PhysicalStorageBuffer64, spv::MemoryModel::GLSL450);
     } else {
         SetMemoryModel(spv::AddressingModel::Logical, spv::MemoryModel::GLSL450);
@@ -351,7 +351,7 @@ void EmitContext::DefineInputs() {
         break;
     }
     case SwStage::Fragment: {
-        if (FragmentMotion() || info.loads.GetAny(IR::Attribute::FragCoord) ||
+        if (info.loads.GetAny(IR::Attribute::FragCoord) ||
             (info.loads.GetAny(IR::Attribute::BaryCoordPullModel) &&
              !profile.supports_amd_shader_explicit_vertex_parameter)) {
             frag_coord = DefineVariable(F32[4], spv::BuiltIn::FragCoord, spv::StorageClass::Input);
@@ -644,12 +644,6 @@ void EmitContext::DefineOutputs() {
                 ++num_attrs;
             }
 
-            if (VertexMotion()) {
-                motion_out_cur = DefineOutput(F32[4], MotionVectors::CurrentLocation);
-                motion_out_prev = DefineOutput(F32[4], MotionVectors::PreviousLocation);
-                Name(motion_out_cur, "motion_cur");
-                Name(motion_out_prev, "motion_prev");
-            }
             if (needs_clip_distance_emulation) {
                 clip_distances = Id{DefineOutput(F32[MaxEmulatedClipDistances], 0)};
                 output_params[num_attrs] = GetAttributeInfo(
@@ -742,12 +736,6 @@ void EmitContext::DefineOutputs() {
             Name(id, fmt::format("frag_color{}", i));
             frag_outputs[i] = GetAttributeInfo(num_format, id, num_components, true);
             ++num_render_targets;
-        }
-        if (FragmentMotion() && !Sirit::ValidId(frag_outputs[MotionVectors::Output].id)) {
-            motion_frag_out = DefineOutput(F32[4], MotionVectors::Output);
-            motion_in_cur = DefineInput(F32[4], MotionVectors::CurrentLocation);
-            motion_in_prev = DefineInput(F32[4], MotionVectors::PreviousLocation);
-            Name(motion_frag_out, "motion_vector");
         }
         // Dual source blending allows at most 2 render targets, one for each source.
         // Fewer targets are allowed but the missing blending source values will be

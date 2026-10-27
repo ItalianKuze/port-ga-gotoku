@@ -17,7 +17,6 @@ enum class MenuLanguage { English, Italian };
 struct Values {
     std::atomic<MenuLanguage> menu_language{MenuLanguage::English};
     std::atomic<int> upscaler{UpscalerFsr3};
-    std::atomic<bool> object_motion{true};
     std::atomic<bool> show_fps{false};
     std::atomic<bool> show_hud{false}; ///< PortGaGotoku: the statistics HUD (F11)
     /// The settings menu's position (fraction of the screen), -1 until it is moved.
@@ -31,10 +30,6 @@ const char* MenuText(const char* english);
 
 /// Reads the file, then the environment overrides. Called once at start.
 void Load();
-/// PortGaGotoku: the temporal upscaler and what feeds it (jitter, camera and object motion) can run:
-/// not with BB_UPSCALER=none, never on the Hokuto profile (they are written for Bloodborne's frame),
-/// whatever the settings file says.
-bool UpscalerAvailable();
 /// Writes the file (menu changes).
 void Save();
 

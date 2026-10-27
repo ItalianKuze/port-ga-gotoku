@@ -58,10 +58,6 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
       guest_markers_enabled{EmulatorSettings.IsVkGuestMarkersEnabled()} {
     // Before the rasterizer is bound: Liverpool enqueues buffers only once it sees it.
     draw_prep = std::make_unique<DrawPreparation>(pipeline_cache);
-    // Object motion first: it fixes the buffer addresses the motion shader variants embed.
-    object_motion = std::make_unique<ObjectMotion>(instance, scheduler);
-    camera_motion = std::make_unique<CameraMotion>(instance, scheduler, texture_cache, runtime);
-    camera_motion->SetObjectMotion(object_motion.get());
     if (!EmulatorSettings.IsNullGPU()) {
         liverpool->BindRasterizer(this);
     }
@@ -555,14 +551,6 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
         image.binding.is_target = 1u;
     } else {
         db_desc.first = {};
-    }
-    // bbport: the G-buffer pass (5+ color targets) holds the scene depth, and its constants the
-    // main camera (shadow passes bind the same layout with the light's camera).
-    gbuffer_draw = camera_motion->Enabled() && std::popcount(key.mrt_mask) >= 5 && db_desc.first;
-    if (gbuffer_draw) {
-        const auto& vp = regs.viewports[0];
-        camera_motion->OnGBufferPass(db_desc.first, vp.xscale < 0.0f ? -1.0f : 1.0f,
-                                     vp.yscale < 0.0f ? -1.0f : 1.0f);
     }
 }
 
@@ -1395,17 +1383,11 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         buffer_cache.Preupload(budget);
     }
     const auto& regs = Regs();
-    // bbport: the pass copying a finished frame to a display buffer; the previous draw's
-    // target is that frame.
-    if (camera_motion->Enabled() && regs.color_buffers[0] &&
-        FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address())) {
-        camera_motion->OnDisplayPass(cb_descs[0].first);
-        object_motion->OnFrameStart();
+    // bbport: the pass copying a finished frame to a display buffer starts a GPU frame.
+    if (regs.color_buffers[0] && FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address())) {
         NoteFrameStart();
     }
     bind_prepared = used_prepared;
-    motion_draw = pipeline->GetGraphicsKey().motion_vectors;
-    motion_geometry = 0;
 
     PrepareRenderState(pipeline);
     const PreparedDraw* draw_prepared = bind_prepared;
@@ -1436,89 +1418,6 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         runtime.FlushBarriers();
     }
 
-    if (motion_draw && motion_geometry) {
-        BB_SECTION(Motion);
-        const auto& vs = pipeline->GetStage(Shader::SwStage::Vertex);
-        const auto [base_vertex, first_instance] =
-            GetDrawOffsets(regs, vs, pipeline->GetFetchShader());
-        const u32 index_size =
-            regs.index_buffer_type.index_type == AmdGpu::IndexType::Index16 ? 2u : 4u;
-        const VAddr index_address = is_indexed
-            ? regs.index_base_address.Address<VAddr>() + u64(index_offset) * index_size : 0;
-        // Without a character-size skeleton the draw is gated on its bone palette changing
-        // since last frame (model constants follow the camera, the palette does not). The
-        // check comes first: most gated draws are static world pieces with long index lists.
-        static const bool all_motion = [] {
-            const char* value = std::getenv("BB_OBJECT_MOTION_ALL");
-            return value && value[0] == '1';
-        }();
-        bool gated = !all_motion;
-        u64 palette = 0;
-        for (const auto& resource : vs.buffers) {
-            if (resource.IsSpecial()) continue;
-            const auto buffer = resource.GetSharp(vs);
-            const u32 size = buffer.GetSize();
-            if (!buffer.Valid() || buffer.GetStride() != 16) continue;
-            const auto role = Motion::ClassifyBuffer(size);
-            if (role == Motion::BufferRole::Skeleton) {
-                gated = false;
-                break;
-            }
-            const VAddr address = buffer.base_address;
-            if (role == Motion::BufferRole::SmallSkeleton &&
-                memory->IsValidGpuMapping(address, 0) &&
-                memory->ClampRangeSize(address, size) == size) {
-                palette = XXH3_64bits_withSeed(reinterpret_cast<const void*>(address), size,
-                                               palette);
-            }
-        }
-        push_data.motion_param = 0;
-        if (!gated || object_motion->Moving({.shader = vs.pgm_hash,
-                                             .geometry = motion_geometry,
-                                             .indices = index_address,
-                                             .index_count = regs.num_indices,
-                                             .instances = regs.num_instances.NumInstances(),
-                                             .first_instance = first_instance},
-                                            palette)) {
-            Motion::VertexRange range{base_vertex, regs.num_indices};
-            u64 topology = 0;
-            if (is_indexed) {
-                range = {};
-                const u64 bytes = u64(regs.num_indices) * index_size;
-                if (index_address && memory->IsValidGpuMapping(index_address, 0) &&
-                    memory->ClampRangeSize(index_address, bytes) == bytes) {
-                    const bool restart = regs.enable_primitive_restart != 0;
-                    const u32 count = regs.num_indices;
-                    const auto scanned = object_motion->IndexRange(
-                        {index_address, count, index_size, s32(base_vertex), restart}, [&] {
-                            const auto* data = reinterpret_cast<const void*>(index_address);
-                            const auto scan_range =
-                                index_size == 2
-                                    ? Motion::IndexedRange(
-                                          std::span(static_cast<const u16*>(data), count),
-                                          s32(base_vertex), restart)
-                                    : Motion::IndexedRange(
-                                          std::span(static_cast<const u32*>(data), count),
-                                          s32(base_vertex), restart);
-                            return Motion::IndexRangeCache::Result{scan_range,
-                                                                   XXH3_64bits(data, bytes)};
-                        });
-                    range = scanned.range;
-                    topology = scanned.topology;
-                }
-            }
-            push_data.motion_param = object_motion->PrepareDraw({
-                .shader = vs.pgm_hash,
-                .geometry = motion_geometry,
-                .indices = index_address,
-                .topology = topology,
-                .index_count = regs.num_indices,
-                .instances = regs.num_instances.NumInstances(),
-                .first_instance = first_instance,
-                .vertices = range,
-            });
-        }
-    }
     {
         BB_SECTION(PipelineBind);
         pipeline->BindResources(set_writes, push_data, {image_infos.data(), image_infos.size()},
@@ -1615,9 +1514,6 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     const u32 stride = indirect.stride;
     const u32 max_count = indirect.max_count;
 
-    // Indirect arguments may be GPU-written: leave these draws on camera fallback.
-    motion_draw = false;
-    motion_geometry = 0;
     PrepareRenderState(pipeline);
     if (!BindResources(pipeline)) {
         return;
@@ -1711,7 +1607,6 @@ void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
     BB_SECTION(DispatchRecord);
     buffer_cache.NewPacket();
     FrameCapture::Poll();
-    gbuffer_draw = false;
 
     scheduler.PopPendingOperations();
 
@@ -2202,23 +2097,6 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
         // If there are no bindings, there is nothing further to do.
         return;
     }
-    if (motion_draw && !guest_buffers.empty()) {
-        // Include every stream: identical position buffers can be paired with different
-        // skinning/instance data. Index topology and base offsets are matched separately.
-        motion_geometry = ready ? ready->buffers_hash
-                                : XXH3_64bits(guest_buffers.data(),
-                                              guest_buffers.size() * sizeof(AmdGpu::Buffer));
-    }
-    // Object motion research: vertex streams of G-buffer draws.
-    if (FrameCapture::Active() && gbuffer_draw) {
-        for (const auto& vb : guest_buffers) {
-            char note[128];
-            std::snprintf(note, sizeof(note), "\n  gb vb at %#llx size %u stride %u",
-                          (unsigned long long)vb.base_address, u32(vb.GetSize()),
-                          u32(vb.GetStride()));
-            FrameCapture::Note(note);
-        }
-    }
 
     struct BufferRange {
         VAddr base_address;
@@ -2557,10 +2435,6 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
         if (ring) {
             // Copied by the GPU command thread into the constant ring (read-only).
             if (!desc.IsSpecial()) {
-                if (ring->size == 864 && gbuffer_draw &&
-                    memory->IsValidGpuMapping(ring->address, 0)) {
-                    camera_motion->OnConstants(reinterpret_cast<const float*>(ring->address));
-                }
                 push_data.AddOffset(binding.buffer, 0);
             }
             buffer_infos.emplace_back(constant_ring->Handle(), ring->offset, ring->size);
@@ -2618,22 +2492,6 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
         } else {
             const auto vsharp =
                 prepared ? prepared->buffer_sharps[buffer_index] : desc.GetSharp(stage);
-            if (vsharp.GetSize() == 864 && gbuffer_draw &&
-                memory->IsValidGpuMapping(vsharp.base_address, 0)) {
-                camera_motion->OnConstants(reinterpret_cast<const float*>(vsharp.base_address));
-            }
-            // Object motion research: the vertex shader buffers of G-buffer draws.
-            if (FrameCapture::Active() && gbuffer_draw && stage.sw_stage == Shader::SwStage::Vertex &&
-                vsharp.base_address != 0 && memory->IsValidGpuMapping(vsharp.base_address, 0)) {
-                const auto* f = reinterpret_cast<const float*>(vsharp.base_address);
-                char note[192];
-                std::snprintf(note, sizeof(note),
-                              "\n  gb vs %08x slot %u at %#llx size %u stride %u: %g %g %g %g",
-                              u32(stage.pgm_hash), binding.buffer,
-                              (unsigned long long)vsharp.base_address, u32(vsharp.GetSize()),
-                              u32(vsharp.GetStride()), f[0], f[1], f[2], f[3]);
-                FrameCapture::Note(note);
-            }
             if (FrameCapture::Active() && vsharp.base_address != 0 && vsharp.GetSize() != 0 &&
                 memory->IsValidGpuMapping(vsharp.base_address, 0)) {
                 FrameCapture::Buffer(stage.pgm_hash, binding.buffer, vsharp.base_address,
@@ -3033,7 +2891,6 @@ Rasterizer::BeginSignature Rasterizer::MakeBeginSignature(const GraphicsPipeline
     }
     sig.mrt_mask = key.mrt_mask;
     sig.num_samples = key.num_samples;
-    sig.motion = key.motion_vectors;
     sig.generation = texture_cache.RegistryGeneration();
     std::memcpy(&sig.depth_control, &regs.depth_control, sizeof(u32));
     sig.depth_valid = regs.depth_buffer.DepthValid();
@@ -3310,10 +3167,6 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         const auto* depth =
             db_desc.first ? &texture_cache.GetImage(db_desc.first).info : nullptr;
         FrameCapture::BeginPass(colors.data(), state.num_color_attachments, depth);
-    }
-    // bbport: object motion vector attachment of G-buffer pipelines.
-    if (key.motion_vectors) {
-        object_motion->Attach(state, state.width, state.height);
     }
     return state;
 }

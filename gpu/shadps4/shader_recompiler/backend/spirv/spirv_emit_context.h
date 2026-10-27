@@ -252,19 +252,6 @@ public:
     Id vertex_index{};
     Id instance_id{};
     Id push_data_block{};
-    // bbport: object motion vectors (runtime_info.h, MotionVectors).
-    Id motion_out_cur{};
-    Id motion_out_prev{};
-    Id motion_in_cur{};
-    Id motion_in_prev{};
-    Id motion_frag_out{};
-    [[nodiscard]] bool VertexMotion() const {
-        return sw_stage == SwStage::Vertex && hw_stage == HwStage::Vertex &&
-               runtime_info.hw.vs.motion_vectors && MotionVectors::positions_address != 0;
-    }
-    [[nodiscard]] bool FragmentMotion() const {
-        return sw_stage == SwStage::Fragment && runtime_info.hw.fs.motion_vectors;
-    }
     Id base_vertex{};
     Id base_instance{};
     Id frag_coord{};
