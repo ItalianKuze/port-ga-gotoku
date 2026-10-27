@@ -138,8 +138,11 @@ GPL-2.0-or-later.
   `launcher/ui/fonts/Figtree-OFL.txt`, `gpu/third_party/fonts/LICENSE-Figtree.txt`) and DejaVu Sans
   (Bitstream Vera license, `gpu/third_party/fonts/LICENSE-DejaVu.txt`).
 - Third-party components inherited from bbport keep their licenses: sirit, half, LibAtrac9 (MIT), Dear
-  ImGui (MIT), and the others under `gpu/third_party` and `third_party`. The launcher window uses [pywebview](https://pywebview.flowrl.com/) (BSD).
+  ImGui (MIT), and the others under `gpu/third_party` and `third_party`. The launcher window uses
+  [pywebview](https://pywebview.flowrl.com/) (BSD).
 
 ## License
 
-GNU GPL v2 or later ([LICENSE](LICENSE)), as bbport and shadPS4.
+GNU GPL v2 or later ([LICENSE](LICENSE)), as bbport and shadPS4. The Windows package as a whole is
+GPL-2.0-or-later too; its third-party components and their licenses are listed in
+`THIRD_PARTY_NOTICES.txt` and `licenses\`.

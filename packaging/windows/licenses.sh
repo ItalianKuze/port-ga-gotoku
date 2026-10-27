@@ -183,10 +183,9 @@ source_component 'DejaVu Sans font' in-tree 'Bitstream-Vera' https://dejavu-font
     echo 'scripts\) is GPL-2.0-or-later (LICENSE), as bbport and shadPS4 whose code it contains:'
     echo 'https://github.com/ItalianKuze/port-ga-gotoku'
     echo
-    echo 'Some components below are GPL-3.0-or-later or Apache-2.0 (FFmpeg is built with --enable-gpl'
-    echo '--enable-version3), so the combination is distributed under the terms of GPL-3.0, which'
-    echo 'PortGaGotoku'"'"'s GPL-2.0-or-later permits; the source of PortGaGotoku itself stays'
-    echo 'GPL-2.0-or-later. The license texts are in licenses\.'
+    echo 'The package is distributed under GPL-2.0-or-later as well: the components below are under'
+    echo 'licenses that allow it (the GCC runtime libraries under the GCC Runtime Library Exception).'
+    echo 'The license texts are in licenses\.'
     echo
     echo "Source code: the source packages of every GPL and LGPL component below, at the exact version"
     echo "in this package, are in $sources_zip, published with this package"

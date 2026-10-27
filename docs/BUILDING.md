@@ -8,7 +8,7 @@
    ```sh
    pacman -S --needed git mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,python,python-packaging} \
        mingw-w64-ucrt-x86_64-{vulkan-headers,vulkan-loader,vulkan-memory-allocator,shaderc,glslang,spirv-tools,spirv-cross} \
-       mingw-w64-ucrt-x86_64-{sdl3,ffmpeg,boost,fmt,robin-map,xxhash,zydis,zlib}
+       mingw-w64-ucrt-x86_64-{sdl3,boost,fmt,robin-map,xxhash,zydis,zlib}
    ```
 
 3. Clone with the submodules and build:

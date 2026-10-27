@@ -58,7 +58,6 @@ void runtime_memory_set_cpu_write_hook(RuntimeGpuRange hook);
 Frontend::WindowSDL* g_window = nullptr;
 
 namespace Libraries::GnmDriver { void RegisterLib(Core::Loader::SymbolsResolver* sym); }
-namespace Libraries::AvPlayer { void RegisterLib(Core::Loader::SymbolsResolver* sym); }
 namespace Libraries::VideoOut { void RegisterLib(Core::Loader::SymbolsResolver* sym); }
 namespace Libraries::Kernel { void RegisterEventQueue(Core::Loader::SymbolsResolver* sym); }
 
@@ -315,7 +314,6 @@ extern "C" void bbgpu_register_kernel(void) {
     Libraries::Kernel::StartKernelService();
     Core::Loader::SymbolsResolver resolver;
     Libraries::Kernel::RegisterEventQueue(&resolver);
-    Libraries::AvPlayer::RegisterLib(&resolver);
 }
 
 extern "C" uintptr_t bbgpu_resolve(const char* scoped_nid) {
