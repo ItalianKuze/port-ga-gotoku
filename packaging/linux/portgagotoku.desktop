@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PortGaGotoku
+Comment=Fist of the North Star: Lost Paradise from your own dump of the game
+Exec=AppRun
+Icon=portgagotoku
+Categories=Game;
+Terminal=false

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- PortGaGotoku: the launcher's Big Dipper mark on its dark ground, crimson accent -->
+  <rect width="256" height="256" rx="40" fill="#100e0d"/>
+  <g fill="none" stroke="#ece3d3" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="34,92 38,150 108,168 120,118 168,124 206,132 230,170"/>
+    <line x1="120" y1="118" x2="34" y2="92"/>
+  </g>
+  <circle cx="230" cy="170" r="14" fill="#b3222a"/>
+</svg>

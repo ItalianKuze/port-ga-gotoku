@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# PortGaGotoku for Linux / Steam Deck: starts Fist of the North Star: Lost Paradise (CUSA12781).
+# PortGaGotoku for Linux / Steam Deck (the AppImage's entry point): starts Fist of the North Star:
+# Lost Paradise (CUSA12781).
 #
 # The first time it asks for the game folder (your dump: eboot.bin and sce_sys), with zenity when
 # there is a desktop, else in the terminal; --choose-game asks again. It prepares the boot image
 # when needed (the game folder, the scripts or the runtime changed) and starts the game.
-# Data (saves, logs, shader cache, settings) go to PortGaGotoku-data next to this folder, as on
-# Windows; PGG_DATA_DIR chooses another.
+# The AppImage's content is read-only: data (saves, boot image, logs, shader cache, settings) go to
+# PortGaGotoku-data next to the .AppImage file, as next to the program folder on Windows;
+# PGG_DATA_DIR chooses another.
 set -uo pipefail
 
 here=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
-data=${PGG_DATA_DIR:-$(dirname -- "$here")/PortGaGotoku-data}
+# $APPIMAGE: the .AppImage file (set by its runtime); an extracted AppDir keeps its data beside it.
+data=${PGG_DATA_DIR:-$(dirname -- "${APPIMAGE:-$here}")/PortGaGotoku-data}
 bin=$here/bin
 mkdir -p "$data/logs" "$data/user" || exit 1
 settings=$data/launcher.json
@@ -54,14 +57,14 @@ fi
 
 # The boot image, prepared again when the game, the scripts or the runtime's image format change.
 image_format=$("$bin/bb-probe" --image-format 2>/dev/null | sed -n 's/^Image format: //p')
-[[ -n $image_format ]] || { say error "bb-probe does not start ($bin/bb-probe). Extract the package again."; exit 1; }
+[[ -n $image_format ]] || { say error "bb-probe does not start ($bin/bb-probe). Download the AppImage again."; exit 1; }
 stamp=$(cd "$here/scripts" && { printf '%s\n' "$game" "$image_format"; stat -c '%s %Y' "$game/eboot.bin"; sha256sum ./*.py; } | sha256sum | cut -c1-64)
 out=$data/out
 if [[ ! -f $out/boot-linked.bin || ! -f $out/content.bin || $(cat "$out/prepared.stamp" 2>/dev/null) != "$stamp" ]]; then
     prepare_log=$data/logs/hokuto-$(date +%Y%m%d-%H%M%S)-prepare.log
     echo "PortGaGotoku: preparing the boot image (a few seconds), log $prepare_log" >&2
     rm -rf "$data/out.new"
-    if ! (cd "$here/scripts" &&
+    if ! (cd "$here/scripts" && export PYTHONDONTWRITEBYTECODE=1 &&
           python3 prepare.py "$game" --experimental-elf --out "$data/out.new" &&
           python3 link_modules.py "$game" --out "$data/out.new" &&
           python3 content_profile.py "$game" --out "$data/out.new" --sku full) > "$prepare_log" 2>&1; then
@@ -88,13 +91,13 @@ if [[ $fullscreen == True || ( -z $fullscreen && ${SteamDeck:-} == 1 ) ]]; then 
 
 log=$data/logs/hokuto-$(date +%Y%m%d-%H%M%S).log
 {
-    echo "== PortGaGotoku for Linux, build $(cat "$bin/build-info.txt" 2>/dev/null || echo unknown) =="
+    echo "== PortGaGotoku for Linux (AppImage), build $(cat "$bin/build-info.txt" 2>/dev/null || echo unknown) =="
     echo "== game $game =="
     echo "== present mode $PGG_PRESENT_MODE, fullscreen ${PGG_FULLSCREEN:-0} =="
     echo "== data $data =="
 } > "$log"
 echo "PortGaGotoku: game log $log" >&2
-cd "$bin" || exit 1
+cd "$data" || exit 1
 "$bin/bb-probe" "$out/boot-linked.bin" --content-profile "$out/content.bin" --app0 "$game" \
     --user "$data/user" --timeout 0 >> "$log" 2>&1
 code=$?
