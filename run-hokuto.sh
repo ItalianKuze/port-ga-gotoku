@@ -11,7 +11,7 @@ if [[ ! -f $game/eboot.bin ]]; then
     exit 1
 fi
 if [[ ! -x $probe ]]; then
-    echo "Probe not found: $probe. Build it with bash build.sh after satisfying shell.nix dependencies." >&2
+    echo "Probe not found: $probe. Build it with bash build.sh (dependencies: docs/BUILDING.md)." >&2
     exit 1
 fi
 

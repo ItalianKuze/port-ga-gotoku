@@ -2,23 +2,30 @@
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
 mkdir -p out
-if [[ -z ${CC:-} ]]; then
-    CC=$(command -v cc || command -v gcc || true)
-    if [[ -z $CC ]]; then
-        for candidate in /nix/store/*-gcc-wrapper-*/bin/gcc; do
-            if [[ -x $candidate ]]; then CC=$candidate; break; fi
-        done
+CC=${CC:-$(command -v cc || command -v gcc || true)}
+if [[ -z $CC ]]; then echo 'Install GCC/Clang or set CC.' >&2; exit 1; fi
+for tool in pkg-config cmake ninja git; do
+    command -v "$tool" >/dev/null || { echo "Need $tool (see docs/BUILDING.md)." >&2; exit 1; }
+done
+pkg-config --exists vulkan || { echo 'Need the Vulkan loader and headers (pkg-config vulkan).' >&2; exit 1; }
+# SDL3 from pkg-config; when the system has none (Ubuntu 24.04), or with PGG_SDL3_SOURCE=1, the
+# release below is built from source into out/deps/sdl3 (the same version as the Windows build).
+SDL3_RELEASE=release-3.4.18
+sdl3=$PWD/out/deps/sdl3
+if [[ ${PGG_SDL3_SOURCE:-} == 1 ]] || ! pkg-config --exists sdl3; then
+    if [[ ! -f $sdl3/.$SDL3_RELEASE ]]; then
+        echo "SDL3: building $SDL3_RELEASE from source into $sdl3"
+        rm -rf out/deps/SDL "$sdl3"
+        git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$SDL3_RELEASE" https://github.com/libsdl-org/SDL.git out/deps/SDL
+        cmake -S out/deps/SDL -B out/deps/SDL/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$sdl3" -DCMAKE_INSTALL_LIBDIR=lib -DSDL_SHARED=ON -DSDL_STATIC=OFF \
+            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >/dev/null
+        ninja -C out/deps/SDL/build install >/dev/null
+        touch "$sdl3/.$SDL3_RELEASE"
     fi
+    export PKG_CONFIG_PATH=$sdl3/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}
 fi
-if [[ -z ${CC:-} ]]; then echo 'Install GCC/Clang or set CC.' >&2; exit 1; fi
-# Dependencies come from pkg-config (Vulkan loader/headers, SDL3). On NixOS the
-# environment is provided by shell.nix; re-enter it automatically if needed.
-if ! { command -v pkg-config >/dev/null && pkg-config --exists vulkan sdl3 && command -v cmake >/dev/null && command -v ninja >/dev/null; }; then
-    if [[ -z ${PGG_IN_NIX_SHELL:-${BB_IN_NIX_SHELL:-}} ]] && command -v nix-shell >/dev/null; then
-        exec env PGG_IN_NIX_SHELL=1 nix-shell shell.nix --run "bash build.sh $*"
-    fi
-    echo 'Need pkg-config with vulkan and sdl3, cmake and ninja (see shell.nix).' >&2; exit 1
-fi
+echo "SDL3 $(pkg-config --modversion sdl3) ($(pkg-config --variable=libdir sdl3))"
 read -r -a includes <<< "$(pkg-config --cflags vulkan sdl3)"
 read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3)"
 # GPU library (shadPS4 video core + drivers), built by CMake into out/gpu/libbbgpu.so.
@@ -33,8 +40,10 @@ mkdir -p pgo
 if [[ ! -f gpu/third_party/imgui/imgui.h ]]; then
     git submodule update --init --recursive
 fi
+# The GPU library finds the same SDL3 as bb-probe (out/deps/sdl3 when built from source).
 cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
-    -DBB_LTO="${PGG_LTO:-${BB_LTO:-ON}}" -DBB_PGO_DIR="$PWD/pgo" >/dev/null
+    -DBB_LTO="${PGG_LTO:-${BB_LTO:-ON}}" -DBB_PGO_DIR="$PWD/pgo" \
+    -DCMAKE_BUILD_RPATH="$(pkg-config --variable=libdir sdl3)" >/dev/null
 echo "GPU library: PGO $pgo, LTO ${PGG_LTO:-${BB_LTO:-ON}}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
 if ! ninja -C out/gpu bbgpu > out/gpu-build.log 2>&1; then
@@ -43,6 +52,8 @@ if ! ninja -C out/gpu bbgpu > out/gpu-build.log 2>&1; then
 fi
 # $ORIGIN/gpu: packaged copies keep the library next to the binary without patching it.
 gpu=(-Lout/gpu -lbbgpu -Wl,-rpath,'$ORIGIN/gpu' -Wl,-rpath,"$PWD/out/gpu" -rdynamic)
+# An SDL3 built from source is found next to the binary when packaged ($ORIGIN/lib), else in out/deps.
+libraries+=(-Wl,-rpath,'$ORIGIN/lib' -Wl,-rpath,"$(pkg-config --variable=libdir sdl3)")
 # Runtime sources for this (Linux) build: runtime_win.c and any win32_*.c are the Windows backend.
 runtime=()
 for source in src/runtime*.c; do

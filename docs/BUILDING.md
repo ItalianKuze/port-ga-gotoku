@@ -54,10 +54,14 @@ UCRT64 shell; `PGG_DATA_DIR`, `PGG_GAME_DIR`, `PGG_TIMEOUT`).
 
 Tests: `out-win/pyenv-ui/Scripts/python.exe -m unittest tests.test_launcher`.
 
-## Linux (not maintained, to be recovered)
+## Linux
 
-The code stays portable (Windows-only parts are under `#ifdef _WIN32` or in Windows-only files), but the
-Linux build and tests have not been run since the work moved to Windows. bbport's instructions still
-describe it: `build.sh` (`bash build.sh --test`), `python3 -m unittest discover -s tests`, the GPU tests
-under `out/gpu`, and `run-hokuto.sh` to start the game (`PGG_GAME_DIR`, `PGG_DATA_DIR`). Expect fixes to be
-needed.
+`bash build.sh` (tests: `bash build.sh --test`) builds `out/bb-probe` and `out/gpu/libbbgpu.so`. It needs gcc
+(C++23: gcc 13 or newer), cmake, ninja, git, pkg-config and the development packages of Vulkan, Boost
+(headers), fmt, magic_enum, tsl-robin-map, VulkanMemoryAllocator, xxhash, Zydis, X11, zlib and glslang (on
+Ubuntu: `libvulkan-dev libboost-dev libfmt-dev libmagicenum-dev robin-map-dev
+libvulkan-memory-allocator-dev libxxhash-dev libzydis-dev libx11-dev zlib1g-dev glslang-tools`). SDL3 comes
+from pkg-config; when the system has none (Ubuntu 24.04), or with `PGG_SDL3_SOURCE=1`, `build.sh` builds the
+pinned release (the Windows build's version) into `out/deps/sdl3`. Last tried on Ubuntu 26.04 (WSL).
+`run-hokuto.sh` starts the game (`PGG_GAME_DIR`, `PGG_DATA_DIR`). The release build for SteamOS (old glibc,
+libraries in the package) is still to come.
