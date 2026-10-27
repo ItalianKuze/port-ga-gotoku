@@ -106,6 +106,37 @@ IT = {
     'Close the log': 'Chiudi il log',
     'The game closed with an error (code {})': 'Il gioco si è chiuso con un errore (codice {})',
     'No game started from this window yet': 'Nessuna partita avviata da questa finestra',
+    # Saves panel
+    'Slots': 'Slot',
+    'Backups': 'Backup',
+    'Import from PS4 or shadPS4…': 'Importa da PS4 o shadPS4…',
+    'Made before the game writes a slot (the newest 10 per slot), before an import and before a restore.':
+        'Fatti prima che il gioco scriva uno slot (gli ultimi 10 per slot), prima di un import e prima di un ripristino.',
+    'Only with the game closed. Every change keeps a backup of the slot first.':
+        'Solo a gioco chiuso. Ogni modifica tiene prima un backup dello slot.',
+    'Confirm': 'Conferma',
+    'Cancel': 'Annulla',
+    '{} files': '{} file',
+    'Export…': 'Esporta…',
+    'Restore…': 'Ripristina…',
+    'No backups yet': 'Ancora nessun backup',
+    'Before the game saved': 'Prima di un salvataggio del gioco',
+    'Before an import': 'Prima di un import',
+    'Before a restore': 'Prima di un ripristino',
+    'Close the game first: saves change only with the game closed.':
+        'Chiudi prima il gioco: i salvataggi si modificano solo a gioco chiuso.',
+    'Import into slot {}': 'Importa nello slot {}',
+    'Restore slot {}': 'Ripristina lo slot {}',
+    'Export slot {}': 'Esporta lo slot {}',
+    'From: {}': 'Da: {}',
+    'To: {}': 'In: {}',
+    'Nothing is overwritten: the destination folder must not exist yet.':
+        'Non viene sovrascritto nulla: la cartella di destinazione non deve esistere.',
+    'The current slot is kept first in: {}': 'Lo slot attuale viene prima conservato in: {}',
+    'Slot {} is empty: nothing to keep.': 'Lo slot {} è vuoto: nulla da conservare.',
+    'Slot {} imported and verified.': 'Slot {} importato e verificato.',
+    'Slot {} restored and verified.': 'Slot {} ripristinato e verificato.',
+    'Slot {} exported and verified.': 'Slot {} esportato e verificato.',
     # Messages of pgg_main.py
     'Preparing the game failed. Log: {}': 'Preparazione del gioco non riuscita. Log: {}',
     'The game cannot start: {}. Extract the PortGaGotoku zip again; if an antivirus removed or blocked bb-probe.exe, restore it.':

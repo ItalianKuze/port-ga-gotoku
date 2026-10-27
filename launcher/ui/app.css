@@ -158,6 +158,22 @@ select.compact { height: 36px; border-radius: 18px; }
 .pill { height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font-size: 13px; flex-shrink: 0; }
 .pill:hover { border-color: var(--text-soft); }
 
+/* Saves panel */
+.panel.wide { width: 620px; }
+.panel-body .row h3 { flex-grow: 1; }
+.items { display: flex; flex-direction: column; gap: 6px; }
+.item { display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 14px; background: var(--field); border: 1px solid var(--line); border-radius: 10px; }
+.item .text { flex-grow: 1; }
+.item .slot { font-size: 18px; font-weight: 600; color: var(--text-strong); width: 30px; flex-shrink: 0; }
+.item .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.empty { font-size: 13px; color: var(--muted); }
+#save-message:empty { display: none; }
+.confirm { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; background: #1f1a17; border: 1px solid var(--line-strong); border-radius: 12px; }
+.confirm-title { font-size: 16px; font-weight: 600; color: var(--text-strong); }
+.facts { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-soft); user-select: text; word-break: break-all; }
+.facts .warn { color: var(--warn); }
+.confirm .light { height: 40px; font-size: 14px; }
+
 /* Log drawer */
 .drawer {
   position: fixed; left: 0; right: 0; bottom: 0; height: 46vh; min-height: 260px; background: #0c0a09;

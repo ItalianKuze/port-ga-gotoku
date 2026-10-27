@@ -24,6 +24,8 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pgg_game as game  # noqa: E402
 import pgg_lang  # noqa: E402
+sys.path.insert(0, str(game.SCRIPTS_DIR))
+import pgg_saves  # noqa: E402
 
 _ = pgg_lang.tr
 BUG_REPORT_URL = 'https://github.com/ItalianKuze/port-ga-gotoku/issues/new/choose'
@@ -179,6 +181,7 @@ class Api:
         self._log_start = 0           # characters dropped from the front of self._log
         self._last_exit = None
         self._stopped = False
+        self._save_plan = None        # the Saves page's previewed operation
         threading.Thread(target=self._detect_devices, daemon=True).start()
 
     # ---- what the page shows -------------------------------------------------------------------
@@ -274,6 +277,79 @@ class Api:
         """The project's issue forms in the default browser."""
         os.startfile(BUG_REPORT_URL)
         return True
+
+    # ---- the Saves page ------------------------------------------------------------------------
+    # Every write is two steps: save_preview_*() keeps a plan and returns what it will do, the page
+    # shows it, save_apply() carries it out. Writes refuse while a game runs (this one or another).
+    def _save_title(self):
+        return game.save_title_id(self._settings['game_dir'])
+
+    def _game_busy(self):
+        with self._lock:
+            return self._phase != 'idle'
+
+    def saves(self):
+        data = str(game.DATA_DIR)
+        return {'slots': pgg_saves.list_slots(data, self._save_title()), 'backups': pgg_saves.list_backups(data),
+                'title': self._save_title()}
+
+    def save_choose_folder(self):
+        import webview
+        chosen = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=str(Path.home()))
+        if not chosen:
+            return ''
+        return chosen[0] if isinstance(chosen, (list, tuple)) else chosen
+
+    def _preview(self, make):
+        self._save_plan = None
+        try:
+            plan, shown = make()
+        except (OSError, pgg_saves.SaveError) as error:
+            return {'ok': False, 'error': str(error)}
+        self._save_plan = plan
+        return {'ok': True, **shown}
+
+    def save_preview_import(self, source):
+        def make():
+            plan = pgg_saves.plan_import(source, str(game.DATA_DIR), title=self._save_title())
+            return plan, {'kind': 'import', 'slot': plan.slot, 'subtitle': plan.sfo.get('SUBTITLE', ''),
+                          'detail': (plan.sfo.get('DETAIL', '') or '').split('\n')[0], 'files': len(plan.files),
+                          'source': plan.source, 'target': plan.host, 'backup': plan.backup, 'warnings': plan.warnings}
+        return self._preview(make)
+
+    def save_preview_restore(self, name):
+        def make():
+            plan = pgg_saves.plan_restore(str(game.DATA_DIR), name, self._save_title())
+            info = pgg_saves.slot_info(plan.source, plan.source_meta or plan.source + '.sce_sys')
+            return plan, {'kind': 'restore', 'slot': plan.slot, 'subtitle': info['subtitle'], 'detail': info['detail'],
+                          'files': len(plan.files), 'source': os.path.dirname(plan.source), 'target': plan.host,
+                          'backup': plan.safety, 'warnings': []}
+        return self._preview(make)
+
+    def save_preview_export(self, slot, dest, shadps4):
+        def make():
+            plan = pgg_saves.plan_export(str(game.DATA_DIR), slot, dest, bool(shadps4), title=self._save_title())
+            return plan, {'kind': 'export', 'slot': plan.slot, 'subtitle': plan.param['subtitle'],
+                          'detail': plan.param['detail'].split('\n')[0], 'files': len(plan.files),
+                          'source': plan.host, 'target': plan.target, 'backup': '', 'warnings': []}
+        return self._preview(make)
+
+    def save_apply(self):
+        plan, self._save_plan = self._save_plan, None
+        if plan is None:
+            return {'ok': False, 'error': 'nothing to do'}
+        if self._game_busy() or game.running_probes():
+            return {'ok': False, 'error': 'running'}
+        try:
+            if isinstance(plan, pgg_saves.ImportPlan):
+                pgg_saves.apply_import(plan)
+            elif isinstance(plan, pgg_saves.RestorePlan):
+                pgg_saves.apply_restore(plan)
+            else:
+                pgg_saves.apply_export(plan)
+        except (OSError, pgg_saves.SaveError) as error:
+            return {'ok': False, 'error': str(error)}
+        return {'ok': True}
 
     # ---- the game ------------------------------------------------------------------------------
     def play(self):

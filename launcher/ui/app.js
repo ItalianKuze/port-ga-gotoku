@@ -182,6 +182,7 @@ function render() {
   if (showWelcome) renderWelcome(s); else renderHome(s);
   renderSettings(s);
   renderDrawer(s);
+  if (!$('saves').hidden) renderSavesBusy();
   $('build').textContent = s.build ? 'Build ' + s.build : '';
   if (bannerFor !== s.settings.game_dir && s.game.playable) loadBanner(s.settings.game_dir);
   // First start: the folder picker opens by itself, once.
@@ -268,6 +269,124 @@ async function play() {
   await refresh();
 }
 
+// ---- Saves page ------------------------------------------------------------------------------
+let exportWanted = null;  // {slot, dest, shadps4} while an export is previewed
+
+function when(seconds) {
+  const d = new Date(seconds * 1000);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+function saveItem(slot, label, sub, action, onClick) {
+  const item = document.createElement('div');
+  item.className = 'item';
+  const number = document.createElement('span');
+  number.className = 'slot';
+  number.textContent = slot;
+  const text = document.createElement('div');
+  text.className = 'text';
+  const main = document.createElement('span');
+  main.className = 'label';
+  main.textContent = label;
+  const hint = document.createElement('span');
+  hint.className = 'hint';
+  hint.textContent = sub;
+  text.append(main, hint);
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = 'pill save-action'; button.textContent = action;
+  button.addEventListener('click', onClick);
+  item.append(number, text, button);
+  return item;
+}
+
+const backupKind = (kind) => ({ game: t('Before the game saved'), import: t('Before an import'), restore: t('Before a restore') }[kind]);
+
+async function loadSaves() {
+  const data = await pywebview.api.saves();
+  const slots = $('slot-list');
+  slots.replaceChildren(...data.slots.map((s) => saveItem(s.slot, s.subtitle || s.title || s.slot,
+    [s.detail, when(s.mtime), fmt(t('{} files'), s.files)].filter(Boolean).join(' · '), t('Export…'), () => exportSlot(s.slot))));
+  if (!data.slots.length) slots.replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: t('No saves yet') }));
+  const backups = $('backup-list');
+  backups.replaceChildren(...data.backups.map((b) => saveItem(b.slot, `${when(b.when)} · ${backupKind(b.kind)}`,
+    [b.subtitle, b.detail].filter(Boolean).join(' · '), t('Restore…'), () => previewSave(pywebview.api.save_preview_restore(b.name)))));
+  if (!data.backups.length) backups.replaceChildren(Object.assign(document.createElement('div'), { className: 'empty', textContent: t('No backups yet') }));
+  renderSavesBusy();
+}
+
+function renderSavesBusy() {
+  const busy = !!state && state.s.phase !== 'idle';
+  document.querySelectorAll('.save-action, #save-import, #preview-confirm').forEach((b) => { b.disabled = busy; });
+  const closeFirst = t('Close the game first: saves change only with the game closed.');
+  if (busy && !$('saves').hidden) saveMessage('warn', closeFirst);
+  else if (!busy && $('save-message').textContent === closeFirst) saveMessage('', '');
+}
+
+function saveMessage(kind, text) {
+  const message = $('save-message');
+  message.className = 'message ' + kind;
+  message.textContent = text;
+}
+
+const previewTitle = (kind) => ({ import: t('Import into slot {}'), restore: t('Restore slot {}'), export: t('Export slot {}') }[kind]);
+
+async function previewSave(request) {
+  saveMessage('', '');
+  const p = await request;
+  if (!p.ok) { $('save-preview').hidden = true; saveMessage('bad', p.error); return; }
+  $('preview-title').textContent = fmt(previewTitle(p.kind), p.slot);
+  const facts = [[p.subtitle, ''], [p.detail, ''], [fmt(t('{} files'), p.files), ''], [fmt(t('From: {}'), p.source), ''],
+    [fmt(t('To: {}'), p.target), '']];
+  if (p.kind === 'export') facts.push([t('Nothing is overwritten: the destination folder must not exist yet.'), '']);
+  else if (p.backup) facts.push([fmt(t('The current slot is kept first in: {}'), p.backup), 'warn']);
+  else facts.push([fmt(t('Slot {} is empty: nothing to keep.'), p.slot), '']);
+  p.warnings.forEach((w) => facts.push([w, 'warn']));
+  $('preview-facts').replaceChildren(...facts.filter(([text]) => text).map(([text, kind]) => {
+    const li = document.createElement('li'); li.textContent = text; li.className = kind; return li;
+  }));
+  const layout = $('export-layout');
+  layout.hidden = p.kind !== 'export';
+  layout.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(!!exportWanted && (b.dataset.layout === 'shadps4') === exportWanted.shadps4)));
+  $('save-preview').hidden = false;
+  $('save-preview').dataset.kind = p.kind;
+  $('save-preview').dataset.slot = p.slot;
+  renderSavesBusy();
+}
+
+async function importSave() {
+  exportWanted = null;
+  const folder = await pywebview.api.save_choose_folder();
+  if (folder) await previewSave(pywebview.api.save_preview_import(folder));
+}
+
+async function exportSlot(slot) {
+  const dest = await pywebview.api.save_choose_folder();
+  if (!dest) return;
+  exportWanted = { slot, dest, shadps4: false };
+  await previewSave(pywebview.api.save_preview_export(slot, dest, false));
+}
+
+const doneText = (kind) => ({ import: t('Slot {} imported and verified.'), restore: t('Slot {} restored and verified.'), export: t('Slot {} exported and verified.') }[kind]);
+
+async function confirmSave() {
+  const box = $('save-preview');
+  const result = await pywebview.api.save_apply();
+  box.hidden = true;
+  exportWanted = null;
+  if (result.ok) saveMessage('ok', fmt(doneText(box.dataset.kind), box.dataset.slot));
+  else if (result.error === 'running') saveMessage('bad', t('Close the game first: saves change only with the game closed.'));
+  else saveMessage('bad', result.error);
+  await loadSaves();
+  await refresh();
+}
+
+function openSaves(open) {
+  $('saves').hidden = !open;
+  $('backdrop').hidden = !open;
+  if (open) { $('save-preview').hidden = true; saveMessage('', ''); loadSaves(); $('close-saves').focus(); }
+}
+
 function openSettings(open) {
   $('settings').hidden = !open;
   $('backdrop').hidden = !open;
@@ -290,7 +409,17 @@ function wire() {
   $('change-game').addEventListener('click', () => { openSettings(false); welcomeForced = true; render(); browse(); });
   $('open-settings').addEventListener('click', () => openSettings(true));
   $('close-settings').addEventListener('click', () => openSettings(false));
-  $('backdrop').addEventListener('click', () => openSettings(false));
+  $('backdrop').addEventListener('click', () => { openSettings(false); openSaves(false); });
+  $('open-saves').addEventListener('click', () => openSaves(true));
+  $('close-saves').addEventListener('click', () => openSaves(false));
+  $('save-import').addEventListener('click', importSave);
+  $('preview-confirm').addEventListener('click', confirmSave);
+  $('preview-cancel').addEventListener('click', () => { $('save-preview').hidden = true; exportWanted = null; });
+  $('export-layout').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    if (!exportWanted) return;
+    exportWanted.shadps4 = b.dataset.layout === 'shadps4';
+    previewSave(pywebview.api.save_preview_export(exportWanted.slot, exportWanted.dest, exportWanted.shadps4));
+  }));
   $('open-folders').addEventListener('click', (e) => { e.stopPropagation(); toggleFolders(); });
   document.addEventListener('click', () => toggleFolders(false));
   document.querySelectorAll('[data-folder]').forEach((b) => b.addEventListener('click', () => { pywebview.api.open_folder(b.dataset.folder); toggleFolders(false); }));
@@ -303,7 +432,7 @@ function wire() {
   $('gpu').addEventListener('change', (e) => setSetting('gpu', e.target.value));
   $('language').addEventListener('change', (e) => setSetting('ui_language', e.target.value));
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { openSettings(false); toggleFolders(false); }
+    if (e.key === 'Escape') { openSettings(false); openSaves(false); toggleFolders(false); }
   });
 }
 

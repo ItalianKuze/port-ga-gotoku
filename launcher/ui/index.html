@@ -21,6 +21,9 @@
     <button type="button" class="icon" id="open-log" data-t-label="Log">
       <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="5" y1="7" x2="19" y2="7"></line><line x1="5" y1="12" x2="19" y2="12"></line><line x1="5" y1="17" x2="13" y2="17"></line></svg>
     </button>
+    <button type="button" class="icon" id="open-saves" data-t-label="Saves">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"></path><rect x="8" y="4" width="7" height="5"></rect><rect x="8" y="13" width="8" height="7"></rect></svg>
+    </button>
     <button type="button" class="icon" id="open-folders" data-t-label="Folders" aria-haspopup="menu" aria-expanded="false">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>
     </button>
@@ -131,6 +134,44 @@
     </section>
   </div>
   <div class="panel-foot"><span data-t="Settings apply from the next start of the game">Settings apply from the next start of the game</span><span id="panel-build"></span></div>
+</aside>
+
+<!-- Saves panel -->
+<aside class="panel wide" id="saves" aria-labelledby="saves-title" hidden>
+  <div class="panel-head">
+    <h2 id="saves-title" data-t="Saves">Saves</h2>
+    <button type="button" class="icon" id="close-saves" data-t-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+    <div class="confirm" id="save-preview" hidden>
+      <div class="confirm-title" id="preview-title"></div>
+      <div class="segmented" role="radiogroup" id="export-layout" hidden>
+        <button type="button" role="radio" data-layout="ps4">PS4 (Apollo)</button>
+        <button type="button" role="radio" data-layout="shadps4">shadPS4</button>
+      </div>
+      <ul class="facts" id="preview-facts"></ul>
+      <div class="actions">
+        <button type="button" class="light" id="preview-confirm" data-t="Confirm">Confirm</button>
+        <button type="button" class="pill" id="preview-cancel" data-t="Cancel">Cancel</button>
+      </div>
+    </div>
+    <div class="message" id="save-message" role="status"></div>
+    <section>
+      <div class="row">
+        <h3 data-t="Slots">Slots</h3>
+        <button type="button" class="pill" id="save-import" data-t="Import from PS4 or shadPS4…">Import from PS4 or shadPS4…</button>
+      </div>
+      <div class="items" id="slot-list"></div>
+    </section>
+    <section>
+      <h3 data-t="Backups">Backups</h3>
+      <div class="hint" data-t="Made before the game writes a slot (the newest 10 per slot), before an import and before a restore.">Made before the game writes a slot (the newest 10 per slot), before an import and before a restore.</div>
+      <div class="items" id="backup-list"></div>
+    </section>
+  </div>
+  <div class="panel-foot"><span data-t="Only with the game closed. Every change keeps a backup of the slot first.">Only with the game closed. Every change keeps a backup of the slot first.</span></div>
 </aside>
 
 <!-- Log drawer -->
