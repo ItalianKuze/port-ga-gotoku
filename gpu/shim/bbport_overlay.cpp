@@ -192,22 +192,20 @@ void Hint(const char* text) {
 // PortGaGotoku: the places of the next phases on Hokuto: the statistics HUD (frame times, CPU
 // translation against GPU time) and Hokuto's own settings.
 void HokutoSections(BbSettings::Values& s) {
-    ImGui::SeparatorText(BbSettings::MenuText("Statistics (HUD)", "Statistics (HUD)"));
-    Checkbox(BbSettings::MenuText("Show statistics (F11)", "Show statistics (F11)"), s.show_hud);
+    ImGui::SeparatorText(BbSettings::MenuText("Statistics (HUD)"));
+    Checkbox(BbSettings::MenuText("Show statistics (F11)"), s.show_hud);
     if (const auto [done, length] = BbPerf::MeasurementProgress(); done < 0.0f) {
-        if (ImGui::Button(BbSettings::MenuText("Start measurement (90 s, F9)", "Start measurement (90 s, F9)"))) {
+        if (ImGui::Button(BbSettings::MenuText("Start measurement (90 s, F9)"))) {
             BbPerf::StartMeasurement(90);
         }
         Hint(BbSettings::MenuText(
-            "Records 90 s of frame times, CPU and GPU time and thread load into the logs folder (perf-*.csv).",
             "Records 90 s of frame times, CPU and GPU time and thread load into the logs folder (perf-*.csv)."));
     } else {
         ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f),
-                           BbSettings::MenuText("Measuring: %.0f / %d s", "Measuring: %.0f / %d s"), done, length);
+                           BbSettings::MenuText("Measuring: %.0f / %d s"), done, length);
     }
-    ImGui::SeparatorText(BbSettings::MenuText("Game settings", "Game settings"));
-    ImGui::TextDisabled("%s", BbSettings::MenuText("Hokuto's own settings will be here",
-                                                   "Hokuto's own settings will be here"));
+    ImGui::SeparatorText(BbSettings::MenuText("Game settings"));
+    ImGui::TextDisabled("%s", BbSettings::MenuText("Hokuto's own settings will be here"));
 }
 
 void Menu() {
@@ -247,22 +245,21 @@ void Menu() {
         s.menu_language = language == 1 ? BbSettings::MenuLanguage::Italian : BbSettings::MenuLanguage::English;
         BbSettings::Save();
     }
-    ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)", "%.0f FPS  (%.1f мс)"),
+    ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
 
 
     HokutoSections(s);
 
-    ImGui::SeparatorText(BbSettings::MenuText("Other", "Прочее"));
-    Checkbox(BbSettings::MenuText("FPS counter in corner", "Счётчик FPS в углу"), s.show_fps);
+    ImGui::SeparatorText(BbSettings::MenuText("Other"));
+    Checkbox(BbSettings::MenuText("FPS counter in corner"), s.show_fps);
 
     ImGui::Spacing();
-    if (ImGui::Button(BbSettings::MenuText("Close", "Закрыть"))) {
+    if (ImGui::Button(BbSettings::MenuText("Close"))) {
         keep_open = false;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", BbSettings::MenuText("Settings are saved to bbport.ini",
-                                             "Настройки сохраняются в bbport.ini"));
+    ImGui::TextDisabled("%s", BbSettings::MenuText("Settings are saved to bbport.ini"));
     ImGui::End();
     if (!keep_open) {
         SetOpen(false);
@@ -314,7 +311,7 @@ void HudOverlay() {
     char cpu[24] = "n/a", gpu[24] = "n/a";
     if (p.cpu_translate_ms >= 0.0f) std::snprintf(cpu, sizeof(cpu), "%.2f ms", p.cpu_translate_ms);
     if (p.gpu_ms >= 0.0f) std::snprintf(gpu, sizeof(gpu), "%.2f ms", p.gpu_ms);
-    ImGui::Text(BbSettings::MenuText("CPU translation %s  GPU %s", "CPU translation %s  GPU %s"), cpu, gpu);
+    ImGui::Text(BbSettings::MenuText("CPU translation %s  GPU %s"), cpu, gpu);
     if (p.gpu_util >= 0.0f) {
         ImGui::Text("GPU %.0f%%  VRAM %.0f / %.0f MB", p.gpu_util, p.vram_used_mb, p.vram_budget_mb);
     } else {
@@ -322,18 +319,17 @@ void HudOverlay() {
     }
     ImGui::Text("CPU %.0f%%  RAM %.1f / %.1f GB", p.cpu_util, p.ram_used_gb, p.ram_total_gb);
     ImGui::TextColored(p.compiles_last_5s ? warn : ImGui::GetStyleColorVec4(ImGuiCol_Text),
-                       BbSettings::MenuText("Pipeline compiles: %u in 5 s, %llu total",
-                                            "Pipeline compiles: %u in 5 s, %llu total"),
+                       BbSettings::MenuText("Pipeline compiles: %u in 5 s, %llu total"),
                        p.compiles_last_5s, static_cast<unsigned long long>(p.compiles_total));
     if (!p.top_threads.empty()) {
-        ImGui::TextColored(muted, "%s", BbSettings::MenuText("Busiest threads:", "Busiest threads:"));
+        ImGui::TextColored(muted, "%s", BbSettings::MenuText("Busiest threads:"));
         for (const auto& t : p.top_threads) {
             ImGui::TextColored(t.percent >= 90.0f ? bad : muted, "  %3.0f%%  %s", t.percent, t.name.c_str());
         }
     }
     ImGui::TextColored(muted, "%s", p.gpu_name.c_str());
     if (const auto [done, length] = BbPerf::MeasurementProgress(); done >= 0.0f) {
-        ImGui::TextColored(warn, BbSettings::MenuText("REC %.0f / %d s", "REC %.0f / %d s"), done, length);
+        ImGui::TextColored(warn, BbSettings::MenuText("REC %.0f / %d s"), done, length);
     }
     ImGui::End();
 }
@@ -348,7 +344,7 @@ void RecordingLabel() {
     ImGui::Begin("##bb_rec", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                      ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f), BbSettings::MenuText("REC %.0f / %d s", "REC %.0f / %d s"),
+    ImGui::TextColored(ImVec4(0.89f, 0.70f, 0.35f, 1.0f), BbSettings::MenuText("REC %.0f / %d s"),
                        done, length);
     ImGui::End();
 }

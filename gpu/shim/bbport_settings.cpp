@@ -29,9 +29,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     const int i = std::atoi(value.c_str());
     if (key == "menu_language") {
         if (value == "en") v.menu_language = MenuLanguage::English;
-        else if (value == "ru") v.menu_language = MenuLanguage::Russian;
         else if (value == "it") v.menu_language = MenuLanguage::Italian;
-        else std::printf("Settings: unknown menu_language '%s' (expected en, ru or it)\n", value.c_str());
+        else std::printf("Settings: unknown menu_language '%s' (expected en or it)\n", value.c_str());
     } else if (key == "upscaler") {
         for (int u = 0; u < UpscalerCount; ++u) {
             if (value == UpscalerName(u)) {
@@ -111,22 +110,15 @@ constexpr std::pair<const char*, const char*> ItalianTexts[] = {
     {"Settings are saved to bbport.ini", "Le impostazioni sono salvate in bbport.ini"},
 };
 
-const char* MenuText(const char* english, const char* russian) {
-    switch (Get().menu_language.load()) {
-    case MenuLanguage::Russian:
-        return russian;
-    case MenuLanguage::Italian:
-        if (BbGame::IsHokuto()) {
-            for (const auto& [en, it] : ItalianTexts) {
-                if (!std::strcmp(en, english)) {
-                    return it;
-                }
+const char* MenuText(const char* english) {
+    if (Get().menu_language.load() == MenuLanguage::Italian && BbGame::IsHokuto()) {
+        for (const auto& [en, it] : ItalianTexts) {
+            if (!std::strcmp(en, english)) {
+                return it;
             }
         }
-        return english;
-    default:
-        return english;
     }
+    return english;
 }
 
 void Load() {
@@ -146,9 +138,7 @@ void Load() {
         const auto is = [lang](char a, char b) {
             return lang && (lang[0] | 0x20) == a && (lang[1] | 0x20) == b;
         };
-        v.menu_language = is('r', 'u') ? MenuLanguage::Russian
-                          : is('i', 't') ? MenuLanguage::Italian
-                                         : MenuLanguage::English;
+        v.menu_language = is('i', 't') ? MenuLanguage::Italian : MenuLanguage::English;
 
     }
     if (FILE* file = std::fopen(Path(), "r")) {
@@ -241,9 +231,7 @@ void Save() {
         return std::string(text);
     };
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
-    put("menu_language", v.menu_language == MenuLanguage::Russian   ? "ru"
-                         : v.menu_language == MenuLanguage::Italian ? "it"
-                                                                    : "en");
+    put("menu_language", v.menu_language == MenuLanguage::Italian ? "it" : "en");
     put("upscaler", UpscalerName(v.upscaler));
     put("preset", std::to_string(v.preset.load()));
     put("sharpen", flag(v.sharpen));
