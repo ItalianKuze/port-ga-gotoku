@@ -16,15 +16,20 @@ the param.sfo of --game, or of the game folder in <data>/launcher.json; CUSA1277
 
     pgg_saves.py import <slot folder> --data <PortGaGotoku-data> [--slot NN] [--apply]
     pgg_saves.py export <slot> --data <PortGaGotoku-data> --to <folder> [--shadps4] [--apply]
+    pgg_saves.py list --data <PortGaGotoku-data>
+    pgg_saves.py restore <backup> --data <PortGaGotoku-data> [--apply]
 
 Without --apply nothing is written: the script prints what it would do. Import refuses to run while
 the game is running, copies an existing slot to <data>/save-backups/<slot>-import-<date-time>/ (same
 layout as the runtime backups), copies the files, writes param.bin (dated like the source's param.sfo)
 and verifies every copied file by SHA-256. Export writes param.sfo as shadPS4 does and refuses a target
-slot folder that already exists. Neither deletes files.
+slot folder that already exists. Restore (a folder of <data>/save-backups, made by the runtime before
+the game writes a slot, or by import/restore) refuses to run while the game is running, moves the current
+slot whole to <data>/save-backups/<slot>-restore-<date-time>/, then copies the backup in and verifies it.
+Nothing deletes the user's files.
 
-As a module: plan_import()/apply_import(), plan_export()/apply_export(), read_sfo()/write_sfo(),
-read_param()/pack_param().
+As a module: list_slots(), list_backups(), plan_import()/apply_import(), plan_export()/apply_export(),
+plan_restore()/apply_restore(), read_sfo()/write_sfo(), read_param()/pack_param().
 """
 import argparse, datetime, hashlib, json, os, shutil, struct, subprocess, sys
 from dataclasses import dataclass, field
@@ -142,7 +147,8 @@ def save_title(game, data):
 def game_running():
     if os.name != "nt":
         return False
-    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq bb-probe.exe"], capture_output=True, text=True).stdout
+    out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq bb-probe.exe"], capture_output=True, text=True,
+                         timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
     return "bb-probe.exe" in out
 
 
@@ -158,6 +164,137 @@ def slot_dirs(data, user, title, slot):
 
 def slot_files(folder):
     return sorted(n for n in os.listdir(folder) if n != "sce_sys" and os.path.isfile(os.path.join(folder, n)))
+
+
+def backup_path(data, slot, kind):
+    """A free <data>/save-backups/<slot>-<kind>-<date-time>[-n] (the runtime's own: <slot>-<date-time>)."""
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    base = os.path.join(data, "save-backups", f"{slot}-{kind}-{stamp}")
+    path, n = base, 0
+    while os.path.exists(path):
+        n += 1
+        path = f"{base}-{n}"
+    return path
+
+
+def tree_files(folder):
+    """Files under folder, as paths relative to it."""
+    out = []
+    for root, _dirs, names in os.walk(folder):
+        out += [os.path.relpath(os.path.join(root, n), folder) for n in names]
+    return sorted(out)
+
+
+def tree_size(folder):
+    return sum(os.path.getsize(os.path.join(folder, n)) for n in tree_files(folder))
+
+
+def slot_info(host, meta):
+    """What the launcher shows of a slot: param.bin's texts and date, the files and their size."""
+    try:
+        param = read_param(os.path.join(meta, "param.bin"))
+        mtime = os.path.getmtime(os.path.join(meta, "param.bin"))
+    except (OSError, SaveError):
+        param, mtime = {"title": "", "subtitle": "", "detail": "", "user_param": 0}, os.path.getmtime(host)
+    return {"slot": os.path.basename(host), "title": param["title"], "subtitle": param["subtitle"],
+            "detail": param["detail"].splitlines()[0] if param["detail"] else "", "mtime": mtime,
+            "files": len(slot_files(host)), "size": tree_size(host)}
+
+
+def list_slots(data, title, user="1"):
+    """The slots in <data> (folders with or without param.bin), by name."""
+    base = os.path.join(data, "user", "savedata", user, title)
+    try:
+        names = sorted(n for n in os.listdir(base) if not n.endswith(".sce_sys") and os.path.isdir(os.path.join(base, n)))
+    except OSError:
+        return []
+    return [slot_info(os.path.join(base, n), os.path.join(base, n + ".sce_sys")) for n in names]
+
+
+BACKUP_KINDS = ("import", "restore")  # the launcher's; the runtime's backups (before the game writes) have none
+
+
+def list_backups(data):
+    """The slot backups in <data>/save-backups (each holds <slot>/ and <slot>.sce_sys/), newest first.
+    kind: "game" (the runtime's, before the game wrote the slot), "import" or "restore"."""
+    folder = os.path.join(data, "save-backups")
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        path = os.path.join(folder, name)
+        slot, _, rest = name.partition("-")
+        if not rest or not os.path.isdir(os.path.join(path, slot)):
+            continue
+        kind = rest.split("-")[0] if rest.split("-")[0] in BACKUP_KINDS else "game"
+        stamp = rest[len(kind) + 1:] if kind != "game" else rest
+        try:
+            when = datetime.datetime.strptime(stamp[:15], "%Y%m%d-%H%M%S").timestamp()
+        except ValueError:
+            when = os.path.getmtime(path)
+        info = slot_info(os.path.join(path, slot), os.path.join(path, slot + ".sce_sys"))
+        out.append({**info, "name": name, "kind": kind, "when": when})
+    return sorted(out, key=lambda b: (b["when"], b["name"]), reverse=True)
+
+
+@dataclass
+class RestorePlan:
+    name: str
+    slot: str
+    source: str       # the backup's <slot>/
+    source_meta: str  # the backup's <slot>.sce_sys/ ("" when it has none)
+    host: str
+    meta: str
+    files: list
+    safety: str = ""  # where the current slot goes first ("" when there is none)
+
+
+def plan_restore(data, name, title, user="1"):
+    """What restoring backup `name` (a folder in <data>/save-backups) would do."""
+    if not name or any(c in name for c in "/\\:") or name.startswith("."):
+        raise SaveError(f"invalid backup name: {name!r}")
+    backup = os.path.join(data, "save-backups", name)
+    slot = name.partition("-")[0]
+    source, source_meta = os.path.join(backup, slot), os.path.join(backup, slot + ".sce_sys")
+    if not valid_slot(slot) or not os.path.isdir(source):
+        raise SaveError(f"{backup}: not a slot backup")
+    files = tree_files(source)
+    if not files:
+        raise SaveError(f"{source}: no save files")
+    plan = RestorePlan(name, slot, source, source_meta if os.path.isdir(source_meta) else "", *slot_dirs(data, user, title, slot), files)
+    if os.path.isdir(plan.host) or os.path.isdir(plan.meta):
+        plan.safety = backup_path(data, slot, "restore")
+    return plan
+
+
+def apply_restore(plan):
+    """The current slot is moved whole into a new backup (plan.safety), then the backup is copied in
+    and verified; on a failure the current slot is put back. Nothing is deleted but the partial copy."""
+    if game_running():
+        raise SaveError("the game is running (bb-probe.exe): close it first")
+    moved = []
+    if plan.safety:
+        os.makedirs(plan.safety)
+        for src in (plan.host, plan.meta):
+            if os.path.isdir(src):
+                shutil.move(src, os.path.join(plan.safety, os.path.basename(src)))
+                moved.append(src)
+    try:
+        shutil.copytree(plan.source, plan.host)
+        if plan.source_meta:
+            shutil.copytree(plan.source_meta, plan.meta)
+        bad = [n for n in plan.files if sha(os.path.join(plan.source, n)) != sha(os.path.join(plan.host, n))]
+        if bad:
+            raise SaveError(f"VERIFY FAILED: {bad}")
+    except (OSError, SaveError):
+        # host and meta were moved away (or did not exist): what is there now is the partial copy.
+        for path in (plan.host, plan.meta):
+            shutil.rmtree(path, ignore_errors=True)
+        for src in moved:
+            shutil.move(os.path.join(plan.safety, os.path.basename(src)), src)
+        raise
 
 
 @dataclass
@@ -190,8 +327,7 @@ def plan_import(source, data, slot=None, title=None, game=None, user="1"):
     if sfo.get("TITLE_ID") and sfo["TITLE_ID"] != title:
         plan.warnings.append(f"param.sfo TITLE_ID {sfo['TITLE_ID']} differs from {title}")
     if os.path.isdir(plan.host) or os.path.isdir(plan.meta):
-        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        plan.backup = os.path.join(data, "save-backups", f"{slot}-import-{stamp}")
+        plan.backup = backup_path(data, slot, "import")
     return plan
 
 
@@ -287,15 +423,38 @@ def main(argv=None):
     exp.add_argument("--to", required=True, help="destination folder (with --shadps4: shadPS4's user/savedata)")
     exp.add_argument("--shadps4", action="store_true", help="write to <to>/<user>/<title>/<slot>")
     exp.add_argument("--blocks", type=int, default=DEFAULT_BLOCKS, help="SAVEDATA_BLOCKS in param.sfo")
-    for p in (imp, exp):
+    lst = sub.add_parser("list", help="the slots and the slot backups")
+    res = sub.add_parser("restore", help="a backup from <data>/save-backups (the current slot is kept as a backup)")
+    res.add_argument("backup", help="backup folder name, as list shows it")
+    for p in (imp, exp, lst, res):
         p.add_argument("--data", required=True, help="PortGaGotoku-data folder")
         p.add_argument("--title", help="save title id (default: from the game's param.sfo, else CUSA12776)")
         p.add_argument("--game", help="game folder for --title (default: the launcher's, from <data>/launcher.json)")
         p.add_argument("--user", default="1")
-        p.add_argument("--apply", action="store_true", help="write (default: only show the plan)")
+        if p is not lst:
+            p.add_argument("--apply", action="store_true", help="write (default: only show the plan)")
     a = ap.parse_args(argv)
+    when = lambda t: datetime.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")
     try:
-        if a.command == "import":
+        if a.command == "list":
+            title = a.title or save_title(a.game, a.data)
+            print(f"slots ({title}):")
+            for s in list_slots(a.data, title, a.user):
+                print(f"  {s['slot']}  {when(s['mtime'])}  {s['subtitle']}  ({s['files']} files)")
+            print("backups:")
+            for b in list_backups(a.data):
+                print(f"  {b['name']}  {b['kind']}  {b['subtitle']}  ({b['files']} files)")
+        elif a.command == "restore":
+            plan = plan_restore(a.data, a.backup, a.title or save_title(a.game, a.data), a.user)
+            print(f"source: {plan.source} ({len(plan.files)} files)")
+            print(f"target: {plan.host} (+ {os.path.basename(plan.meta)})")
+            print(f"current slot: {'yes, moved to ' + plan.safety if plan.safety else 'none'}")
+            if not a.apply:
+                print("dry run: nothing written (add --apply)")
+                return 0
+            apply_restore(plan)
+            print(f"restored and verified {len(plan.files)} files into slot {plan.slot}")
+        elif a.command == "import":
             plan = plan_import(a.source, a.data, a.slot, a.title, a.game, a.user)
             print(f"source: {plan.source} ({len(plan.files)} files, param.sfo {'found' if plan.sfo else 'MISSING'})")
             print(f"title: {plan.sfo.get('MAINTITLE', '')!r} / {plan.sfo.get('SUBTITLE', '')!r}")
