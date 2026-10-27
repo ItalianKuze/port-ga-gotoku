@@ -33,8 +33,9 @@ The flicker on the soldiers' hoods at the gate of Eden is fixed (verified in gam
 ## Planned features
 
 - On-screen save list (load / overwrite with confirmation) on the in-game menu.
-- Importing saves exported from a PS4 (Apollo Save Tool): `scripts/import_ps4_save.py` is written but
-  untested on real data.
+- Saves from and to a PS4 (Apollo Save Tool, decrypted) or shadPS4: `scripts/pgg_saves.py` imports and
+  exports a slot (shadPS4 saves imported and exported byte for byte; a PS4 export not yet tried); the
+  launcher's Saves page is still to come.
 - A graphics profile for Hokuto (output resolution, options that act on this game).
 - An upscaler for Hokuto. bbport's temporal upscaler (FSR 3.1 / FSR 4 / TAA) was tied to Bloodborne's frame
   (shader 0x9a9cf8a9) and never ran on Hokuto; it was removed after 0.1.2 and is in the git history. An
