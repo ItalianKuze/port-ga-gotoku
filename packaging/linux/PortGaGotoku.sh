@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# PortGaGotoku for Linux / Steam Deck: starts Fist of the North Star: Lost Paradise (CUSA12781).
+#
+# The first time it asks for the game folder (your dump: eboot.bin and sce_sys), with zenity when
+# there is a desktop, else in the terminal; --choose-game asks again. It prepares the boot image
+# when needed (the game folder, the scripts or the runtime changed) and starts the game.
+# Data (saves, logs, shader cache, settings) go to PortGaGotoku-data next to this folder, as on
+# Windows; PGG_DATA_DIR chooses another.
+set -uo pipefail
+
+here=$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)
+data=${PGG_DATA_DIR:-$(dirname -- "$here")/PortGaGotoku-data}
+bin=$here/bin
+mkdir -p "$data/logs" "$data/user" || exit 1
+settings=$data/launcher.json
+
+has_desktop() { [[ -n ${DISPLAY:-}${WAYLAND_DISPLAY:-} ]] && command -v zenity >/dev/null; }
+# A message in a window when there is a desktop, and always on stderr.
+say() {  # kind (info|error) text
+    echo "PortGaGotoku: $2" >&2
+    if has_desktop; then zenity "--$1" --title PortGaGotoku --no-wrap --text "$2" 2>/dev/null; fi
+}
+command -v python3 >/dev/null || { say error 'python3 is needed to prepare the game (it is part of SteamOS and of most distributions).'; exit 1; }
+
+# launcher.json (the Windows launcher's file): game_dir, fullscreen, present_mode.
+setting() { python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1], encoding="utf-8")).get(sys.argv[2], ""))
+except (OSError, ValueError): print("")' "$settings" "$1"; }
+save_game_dir() { python3 -c 'import json,sys
+try: d = json.load(open(sys.argv[1], encoding="utf-8"))
+except (OSError, ValueError): d = {}
+d["game_dir"] = sys.argv[2]
+json.dump(d, open(sys.argv[1], "w", encoding="utf-8"), indent=2)' "$settings" "$1"; }
+is_game() { [[ -n $1 && -f $1/eboot.bin && -f $1/sce_sys/param.sfo ]]; }
+
+game=$(setting game_dir)
+if [[ ${1:-} == --choose-game ]] || ! is_game "$game"; then
+    prompt='Choose the game folder: your dump of CUSA12781, the folder with eboot.bin and sce_sys.'
+    while :; do
+        if has_desktop; then
+            game=$(zenity --file-selection --directory --title "PortGaGotoku: $prompt" 2>/dev/null) || exit 1
+        elif [[ -t 0 ]]; then
+            read -r -e -p "$prompt"$'\nFolder: ' game || exit 1
+        else
+            echo "PortGaGotoku: $prompt Start it once from a terminal or the desktop." >&2; exit 1
+        fi
+        # The parent of the game folder works too.
+        [[ -d $game/CUSA12781 ]] && is_game "$game/CUSA12781" && game=$game/CUSA12781
+        is_game "$game" && break
+        say error "No eboot.bin and sce_sys/param.sfo in $game: it is not the game folder."
+    done
+    save_game_dir "$game"
+fi
+
+# The boot image, prepared again when the game, the scripts or the runtime's image format change.
+image_format=$("$bin/bb-probe" --image-format 2>/dev/null | sed -n 's/^Image format: //p')
+[[ -n $image_format ]] || { say error "bb-probe does not start ($bin/bb-probe). Extract the package again."; exit 1; }
+stamp=$(cd "$here/scripts" && { printf '%s\n' "$game" "$image_format"; stat -c '%s %Y' "$game/eboot.bin"; sha256sum ./*.py; } | sha256sum | cut -c1-64)
+out=$data/out
+if [[ ! -f $out/boot-linked.bin || ! -f $out/content.bin || $(cat "$out/prepared.stamp" 2>/dev/null) != "$stamp" ]]; then
+    prepare_log=$data/logs/hokuto-$(date +%Y%m%d-%H%M%S)-prepare.log
+    echo "PortGaGotoku: preparing the boot image (a few seconds), log $prepare_log" >&2
+    rm -rf "$data/out.new"
+    if ! (cd "$here/scripts" &&
+          python3 prepare.py "$game" --experimental-elf --out "$data/out.new" &&
+          python3 link_modules.py "$game" --out "$data/out.new" &&
+          python3 content_profile.py "$game" --out "$data/out.new" --sku full) > "$prepare_log" 2>&1; then
+        say error "Preparing the game failed. Log: $prepare_log"$'\n\n'"$(tail -n 8 "$prepare_log")"
+        exit 1
+    fi
+    echo "$stamp" > "$data/out.new/prepared.stamp"
+    rm -rf "$data/out.old"
+    [[ -d $out ]] && mv "$out" "$data/out.old"
+    mv "$data/out.new" "$out" && rm -rf "$data/out.old"
+fi
+
+# pgg.ini (bbport.ini until 0.1.2, copied the first time; the old file stays).
+[[ -f $data/pgg.ini || ! -f $data/bbport.ini ]] || cp "$data/bbport.ini" "$data/pgg.ini"
+# The game's environment, as the Windows launcher sets it; no PGG_*/BB_* from the caller.
+for name in $(compgen -e); do [[ $name == PGG_* || $name == BB_* ]] && unset "$name"; done
+export PGG_DATA_DIR=$data XDG_DATA_HOME=$data PGG_GPU_USER_DIR=$data/gpu PGG_GPU_CACHE_DIR=$data/cache
+export PGG_CONFIG=$data/pgg.ini PGG_TIMEOUT=0 PGG_FRAME_STATS=1
+export PGG_PRESENT_MODE=$(setting present_mode)
+[[ -n $PGG_PRESENT_MODE ]] || PGG_PRESENT_MODE=Mailbox
+# Fullscreen: launcher.json's choice; without one, on in the Steam Deck's Game Mode (SteamDeck=1).
+fullscreen=$(setting fullscreen)
+if [[ $fullscreen == True || ( -z $fullscreen && ${SteamDeck:-} == 1 ) ]]; then export PGG_FULLSCREEN=1; fi
+
+log=$data/logs/hokuto-$(date +%Y%m%d-%H%M%S).log
+{
+    echo "== PortGaGotoku for Linux, build $(cat "$bin/build-info.txt" 2>/dev/null || echo unknown) =="
+    echo "== game $game =="
+    echo "== present mode $PGG_PRESENT_MODE, fullscreen ${PGG_FULLSCREEN:-0} =="
+    echo "== data $data =="
+} > "$log"
+echo "PortGaGotoku: game log $log" >&2
+cd "$bin" || exit 1
+"$bin/bb-probe" "$out/boot-linked.bin" --content-profile "$out/content.bin" --app0 "$game" \
+    --user "$data/user" --timeout 0 >> "$log" 2>&1
+code=$?
+if (( code != 0 )); then
+    say error "The game ended with code $code. Log: $log"$'\n\n'"$(tail -n 8 "$log")"
+fi
+exit $code

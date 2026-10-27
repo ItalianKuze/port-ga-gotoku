@@ -3,9 +3,9 @@
 # so the binaries run on SteamOS and on the common distributions.
 #
 # The SDK's sysroot (Valve's image, verified by SHA-256) is entered with bubblewrap: no root, no
-# Docker. It brings gcc 14, cmake, ninja, glslang, SDL3 3.4.18, the Vulkan loader, zlib and X11; the
-# other dependencies (and Vulkan headers newer than its 1.4.309) are built from pinned sources into
-# the cache (the versions the Ubuntu build uses).
+# Docker. It brings gcc 14, cmake, ninja, glslang, the Vulkan loader, zlib and X11; the other
+# dependencies (and Vulkan headers newer than its 1.4.309, and SDL3) are built from pinned sources
+# into the cache (the versions the Ubuntu and Windows builds use).
 # Then build.sh runs there as a release build (PGG_RELEASE=1): libstdc++/libgcc static, libraries
 # found through $ORIGIN, no build paths in the binaries. Result: out-linux/build.
 #
@@ -49,6 +49,7 @@ deps=(
     "vma vma.tar.gz https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/archive/refs/tags/v3.3.0.tar.gz c4f6bbe6b5a45c2eb610ca9d231158e313086d5b1a40c9922cb42b597419b14e"
     "xxhash xxhash.tar.gz https://github.com/Cyan4973/xxHash/archive/refs/tags/v0.8.3.tar.gz aae608dfe8213dfd05d909a57718ef82f30722c392344583d3f39050c7f29a80"
     "zydis zydis.tar.gz https://github.com/zyantific/zydis/archive/refs/tags/v4.1.1.tar.gz 45c6d4d499a1cc80780f7834747c637509777c01dca1e98c5e7c0bfaccdb1514"
+    "sdl3 sdl3.tar.gz https://github.com/libsdl-org/SDL/releases/download/release-3.4.18/SDL3-3.4.18.tar.gz 9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3"
     "vulkan-headers vulkan-headers.tar.gz https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.341.tar.gz 8876aad926b2e72bdefddc34885472d5332e2d20aa3ed57313466f0bc982cf3f"
     "zycore zycore.tar.gz https://github.com/zyantific/zycore-c/archive/refs/tags/v1.5.2.tar.gz 943f91eb9ab2a8cc01ab9f8b785e769a273502071e0ee8011cdfcaad93947cec"
 )
@@ -87,6 +88,10 @@ if [[ ! -f $stamp ]]; then
     # Vulkan headers newer than the SDK'"'"'s 1.4.309 (the Ubuntu build'"'"'s version; headers only: the
     # player'"'"'s own Vulkan loader runs the game).
     cmake_install Vulkan-Headers-1.4.341
+    # SDL3 of our own (the SDK'"'"'s version): the SDK'"'"'s links X11, Wayland, PulseAudio, ALSA,
+    # libdecor... directly; this one loads them when present (SDL'"'"'s default), so the package
+    # needs only libc.
+    cmake_install SDL3-3.4.18 -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
     cmake_install fmt-10.1.1 -DFMT_TEST=OFF -DFMT_DOC=OFF
     cmake_install magic_enum-0.9.7 -DMAGIC_ENUM_OPT_BUILD_EXAMPLES=OFF -DMAGIC_ENUM_OPT_BUILD_TESTS=OFF
     cmake_install robin-map-1.4.1
@@ -105,6 +110,11 @@ fi
 export PKG_CONFIG_PATH=$prefix/lib/pkgconfig:$prefix/share/pkgconfig
 export LD_LIBRARY_PATH=$prefix/lib
 export PGG_BUILD_DIR=out-linux/build PGG_RELEASE=1
+# Other dependencies (new headers in another folder) do not make ninja rebuild what it compiled
+# before: a build made with other dependencies starts again from scratch.
+if [[ $(cat out-linux/build/.deps 2>/dev/null) != "$stamp" ]]; then
+    rm -rf out-linux/build && mkdir -p out-linux/build && echo "$stamp" > out-linux/build/.deps
+fi
 export PGG_GPU_CMAKE_ARGS="-DCMAKE_PREFIX_PATH=$prefix -DBoost_INCLUDE_DIR=$prefix/include -DVulkan_INCLUDE_DIR=$prefix/include"
 bash build.sh "$@"
 ' build-sniper "$@"

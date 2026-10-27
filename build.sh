@@ -33,6 +33,11 @@ fi
 echo "SDL3 $(pkg-config --modversion sdl3) ($(pkg-config --variable=libdir sdl3))"
 read -r -a includes <<< "$(pkg-config --cflags vulkan sdl3)"
 read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3)"
+if [[ $release == 1 ]]; then
+    # SDL's own sdl3.pc adds -Wl,-rpath,<its libdir>: a package finds its libraries by $ORIGIN only.
+    kept=(); for flag in "${libraries[@]}"; do [[ $flag == -Wl,-rpath,* ]] || kept+=("$flag"); done
+    libraries=("${kept[@]}")
+fi
 # GPU library (shadPS4 video core + drivers), built by CMake into out/gpu/libbbgpu.so.
 # PGG_PGO: generate (instrumented build that writes pgo/ while the game runs), use, off.
 # Default: use the profile in pgo/ when there is one. PGG_LTO=OFF disables link-time optimization.
