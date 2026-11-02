@@ -1113,11 +1113,10 @@ uint64_t runtime_get_experiment_bits(void) {
  * nothing off. OrderedGuestWrites (bit 49) is in no group: setting it removes a wait, it switches
  * nothing back to upstream.
  * On an AMD GPU the textures group is off by default (the grain on RDNA, 2026-11-02), applied when
- * the GPU library knows the device (runtime_gpu_vendor_defaults). PGG_GPU_OFF, when set, takes
- * precedence over that default (its mask is the whole session's); PGG_GPU_ON=group[,group...]
- * keeps groups of the default on. */
+ * the GPU library knows the device (runtime_gpu_vendor_defaults). PGG_GPU_OFF adds to that default,
+ * it does not replace it; only PGG_GPU_ON=group[,group...] keeps groups of the default on (a group
+ * PGG_GPU_OFF names stays off). */
 static uint64_t gpu_off_mask;
-static int gpu_off_set;
 #define GPU_GROUP_TEXTURES ((1ull<<31)|(1ull<<61))
 static const struct { const char *name; uint64_t bits; } gpu_off_groups[]={
     {"memory",  1ull|4ull|64ull|512ull|2048ull|32768ull|65536ull|(1ull<<30)},
@@ -1150,22 +1149,17 @@ void runtime_gpu_off_init(void) {
     const char *env=pgg_getenv("GPU_OFF");
     if (!env) return;
     const uint64_t mask=gpu_group_bits("PGG_GPU_OFF",env);
-    gpu_off_set=1;
     __atomic_store_n(&gpu_off_mask,mask,__ATOMIC_RELEASE);
     __atomic_store_n(&runtime_disabled_optimizations,mask,__ATOMIC_RELEASE);
     printf("Runtime: PGG_GPU_OFF=%s: disabled optimizations mask=%llu\n",env,(unsigned long long)mask);
 }
 void runtime_gpu_vendor_defaults(uint32_t vendor_id) {
     if (vendor_id!=0x1002) return;
-    if (gpu_off_set) {
-        printf("Runtime: AMD GPU: PGG_GPU_OFF is set and takes precedence: the textures group follows it (%s)\n",
-               (__atomic_load_n(&gpu_off_mask,__ATOMIC_ACQUIRE)&GPU_GROUP_TEXTURES)==GPU_GROUP_TEXTURES ? "off" : "on");
-        return;
-    }
     const char *on=pgg_getenv("GPU_ON");
     const uint64_t bits=GPU_GROUP_TEXTURES & ~(on ? gpu_group_bits("PGG_GPU_ON",on) : 0);
     if (!bits) {
-        printf("Runtime: AMD GPU: textures group on (PGG_GPU_ON=%s)\n",on);
+        printf("Runtime: AMD GPU: textures group kept on by PGG_GPU_ON=%s%s\n",on,
+               (__atomic_load_n(&gpu_off_mask,__ATOMIC_ACQUIRE)&GPU_GROUP_TEXTURES) ? " (PGG_GPU_OFF still switches part of it off)" : "");
         return;
     }
     __atomic_fetch_or(&gpu_off_mask,bits,__ATOMIC_ACQ_REL);
