@@ -272,7 +272,25 @@ static int pad_value(SDL_Gamepad *g, int input) {
 static uint8_t key_axis(uint8_t value, int negative, int positive) {
     return negative || positive ? (uint8_t)(128-(negative ? 128 : 0)+(positive ? 127 : 0)) : value;
 }
+/* Alt+Enter is the window's fullscreen switch (gpu/shim/window.cpp), not the game's: from the
+ * moment both are held, Alt and Enter are left out until each is released (Enter is Options by
+ * default, and a key binding may name Alt). */
+static const bool *without_alt_enter(const bool *k) {
+    static bool copy[SDL_SCANCODE_COUNT];
+    static int alt_held, enter_held;
+    const int alt=k[SDL_SCANCODE_LALT] || k[SDL_SCANCODE_RALT];
+    const int enter=k[SDL_SCANCODE_RETURN] || k[SDL_SCANCODE_KP_ENTER];
+    if (alt && enter) alt_held=enter_held=1;
+    if (!alt) alt_held=0;
+    if (!enter) enter_held=0;
+    if (!alt_held && !enter_held) return k;
+    memcpy(copy,k,sizeof copy);
+    if (alt_held) copy[SDL_SCANCODE_LALT]=copy[SDL_SCANCODE_RALT]=false;
+    if (enter_held) copy[SDL_SCANCODE_RETURN]=copy[SDL_SCANCODE_KP_ENTER]=false;
+    return copy;
+}
 static void apply_keyboard(PadData *d, const bool *k) {
+    k=without_alt_enter(k);
     for (int i=IN_CROSS;i<=IN_RIGHT;++i)
         if (i!=IN_TOUCHPAD && i!=IN_TOUCHPAD_RIGHT && key_down(k,i)) d->buttons|=input_buttons[i];
     if (key_down(k,IN_TOUCHPAD)) touch_click(d,0);

@@ -66,7 +66,7 @@ percorsi dei file): puoi sostituirlo prima di allegarli.
 
 Come nel [README in inglese](README.md#requirements) e in [docs/BUILDING.md](docs/BUILDING.md). Il
 launcher è in inglese e in italiano (selettore della lingua nelle Impostazioni); il menu in gioco anche
-(Insert o L3+R3). F11: HUD delle statistiche. Per uscire: la X della finestra (Alt+F4 a schermo intero);
+(Insert o L3+R3). F11: HUD delle statistiche. Alt+Invio: finestra / schermo intero (solo per la sessione). Per uscire: la X della finestra (Alt+F4 a schermo intero);
 un salvataggio in corso viene prima completato.
 
 Tutto ciò che il port scrive va in `PortGaGotoku-data`, accanto alla cartella del progetto o del

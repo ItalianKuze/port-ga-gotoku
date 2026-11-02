@@ -112,6 +112,19 @@ bool WindowSDL::PollEvents() {
             UpdateTextTitle();
             continue;
         }
+        // PortGaGotoku: Alt+Enter switches between window and fullscreen for this session (the
+        // launcher's setting, PGG_FULLSCREEN, picks the start; pgg.ini is not written). The game
+        // does not get the keys: runtime_pad.c leaves Alt+Enter out of the keyboard's pad.
+        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && (event.key.mod & SDL_KMOD_ALT) &&
+            (event.key.key == SDLK_RETURN || event.key.key == SDLK_KP_ENTER)) {
+            const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
+            if (!SDL_SetWindowFullscreen(window, !fullscreen)) {
+                LOG_WARNING(Frontend, "Alt+Enter: cannot switch fullscreen: {}", SDL_GetError());
+            } else {
+                LOG_INFO(Frontend, "Alt+Enter: {}", fullscreen ? "window" : "fullscreen");
+            }
+            continue;
+        }
         if (BbOverlay::HandleEvent(event)) {
             continue;
         }

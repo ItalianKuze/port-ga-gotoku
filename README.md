@@ -90,7 +90,7 @@ CUSA12781), prepares the boot image from it (the game files are only read) and s
 `scripts/Start Hokuto.cmd` starts it without the launcher once that is done.
 
 In the game: **Insert** or **L3+R3** opens the port's menu, **F11** the statistics HUD, **F9** starts a
-90-second performance measurement. Close the game with the window's X (Alt+F4 in fullscreen): a save in
+90-second performance measurement, **Alt+Enter** switches between window and fullscreen (for this session). Close the game with the window's X (Alt+F4 in fullscreen): a save in
 progress is finished first.
 
 Linux: not maintained in this fork for now (the code stays portable; see the roadmap).
