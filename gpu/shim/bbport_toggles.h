@@ -71,8 +71,9 @@ enum : std::uint64_t {
     /// Finished GPU writes are read back on the readback queue (BufferCache::DownloadMemory);
     /// bit set: on the graphics queue after everything queued, as before.
     ReadbackQueue = 1ull << 59,
-    /// Scene textures use PGG_ANISO (16) times anisotropic filtering instead of the game's
-    /// ratio; bit set: the game's own samplers (A/B while the game runs).
+    /// With the menu's "Anisotropic filtering 16x" (pgg.ini aniso_16x, off by default), scene
+    /// textures use PGG_ANISO (16) times anisotropic filtering instead of the game's ratio; bit
+    /// set: the game's own samplers whatever the menu says (AMD default, textures group).
     ForcedAniso = 1ull << 61,
 };
 inline bool Disabled(std::uint64_t bit) {

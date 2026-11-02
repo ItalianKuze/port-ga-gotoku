@@ -9,6 +9,7 @@
 #include "bbport_sections.h"
 #include "bbport_ce_stats.h"
 #include "bbport_toggles.h"
+#include "bbport_settings.h"
 #include "bbport_write_log.h"
 #include "bbport_guest_memory.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
@@ -58,6 +59,10 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
       host_markers_enabled{EmulatorSettings.IsVkHostMarkersEnabled()},
       guest_markers_enabled{EmulatorSettings.IsVkGuestMarkersEnabled()} {
     runtime_gpu_vendor_defaults(instance.GetVendorID()); // bbport: AMD: textures group off
+    std::printf("GPU: forced anisotropic filtering: %s (menu \"Anisotropic filtering 16x\" %s%s)\n",
+                BbSettings::Get().aniso_16x && !BbToggle::Disabled(BbToggle::ForcedAniso) ? "on" : "off, the game's samplers",
+                BbSettings::Get().aniso_16x ? "on" : "off",
+                BbToggle::Disabled(BbToggle::ForcedAniso) ? ", ForcedAniso toggle disabled" : "");
     // Before the rasterizer is bound: Liverpool enqueues buffers only once it sees it.
     draw_prep = std::make_unique<DrawPreparation>(pipeline_cache);
     if (!EmulatorSettings.IsNullGPU()) {
@@ -2819,7 +2824,9 @@ void Rasterizer::BindTextures(const Shader::Info& stage, const PreparedStage* pr
 
 // bbport: the PS4 build samples most scene textures with little or no anisotropic filtering:
 // surfaces seen at a grazing angle (stairs, floors, walls along the view) stay blurred.
-// Mipmapped linear samplers of graphics draws get PGG_ANISO (16; 0 = the game's) times.
+// Mipmapped linear samplers of graphics draws get PGG_ANISO (16; 0 = the game's) times, only
+// with the menu's "Anisotropic filtering 16x" (pgg.ini aniso_16x, off by default: the game's
+// own filtering, as on the PS4).
 void Rasterizer::ForceAnisotropy(AmdGpu::Sampler& sharp, bool is_depth) const {
     static const int forced = [] {
         const char* value = pgg_getenv("ANISO");
@@ -2836,7 +2843,8 @@ void Rasterizer::ForceAnisotropy(AmdGpu::Sampler& sharp, bool is_depth) const {
                         sharp.MaxAniso());
         }
     }
-    if (forced <= 1 || is_depth || pipeline_is_compute || BbToggle::Disabled(BbToggle::ForcedAniso) ||
+    if (forced <= 1 || is_depth || pipeline_is_compute || !BbSettings::Get().aniso_16x.load(std::memory_order_relaxed) ||
+        BbToggle::Disabled(BbToggle::ForcedAniso) ||
         sharp.mip_filter == AmdGpu::MipFilter::None ||
         (sharp.xy_min_filter != AmdGpu::Filter::Bilinear &&
          sharp.xy_min_filter != AmdGpu::Filter::AnisoLinear)) {

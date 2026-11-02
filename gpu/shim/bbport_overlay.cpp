@@ -15,6 +15,7 @@
 #include "bbport_game.h"
 #include "bbport_perf.h"
 #include "bbport_settings.h"
+#include "bbport_toggles.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -276,6 +277,12 @@ void Menu() {
 
     ImGui::SeparatorText(BbSettings::MenuText("Other"));
     Checkbox(BbSettings::MenuText("FPS counter in corner"), s.show_fps);
+    Checkbox(BbSettings::MenuText("Anisotropic filtering 16x"), s.aniso_16x);
+    Hint(BbSettings::MenuText("Sharper textures at a grazing angle (floors, stairs, walls along the view) than the "
+                              "game's own filtering. May cause artifacts on some AMD GPUs."));
+    if (s.aniso_16x && BbToggle::Disabled(BbToggle::ForcedAniso)) {
+        ImGui::TextColored(palette.warn, "%s", BbSettings::MenuText("Off on this GPU (AMD): PGG_GPU_ON=textures allows it"));
+    }
 
     ImGui::Spacing();
     if (ImGui::Button(BbSettings::MenuText("Close"))) {

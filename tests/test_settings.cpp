@@ -28,9 +28,10 @@ int main() {
 
     BbSettings::Load();
     auto& s = BbSettings::Get();
-    assert(!s.show_fps && !s.show_hud && s.menu_x < 0.0f);
+    assert(!s.show_fps && !s.show_hud && !s.aniso_16x && s.menu_x < 0.0f);
     s.show_fps = true;
     s.show_hud = true;
+    s.aniso_16x = true;
     s.menu_x = 0.625f;
     s.menu_y = 0.125f;
     BbSettings::Save();
@@ -41,13 +42,15 @@ int main() {
     assert(saved.find("# launcher\nupscaler=fsr3\nkey.cross=X, Space\npad.circle=a\nshow_fps=1\n"
                       "fullscreen_hint=1\n") == 0);
     assert(saved.find("show_hud=1\n") != std::string::npos);
+    assert(saved.find("aniso_16x=1\n") != std::string::npos);
     assert(saved.find("menu_pos=0.6250,0.1250\n") != std::string::npos);
 
     s.menu_x = -1.0f;
     s.menu_y = -1.0f;
     s.show_hud = false;
+    s.aniso_16x = false;
     BbSettings::Load();
-    assert(s.menu_x == 0.625f && s.menu_y == 0.125f && s.show_hud);
+    assert(s.menu_x == 0.625f && s.menu_y == 0.125f && s.show_hud && s.aniso_16x);
     unlink(path);
     std::puts("PASS: settings save keeps other keys, menu position");
 }

@@ -31,6 +31,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.show_fps = i != 0;
     } else if (key == "show_hud") {
         v.show_hud = i != 0;
+    } else if (key == "aniso_16x") {
+        v.aniso_16x = i != 0;
     } else if (key == "menu_pos") {
         float x = -1.0f, y = -1.0f;
         if (std::sscanf(value.c_str(), "%f,%f", &x, &y) == 2 && x >= 0.0f && x <= 1.0f && y >= 0.0f &&
@@ -63,6 +65,10 @@ constexpr std::pair<const char*, const char*> ItalianTexts[] = {
     {"Game settings", "Impostazioni del gioco"},
     {"Hokuto's own settings will be here", "Qui arriveranno le impostazioni di Hokuto"},
     {"Other", "Altro"},
+    {"Anisotropic filtering 16x", "Filtro anisotropico 16x"},
+    {"Sharper textures at a grazing angle (floors, stairs, walls along the view) than the game's own filtering. May cause artifacts on some AMD GPUs.",
+     "Texture più nitide viste di sbieco (pavimenti, scale, muri lungo la vista) rispetto al filtro del gioco. Può causare artefatti su alcune GPU AMD."},
+    {"Off on this GPU (AMD): PGG_GPU_ON=textures allows it", "Spento su questa GPU (AMD): PGG_GPU_ON=textures lo permette"},
     {"FPS counter in corner", "Contatore FPS nell'angolo"},
     {"Close", "Chiudi"},
     {"Settings are saved to pgg.ini", "Le impostazioni sono salvate in pgg.ini"},
@@ -142,6 +148,7 @@ void Save() {
     put("menu_language", v.menu_language == MenuLanguage::Italian ? "it" : "en");
     put("show_fps", flag(v.show_fps));
     put("show_hud", flag(v.show_hud));
+    put("aniso_16x", flag(v.aniso_16x));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {
         put("menu_pos", fixed(v.menu_x, 4) + "," + fixed(v.menu_y, 4));
     }
