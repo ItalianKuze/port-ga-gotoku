@@ -16,6 +16,9 @@ extern "C" std::uint64_t runtime_get_disabled_optimizations(void);
 /// Temporary experiment bits: the second number in PGG_TOGGLE_FILE (runtime_memory.c), read through
 /// a function for the same reason.
 extern "C" std::uint64_t runtime_get_experiment_bits(void);
+/// Per-vendor default toggles (runtime_memory.c): on AMD (0x1002) the textures group is off unless
+/// PGG_GPU_OFF is set or PGG_GPU_ON names it. Called once the device is known (Rasterizer).
+extern "C" void runtime_gpu_vendor_defaults(std::uint32_t vendor_id);
 /// Recovery point for speculative guest memory reads on this thread: one declaration shared with
 /// the runtime (BbRecoverBuf, BB_RECOVER_SET, BB_RECOVER_ARM).
 #include "bbport_recover.h"

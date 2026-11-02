@@ -7,6 +7,7 @@
 # One symbol per line. Keep in sync with src/runtime*.c.
 runtime_get_disabled_optimizations
 runtime_get_experiment_bits
+runtime_gpu_vendor_defaults
 runtime_errno
 runtime_recover_arm
 runtime_quit

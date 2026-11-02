@@ -1109,24 +1109,30 @@ uint64_t runtime_get_experiment_bits(void) {
  * gpu/shim/bbport_toggles.h): memory (guest memory tracking shortcuts), copies (deferred, parallel
  * and pipelined copies, the readback queue), caches (descriptor, image and render state memos),
  * threads (draw preparation workers, pipelined GPU thread work, parallel recording), textures
- * (texture collector, forced anisotropic filtering), all. OrderedGuestWrites (bit 49) is in no
- * group: setting it removes a wait, it switches nothing back to upstream. */
+ * (texture collector, forced anisotropic filtering), all; none (or an empty value) switches
+ * nothing off. OrderedGuestWrites (bit 49) is in no group: setting it removes a wait, it switches
+ * nothing back to upstream.
+ * On an AMD GPU the textures group is off by default (the grain on RDNA, 2026-11-02), applied when
+ * the GPU library knows the device (runtime_gpu_vendor_defaults). PGG_GPU_OFF, when set, takes
+ * precedence over that default (its mask is the whole session's); PGG_GPU_ON=group[,group...]
+ * keeps groups of the default on. */
 static uint64_t gpu_off_mask;
+static int gpu_off_set;
+#define GPU_GROUP_TEXTURES ((1ull<<31)|(1ull<<61))
 static const struct { const char *name; uint64_t bits; } gpu_off_groups[]={
     {"memory",  1ull|4ull|64ull|512ull|2048ull|32768ull|65536ull|(1ull<<30)},
     {"copies",  256ull|16384ull|131072ull|262144ull|524288ull|(1ull<<42)|(1ull<<43)|(1ull<<59)},
     {"caches",  2ull|32ull|128ull|1024ull|(1ull<<33)|(1ull<<34)|(1ull<<44)|(1ull<<45)},
     {"threads", 8ull|16ull|4096ull|8192ull|(1ull<<32)|(1ull<<35)|(1ull<<36)|(1ull<<37)|(1ull<<38)|
                 (1ull<<39)|(1ull<<40)|(1ull<<41)|(1ull<<46)|(1ull<<58)},
-    {"textures",(1ull<<31)|(1ull<<61)},
+    {"textures",GPU_GROUP_TEXTURES},
 };
-void runtime_gpu_off_init(void) {
-    const char *env=pgg_getenv("GPU_OFF");
-    if (!env || !*env) return;
+/* The bits of a group list (PGG_GPU_OFF, PGG_GPU_ON). */
+static uint64_t gpu_group_bits(const char *variable, const char *list) {
     uint64_t mask=0;
-    for (const char *p=env; *p;) {
+    for (const char *p=list; *p;) {
         size_t n=strcspn(p,", ");
-        int known=0;
+        int known=n==4 && !strncmp(p,"none",4);
         for (size_t g=0; g<sizeof gpu_off_groups/sizeof gpu_off_groups[0]; ++g) {
             const int all=n==3 && !strncmp(p,"all",3);
             if (all || (strlen(gpu_off_groups[g].name)==n && !strncmp(p,gpu_off_groups[g].name,n))) {
@@ -1134,13 +1140,38 @@ void runtime_gpu_off_init(void) {
                 known=1;
             }
         }
-        if (!known && n) printf("Runtime: PGG_GPU_OFF: unknown group '%.*s' (memory, copies, caches, threads, textures, all)\n",(int)n,p);
+        if (!known && n) printf("Runtime: %s: unknown group '%.*s' (memory, copies, caches, threads, textures, all, none)\n",variable,(int)n,p);
         p+=n;
         while (*p==',' || *p==' ') ++p;
     }
-    gpu_off_mask=mask;
+    return mask;
+}
+void runtime_gpu_off_init(void) {
+    const char *env=pgg_getenv("GPU_OFF");
+    if (!env) return;
+    const uint64_t mask=gpu_group_bits("PGG_GPU_OFF",env);
+    gpu_off_set=1;
+    __atomic_store_n(&gpu_off_mask,mask,__ATOMIC_RELEASE);
     __atomic_store_n(&runtime_disabled_optimizations,mask,__ATOMIC_RELEASE);
     printf("Runtime: PGG_GPU_OFF=%s: disabled optimizations mask=%llu\n",env,(unsigned long long)mask);
+}
+void runtime_gpu_vendor_defaults(uint32_t vendor_id) {
+    if (vendor_id!=0x1002) return;
+    if (gpu_off_set) {
+        printf("Runtime: AMD GPU: PGG_GPU_OFF is set and takes precedence: the textures group follows it (%s)\n",
+               (__atomic_load_n(&gpu_off_mask,__ATOMIC_ACQUIRE)&GPU_GROUP_TEXTURES)==GPU_GROUP_TEXTURES ? "off" : "on");
+        return;
+    }
+    const char *on=pgg_getenv("GPU_ON");
+    const uint64_t bits=GPU_GROUP_TEXTURES & ~(on ? gpu_group_bits("PGG_GPU_ON",on) : 0);
+    if (!bits) {
+        printf("Runtime: AMD GPU: textures group on (PGG_GPU_ON=%s)\n",on);
+        return;
+    }
+    __atomic_fetch_or(&gpu_off_mask,bits,__ATOMIC_ACQ_REL);
+    const uint64_t mask=__atomic_or_fetch(&runtime_disabled_optimizations,bits,__ATOMIC_ACQ_REL);
+    printf("Runtime: AMD GPU: textures group off by default (texture collector, forced anisotropy); "
+           "PGG_GPU_ON=textures turns it on. Disabled optimizations mask=%llu\n",(unsigned long long)mask);
 }
 /* Speculative readers of guest memory (GPU draw-preparation workers) register a recovery
  * point: a fault on that thread jumps back to it instead of terminating (probe.c). */
@@ -1152,7 +1183,7 @@ static void *toggle_watcher(void *path) {
         FILE *f=fopen(path,"r");
         unsigned long long value=0, experiment=0;
         if (f) { if (fscanf(f,"%llu %llu",&value,&experiment)<1) value=0; fclose(f); }
-        value|=gpu_off_mask;
+        value|=__atomic_load_n(&gpu_off_mask,__ATOMIC_ACQUIRE);
         __atomic_store_n(&runtime_experiment_bits,(uint64_t)experiment,__ATOMIC_RELEASE);
         if (value!=last) {
             __atomic_store_n(&runtime_disabled_optimizations,(uint64_t)value,__ATOMIC_RELEASE);

@@ -333,7 +333,7 @@ def devices():
 # Starting the game
 
 # Diagnostic switches a tester sets in the shell that starts the launcher; they reach the game.
-DIAGNOSTIC_VARIABLES = ('PGG_LDS_BARRIERS', 'PGG_NAN_SAFE', 'PGG_GPU_OFF')
+DIAGNOSTIC_VARIABLES = ('PGG_LDS_BARRIERS', 'PGG_NAN_SAFE', 'PGG_GPU_OFF', 'PGG_GPU_ON')
 
 
 def game_path_env():

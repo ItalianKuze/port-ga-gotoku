@@ -54,6 +54,8 @@ void runtime_memory_report(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
 /* PGG_GPU_OFF: groups of GPU optimizations switched off for the session (probe.c, at start). */
 void runtime_gpu_off_init(void);
+/* The GPU library's device vendor (PCI id): per-vendor default toggles (AMD: textures group off). */
+void runtime_gpu_vendor_defaults(uint32_t vendor_id);
 #ifndef _WIN32
 static inline void runtime_memory_reserve(void) {}
 #else

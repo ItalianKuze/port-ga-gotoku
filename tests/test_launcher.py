@@ -116,6 +116,7 @@ class GameFolder(unittest.TestCase):
         os.environ['BB_FILE_TRACE'] = '1'
         os.environ['PGG_WAIT_LOG'] = '1'
         os.environ['PGG_GPU_OFF'] = 'caches'
+        os.environ['PGG_GPU_ON'] = 'textures'
         try:
             settings = {**self.game.DEFAULTS, 'game_dir': self.folder(), 'gpu': 'RTX 5070', 'fullscreen': True}
             env = self.game.game_environment(settings)
@@ -123,12 +124,14 @@ class GameFolder(unittest.TestCase):
             os.environ.pop('BB_FILE_TRACE')
             os.environ.pop('PGG_WAIT_LOG')
             os.environ.pop('PGG_GPU_OFF')
+            os.environ.pop('PGG_GPU_ON')
         # setUp names the data folder with bbport's BB_DATA_DIR: still read.
         data = Path(os.environ['BB_DATA_DIR'])
         self.assertEqual(self.game.DATA_DIR, data)
         self.assertNotIn('BB_FILE_TRACE', env)
         self.assertNotIn('PGG_WAIT_LOG', env)
         self.assertEqual(env['PGG_GPU_OFF'], 'caches')  # diagnostic switches pass through
+        self.assertEqual(env['PGG_GPU_ON'], 'textures')
         self.assertFalse([k for k in env if k.startswith('BB_')])
         self.assertEqual(env['PGG_DATA_DIR'], str(data))
         self.assertEqual(env['PGG_GPU_USER_DIR'], str(data / 'gpu'))
