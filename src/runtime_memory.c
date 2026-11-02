@@ -1104,6 +1104,44 @@ uint64_t runtime_experiment_bits;
 uint64_t runtime_get_experiment_bits(void) {
     return __atomic_load_n(&runtime_experiment_bits, __ATOMIC_ACQUIRE);
 }
+/* Diagnostics: PGG_GPU_OFF=group[,group...] switches groups of the toggles above off for the whole
+ * session, from the start (the mask PGG_TOGGLE_FILE sets is added to it). Groups (bit names in
+ * gpu/shim/bbport_toggles.h): memory (guest memory tracking shortcuts), copies (deferred, parallel
+ * and pipelined copies, the readback queue), caches (descriptor, image and render state memos),
+ * threads (draw preparation workers, pipelined GPU thread work, parallel recording), textures
+ * (texture collector, forced anisotropic filtering), all. OrderedGuestWrites (bit 49) is in no
+ * group: setting it removes a wait, it switches nothing back to upstream. */
+static uint64_t gpu_off_mask;
+static const struct { const char *name; uint64_t bits; } gpu_off_groups[]={
+    {"memory",  1ull|4ull|64ull|512ull|2048ull|32768ull|65536ull|(1ull<<30)},
+    {"copies",  256ull|16384ull|131072ull|262144ull|524288ull|(1ull<<42)|(1ull<<43)|(1ull<<59)},
+    {"caches",  2ull|32ull|128ull|1024ull|(1ull<<33)|(1ull<<34)|(1ull<<44)|(1ull<<45)},
+    {"threads", 8ull|16ull|4096ull|8192ull|(1ull<<32)|(1ull<<35)|(1ull<<36)|(1ull<<37)|(1ull<<38)|
+                (1ull<<39)|(1ull<<40)|(1ull<<41)|(1ull<<46)|(1ull<<58)},
+    {"textures",(1ull<<31)|(1ull<<61)},
+};
+void runtime_gpu_off_init(void) {
+    const char *env=pgg_getenv("GPU_OFF");
+    if (!env || !*env) return;
+    uint64_t mask=0;
+    for (const char *p=env; *p;) {
+        size_t n=strcspn(p,", ");
+        int known=0;
+        for (size_t g=0; g<sizeof gpu_off_groups/sizeof gpu_off_groups[0]; ++g) {
+            const int all=n==3 && !strncmp(p,"all",3);
+            if (all || (strlen(gpu_off_groups[g].name)==n && !strncmp(p,gpu_off_groups[g].name,n))) {
+                mask|=gpu_off_groups[g].bits;
+                known=1;
+            }
+        }
+        if (!known && n) printf("Runtime: PGG_GPU_OFF: unknown group '%.*s' (memory, copies, caches, threads, textures, all)\n",(int)n,p);
+        p+=n;
+        while (*p==',' || *p==' ') ++p;
+    }
+    gpu_off_mask=mask;
+    __atomic_store_n(&runtime_disabled_optimizations,mask,__ATOMIC_RELEASE);
+    printf("Runtime: PGG_GPU_OFF=%s: disabled optimizations mask=%llu\n",env,(unsigned long long)mask);
+}
 /* Speculative readers of guest memory (GPU draw-preparation workers) register a recovery
  * point: a fault on that thread jumps back to it instead of terminating (probe.c). */
 #ifndef _WIN32
@@ -1114,6 +1152,7 @@ static void *toggle_watcher(void *path) {
         FILE *f=fopen(path,"r");
         unsigned long long value=0, experiment=0;
         if (f) { if (fscanf(f,"%llu %llu",&value,&experiment)<1) value=0; fclose(f); }
+        value|=gpu_off_mask;
         __atomic_store_n(&runtime_experiment_bits,(uint64_t)experiment,__ATOMIC_RELEASE);
         if (value!=last) {
             __atomic_store_n(&runtime_disabled_optimizations,(uint64_t)value,__ATOMIC_RELEASE);

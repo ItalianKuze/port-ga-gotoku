@@ -4,6 +4,7 @@
 #pragma once
 
 #include "common/types.h"
+#include "pgg_env.h"
 
 namespace Shader {
 
@@ -57,5 +58,18 @@ struct Profile {
 
     bool operator==(const Profile&) const = default;
 };
+
+/// bbport: PGG_NAN_SAFE=1 (diagnostics): the NaN rules of upstream c49529087 (#5257) --
+/// min3/max3/med3 with NMin/NMax instead of VK_AMD_shader_trinary_minmax, saturate with NClamp
+/// (0 for NaN), V_MAC/V_MAD_LEGACY_F32 with the legacy 0 * x = 0 multiply. Not a Profile field:
+/// the shader cache's profile stays the same for normal sessions (a session with it set does not
+/// use the cache, EmulatorSettings::IsPipelineCacheEnabled).
+inline bool NanSafe() {
+    static const bool value = [] {
+        const char* env = pgg_getenv("NAN_SAFE");
+        return env && env[0] == '1';
+    }();
+    return value;
+}
 
 } // namespace Shader

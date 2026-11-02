@@ -332,10 +332,16 @@ def devices():
 # ---------------------------------------------------------------------------------------------
 # Starting the game
 
+# Diagnostic switches a tester sets in the shell that starts the launcher; they reach the game.
+DIAGNOSTIC_VARIABLES = ('PGG_LDS_BARRIERS', 'PGG_NAN_SAFE', 'PGG_GPU_OFF')
+
+
 def game_path_env():
     """The environment without other programs' DLLs: bb-probe's folder and Windows only, and no
-    PGG_* (or bbport's BB_*) variables from the shell that started the launcher."""
-    env = {k: v for k, v in os.environ.items() if not k.upper().startswith(('PGG_', 'BB_'))}
+    PGG_* (or bbport's BB_*) variables from the shell that started the launcher, except the
+    diagnostic switches (DIAGNOSTIC_VARIABLES)."""
+    env = {k: v for k, v in os.environ.items()
+           if not k.upper().startswith(('PGG_', 'BB_')) or k.upper() in DIAGNOSTIC_VARIABLES}
     root = os.environ.get('SystemRoot', r'C:\Windows')
     env['PATH'] = os.pathsep.join((str(RUN_DIR), rf'{root}\System32', root))
     return env

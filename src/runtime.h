@@ -52,6 +52,8 @@ void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);
 void runtime_memory_report(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
+/* PGG_GPU_OFF: groups of GPU optimizations switched off for the session (probe.c, at start). */
+void runtime_gpu_off_init(void);
 #ifndef _WIN32
 static inline void runtime_memory_reserve(void) {}
 #else

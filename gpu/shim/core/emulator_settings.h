@@ -62,7 +62,14 @@ public:
     bool IsNullGPU() { static const auto value = Flag("NULL_GPU", false); return value; }
     bool IsPatchShaders() { return false; }
     bool IsPipelineCacheArchived() { return false; }
-    bool IsPipelineCacheEnabled() { static const auto value = Flag("PIPELINE_CACHE", true); return value; }
+    // bbport: the shader switches for diagnostics (PGG_LDS_BARRIERS, PGG_NAN_SAFE) change the
+    // compiled shaders; a session with one of them set leaves the shader cache alone (it would be
+    // rebuilt, or would hand back shaders compiled without the switch).
+    bool IsPipelineCacheEnabled() {
+        static const auto value = Flag("PIPELINE_CACHE", true) && !pgg_getenv("LDS_BARRIERS") &&
+                                  !pgg_getenv("NAN_SAFE");
+        return value;
+    }
     bool IsRcasEnabled() { static const auto value = Flag("RCAS", true); return value; }
     bool IsReadbackLinearImagesEnabled() { static const auto value = Flag("READBACK_LINEAR", false); return value; }
     bool IsRenderdocEnabled() { return false; }

@@ -4,6 +4,7 @@
 #include "bbport_perf.h"
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
@@ -338,13 +339,25 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
             return !instance.IsFragmentShaderBarycentricSupported() &&
                    instance.GetDriverID() == vk::DriverId::eNvidiaProprietary;
         }(),
-        .needs_lds_barriers = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
-                              instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
+        // bbport: PGG_LDS_BARRIERS=0/1 overrides (diagnostics: AMD drivers get none, as upstream).
+        .needs_lds_barriers = [&] {
+            if (const char* env = pgg_getenv("LDS_BARRIERS")) {
+                return env[0] == '1';
+            }
+            return instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
+                   instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp;
+        }(),
         .needs_buffer_offsets = instance.StorageMinAlignment() > 4,
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
         .needs_clip_distance_emulation = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
         .supports_shader_stencil_export = instance_.IsShaderStencilExportSupported(),
     };
+    // bbport: say when a diagnostic shader switch reached the game (tester logs).
+    if (pgg_getenv("LDS_BARRIERS") || pgg_getenv("NAN_SAFE")) {
+        std::printf("GPU: diagnostics: LDS barriers %s, NaN-safe shaders %s; shader cache not used "
+                    "this session\n",
+                    profile.needs_lds_barriers ? "on" : "off", Shader::NanSafe() ? "on" : "off");
+    }
     WarmUp();
 
     auto [cache_result, cache] = instance.GetDevice().createPipelineCacheUnique({});

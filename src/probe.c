@@ -816,6 +816,7 @@ int main(int argc, char **argv) {
      * up (see runtime_memory.c), instead of colliding with what is already there. */
     runtime_memory_reserve();
 #endif
+    runtime_gpu_off_init();
     check_cpu();
     int cpu_only = 0, strict_imports = 0;
     unsigned timeout_seconds = 10;
