@@ -66,6 +66,9 @@ were built on are.
    folder (the one with `eboot.bin` and `sce_sys`). The launcher checks it, prepares the boot image
    (the game files are only read) and starts the game. Later, `Start Hokuto.exe` starts the game
    directly with the saved settings.
+   The 01.09 update (the free Special Packs): put its folder next to the dump, named like it plus
+   `-patch` or `-UPDATE` (`CUSA12781-patch`); its files are read over the base game's. Data only: its
+   `eboot.bin`, modules and `sce_sys` are ignored, the port runs the 01.00 eboot.
 5. The executables are not signed: at the first start Windows SmartScreen may show "Windows protected
    your PC". Click **More info** → **Run anyway**. The launcher is frozen with PyInstaller, so an
    antivirus may warn about it too.

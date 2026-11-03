@@ -53,6 +53,10 @@ conferma prima di avviare un'altra edizione. La versione provata resta CUSA12781
    (quella con `eboot.bin` e `sce_sys`). Il launcher la controlla, prepara l'immagine di avvio (i file
    del gioco vengono solo letti) e avvia il gioco. In seguito `Start Hokuto.exe` avvia direttamente il
    gioco con le impostazioni salvate.
+   L'aggiornamento 01.09 (gli Special Pack gratuiti): metti la sua cartella accanto al dump, con lo
+   stesso nome più `-patch` o `-UPDATE` (`CUSA12781-patch`); i suoi file vengono letti al posto di quelli
+   del gioco base. Solo i dati: il suo `eboot.bin`, i moduli e `sce_sys` vengono ignorati, il port usa
+   l'eboot 01.00.
 5. Gli eseguibili non sono firmati: al primo avvio Windows SmartScreen può mostrare "Windows ha
    protetto il PC". Fai clic su **Ulteriori informazioni** → **Esegui comunque**. Il launcher è
    impacchettato con PyInstaller, quindi anche un antivirus potrebbe segnalarlo.
