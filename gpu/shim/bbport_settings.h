@@ -17,8 +17,8 @@ struct Values {
     std::atomic<bool> show_fps{false};
     std::atomic<bool> show_hud{false}; ///< PortGaGotoku: the statistics HUD (F11)
     /// PortGaGotoku: scene textures with PGG_ANISO (16) times anisotropic filtering instead of the
-    /// game's own samplers (off: the PS4's filtering). Off on AMD while the textures toggle group
-    /// is (BbToggle::ForcedAniso).
+    /// game's own samplers (off: the PS4's filtering). Off on AMD by default (BbToggle::ForcedAniso,
+    /// runtime_gpu_vendor_defaults).
     std::atomic<bool> aniso_16x{false};
     /// The settings menu's position (fraction of the screen), -1 until it is moved.
     std::atomic<float> menu_x{-1.0f}, menu_y{-1.0f};

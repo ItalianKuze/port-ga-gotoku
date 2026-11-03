@@ -16,8 +16,8 @@ extern "C" std::uint64_t runtime_get_disabled_optimizations(void);
 /// Temporary experiment bits: the second number in PGG_TOGGLE_FILE (runtime_memory.c), read through
 /// a function for the same reason.
 extern "C" std::uint64_t runtime_get_experiment_bits(void);
-/// Per-vendor default toggles (runtime_memory.c): on AMD (0x1002) the textures group is off unless
-/// PGG_GPU_ON names it (PGG_GPU_OFF adds to the default). Called once the device is known (Rasterizer).
+/// Per-vendor default toggles (runtime_memory.c): on AMD (0x1002) ForcedAniso is off unless
+/// PGG_GPU_ON=textures (PGG_GPU_OFF adds to the default). Called once the device is known (Rasterizer).
 extern "C" void runtime_gpu_vendor_defaults(std::uint32_t vendor_id);
 /// Recovery point for speculative guest memory reads on this thread: one declaration shared with
 /// the runtime (BbRecoverBuf, BB_RECOVER_SET, BB_RECOVER_ARM).
@@ -73,7 +73,7 @@ enum : std::uint64_t {
     ReadbackQueue = 1ull << 59,
     /// With the menu's "Anisotropic filtering 16x" (pgg.ini aniso_16x, off by default), scene
     /// textures use PGG_ANISO (16) times anisotropic filtering instead of the game's ratio; bit
-    /// set: the game's own samplers whatever the menu says (AMD default, textures group).
+    /// set: the game's own samplers whatever the menu says (AMD default; textures group).
     ForcedAniso = 1ull << 61,
 };
 inline bool Disabled(std::uint64_t bit) {

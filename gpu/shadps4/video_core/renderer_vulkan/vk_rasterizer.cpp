@@ -58,7 +58,7 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
       pipeline_cache{instance, scheduler, liverpool, buffer_cache.GetSparsePageShift()},
       host_markers_enabled{EmulatorSettings.IsVkHostMarkersEnabled()},
       guest_markers_enabled{EmulatorSettings.IsVkGuestMarkersEnabled()} {
-    runtime_gpu_vendor_defaults(instance.GetVendorID()); // bbport: AMD: textures group off
+    runtime_gpu_vendor_defaults(instance.GetVendorID()); // bbport: AMD: ForcedAniso off
     std::printf("GPU: forced anisotropic filtering: %s (menu \"Anisotropic filtering 16x\" %s%s)\n",
                 BbSettings::Get().aniso_16x && !BbToggle::Disabled(BbToggle::ForcedAniso) ? "on" : "off, the game's samplers",
                 BbSettings::Get().aniso_16x ? "on" : "off",
