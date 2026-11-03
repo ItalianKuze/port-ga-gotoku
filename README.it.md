@@ -30,13 +30,14 @@ di sistema della PS4 e la grafica viene tradotta in Vulkan da un renderer deriva
 
 **Early alpha, sviluppato lentamente nel tempo libero.** Aspettati bug; nessuna data di rilascio.
 
-Sperimentale, giocabile sull'unica macchina su cui è stato provato (Windows 11, NVIDIA GeForce RTX
-5070, controller 8BitDo in modalità XInput).
+Sperimentale. Sviluppato su Windows 11 con una NVIDIA GeForce RTX 5070 e un controller 8BitDo in
+modalità XInput; dei tester l'hanno giocato su schede AMD Radeon (Windows e Linux) e su una GPU da 4 GB.
+Linux: sperimentale, come AppImage; Steam Deck non ancora provato.
 
 Funziona: loghi, schermata del titolo e menu, audio, filmati, gameplay (esplorazione e combattimento),
 controller e tastiera, salvataggio e caricamento (Continua), il launcher, il menu in gioco, l'HUD delle
 statistiche. Problemi noti e prossimi passi: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md),
-in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; una sola macchina provata.
+in inglese. In breve: in cammino circa 60 FPS, con cali occasionali; finora poche macchine provate.
 
 L'edizione asiatica, CUSA10053, è stata segnalata funzionante da un tester come prova sperimentale (dal
 prologo al primo salvataggio del capitolo 1, testi in cinese tradizionale); il launcher chiede una

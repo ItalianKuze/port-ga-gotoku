@@ -32,13 +32,13 @@ libraries, and the graphics are translated to Vulkan by a renderer derived from
 
 **Early alpha, developed slowly in my spare time.** Expect bugs; no release schedule.
 
-Experimental, playable on the one machine it was tested on (Windows 11, NVIDIA GeForce RTX 5070,
-8BitDo controller in XInput mode).
+Experimental. Developed on Windows 11 with an NVIDIA GeForce RTX 5070 and an 8BitDo controller in
+XInput mode; testers have played it on AMD Radeon cards (Windows and Linux) and on a 4 GB GPU.
 
 What works: logos, title screen and menus, audio, movies, gameplay (exploration and combat),
 gamepad and keyboard, saving and loading (Continue), the launcher, the in-game menu, the statistics
 HUD. Known issues and next steps: [docs/STATUS_AND_ROADMAP.md](docs/STATUS_AND_ROADMAP.md). In short:
-about 60 FPS while walking, with occasional drops; only one machine has been tested.
+about 60 FPS while walking, with occasional drops; few machines tested so far.
 
 bbport's Bloodborne-specific parts (its patches and mods, hooks in Bloodborne's code, its menu
 entries, launcher and Linux packaging) are not in this fork; the renderer, runtime and tools they
@@ -102,7 +102,8 @@ Options, **Tab**/**Backspace** touchpad left/right, **IJKL** d-pad. Keys can be 
 (`key.circle=...`). While a Windows key is held the keyboard sends nothing to the game, so shortcuts
 such as Win+Shift+S do not press buttons in it. Up to 0.1.2 Circle was Left Shift.
 
-Linux: not maintained in this fork for now (the code stays portable; see the roadmap).
+Linux: experimental, as an AppImage (built in the Steam Runtime SDK, `packaging/linux`); the Steam Deck
+has not been tried yet (see the roadmap).
 
 ## Data folder
 
