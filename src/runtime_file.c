@@ -458,22 +458,33 @@ static int64_t do_open(const char *guest,int flags,int mode) {
         host=open_for_commit(path,current,flags,mode,&commit,&temp);
         if (host<0) { errno=-host; host=-1; }
     } else host=open(current,host_flags(flags),mode ? mode : 0644);
+    struct stat s;
+    int directory=0;
+#ifdef _WIN32
+    /* The CRT's open() refuses a directory (EACCES). Opened for reading, it is its listing alone:
+     * no host descriptor (host -1), fstat goes by its path. */
+    if (host<0 && errno==EACCES && !(flags&3) && !stat(current,&s) && S_ISDIR(s.st_mode)) directory=1;
+    if (host<0 && !directory) {
+#else
     if (host<0) {
+#endif
         e=errno;
         if (e==ENOENT) { ++missing; printf("Runtime: open(%s) -> not found\n",guest); }
         return traced("open",guest,path,-e);
     }
     traced("open",guest,temp ? temp : current,host);
-    struct stat s;
     Listing *dir=NULL;
     char rel[1024];
     int app=patch_count && app_relative(guest,rel,sizeof(rel));
-    if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path,app ? rel : NULL);
+    if (directory || (!fstat(host,&s) && S_ISDIR(s.st_mode))) {
+        dir=list_directory(path,app ? rel : NULL);
+        if (directory && !dir) return -EACCES;
+    }
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
     if (fd<0) {
-        pthread_mutex_unlock(&lock); close(host); free_listing(dir);
+        pthread_mutex_unlock(&lock); if (host>=0) close(host); free_listing(dir);
         if (temp) unlink(temp);
         free(commit); free(temp); return -EMFILE;
     }
@@ -519,7 +530,7 @@ static int64_t do_close(int fd) {
     free_listing(closed.dir);
     int result=0;
     if (closed.temp) result=commit_file(&closed);
-    else close(closed.host);
+    else if (closed.host>=0) close(closed.host);
     if (closed.temp && runtime_save_trace())
         printf("FileTrace: close %s: %s = %d\n",closed.path,closed.dirty ? "replaced by its copy" : "not written, copy removed",result);
     free(closed.commit); free(closed.temp);
@@ -609,9 +620,18 @@ static int64_t do_lseek(int fd,int64_t offset,int whence) {
     off_t r=lseek(f->host,offset,whence);
     return traced_fd(whence==0 ? "lseek_set" : whence==1 ? "lseek_cur" : "lseek_end",fd,0,offset,r<0 ? -errno : r);
 }
+static int64_t do_stat(const char *guest,GuestStat *out);
 static int64_t do_fstat(int fd,GuestStat *out) {
     int h=host_fd(fd);
-    if (h<0) return -EBADF;
+    if (h<0) {
+        /* A directory opened without a host descriptor (Windows, see do_open). */
+        char guest[512]="";
+        pthread_mutex_lock(&lock);
+        File *f=get(fd);
+        if (f && f->dir) snprintf(guest,sizeof(guest),"%s",f->path);
+        pthread_mutex_unlock(&lock);
+        return guest[0] ? do_stat(guest,out) : -EBADF;
+    }
     if (!out) return -EFAULT;
     struct stat s;
     if (fstat(h,&s)) return -errno;
