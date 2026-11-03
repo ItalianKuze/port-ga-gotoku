@@ -20,6 +20,17 @@ di sistema della PS4 e la grafica viene tradotta in Vulkan da un renderer deriva
 > `eboot.bin` e `sce_sys`). Progetto non ufficiale, non affiliato né approvato da SEGA, Ryu Ga Gotoku
 > Studio, Sony Interactive Entertainment o dai detentori dei diritti di Fist of the North Star.
 
+## Funzionalità
+
+- Niente firmware né moduli di sistema della PS4: basta il proprio dump del gioco.
+- Un launcher che controlla la cartella del gioco, prepara l'immagine di boot e conserva le impostazioni.
+- Salvataggi: lista dei salvataggi a schermo nel gioco, pagina Salvataggi nel launcher, backup
+  automatici, import ed export da e verso shadPS4 e PS4 (salvataggi decifrati).
+- Un menu in gioco (Insert o L3+R3) e un HUD delle statistiche (F11).
+- Gli Special Pack dell'aggiornamento 01.09, letti dalla cartella patch accanto al dump.
+- Alt+Invio passa tra finestra e schermo intero.
+- Windows, e Linux come AppImage sperimentale.
+
 ![Kenshiro combatte nella prima zona](docs/screenshots/combat-rush-combos.jpg)
 *Combattimento nella prima zona (in finestra, HUD delle statistiche in alto a destra).*
 

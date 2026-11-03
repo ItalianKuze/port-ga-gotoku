@@ -22,6 +22,17 @@ libraries, and the graphics are translated to Vulkan by a renderer derived from
 > Star. It is not related to shadPS4 either: please do not ask about it on shadPS4's channels, nor
 > on bbport's (its issues are not upstream's).
 
+## Features
+
+- No PS4 firmware or system modules needed: only your own dump of the game.
+- A launcher that checks the game folder, prepares the boot image and keeps the settings.
+- Saves: an on-screen save list in the game, a Saves page in the launcher, automatic backups,
+  import and export from and to shadPS4 and a PS4 (decrypted saves).
+- An in-game menu (Insert or L3+R3) and a statistics HUD (F11).
+- The 01.09 Special Packs, read from the update's patch folder next to the dump.
+- Alt+Enter switches between window and fullscreen.
+- Windows, and Linux as an experimental AppImage.
+
 ![Kenshiro fighting in the first area](docs/screenshots/combat-rush-combos.jpg)
 *Combat in the first area (window mode, statistics HUD at the top right).*
 
