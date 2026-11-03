@@ -93,6 +93,12 @@ In the game: **Insert** or **L3+R3** opens the port's menu, **F11** the statisti
 90-second performance measurement, **Alt+Enter** switches between window and fullscreen (for this session). Close the game with the window's X (Alt+F4 in fullscreen): a save in
 progress is finished first.
 
+Keyboard (also with a controller connected): WASD left stick, arrow keys right stick, **Space** Cross,
+**V** Circle, **E** Square, **Q** Triangle, **1**/**3** L1/R1, **R**/**F** L2/R2, **Z**/**C** L3/R3, **Enter**
+Options, **Tab**/**Backspace** touchpad left/right, **IJKL** d-pad. Keys can be changed in `pgg.ini`
+(`key.circle=...`). While a Windows key is held the keyboard sends nothing to the game, so shortcuts
+such as Win+Shift+S do not press buttons in it. Up to 0.1.2 Circle was Left Shift.
+
 Linux: not maintained in this fork for now (the code stays portable; see the roadmap).
 
 ## Data folder

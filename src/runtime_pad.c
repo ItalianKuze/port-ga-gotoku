@@ -2,10 +2,11 @@
  * (gpu/shim/window.cpp); here state is only sampled.
  *
  * Keyboard layout (also with a gamepad connected: both drive the game):
- *   WASD left stick, arrow keys right stick, Space Cross, LShift Circle,
+ *   WASD left stick, arrow keys right stick, Space Cross, V Circle,
  *   E Square, Q Triangle, 1 L1, 3 R1, R L2, F R2, Z L3, C R3,
  *   Enter Options, Tab left touchpad, Backspace right touchpad,
- *   IJKL d-pad (I up, K down, J left, L right). */
+ *   IJKL d-pad (I up, K down, J left, L right).
+ * While a Windows key is held the keyboard sends nothing to the game (Win+Shift+S, Win+G, ...). */
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "gpu/bbgpu.h"
@@ -182,7 +183,7 @@ static int bindings_ready;
 
 static void bind_defaults(void) {
     static const struct { int input; SDL_Scancode key; } keys[]={
-        {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_LSHIFT}, {IN_SQUARE,SDL_SCANCODE_E},
+        {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_V}, {IN_SQUARE,SDL_SCANCODE_E},
         {IN_TRIANGLE,SDL_SCANCODE_Q}, {IN_L1,SDL_SCANCODE_1}, {IN_R1,SDL_SCANCODE_3},
         {IN_L2,SDL_SCANCODE_R}, {IN_R2,SDL_SCANCODE_F}, {IN_L3,SDL_SCANCODE_Z}, {IN_R3,SDL_SCANCODE_C},
         {IN_OPTIONS,SDL_SCANCODE_RETURN}, {IN_TOUCHPAD,SDL_SCANCODE_TAB},
@@ -289,8 +290,24 @@ static const bool *without_alt_enter(const bool *k) {
     if (enter_held) copy[SDL_SCANCODE_RETURN]=copy[SDL_SCANCODE_KP_ENTER]=false;
     return copy;
 }
+/* Windows key shortcuts (Win+Shift+S, Win+G, Win+Alt+R...) are the system's, not the game's: while
+ * a Windows key is held the keyboard sends nothing, and every key held meanwhile stays out until it
+ * is released, as Alt+Enter above. */
+static const bool *without_windows_keys(const bool *k) {
+    static bool copy[SDL_SCANCODE_COUNT], held[SDL_SCANCODE_COUNT];
+    static int any_held;
+    const int windows=k[SDL_SCANCODE_LGUI] || k[SDL_SCANCODE_RGUI];
+    if (!windows && !any_held) return k;
+    any_held=0;
+    for (int i=0;i<SDL_SCANCODE_COUNT;++i) {
+        held[i]=k[i] && (windows || held[i]);
+        any_held|=held[i];
+        copy[i]=k[i] && !held[i];
+    }
+    return copy;
+}
 static void apply_keyboard(PadData *d, const bool *k) {
-    k=without_alt_enter(k);
+    k=without_windows_keys(without_alt_enter(k));
     for (int i=IN_CROSS;i<=IN_RIGHT;++i)
         if (i!=IN_TOUCHPAD && i!=IN_TOUCHPAD_RIGHT && key_down(k,i)) d->buttons|=input_buttons[i];
     if (key_down(k,IN_TOUCHPAD)) touch_click(d,0);

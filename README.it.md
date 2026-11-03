@@ -69,6 +69,13 @@ launcher è in inglese e in italiano (selettore della lingua nelle Impostazioni)
 (Insert o L3+R3). F11: HUD delle statistiche. Alt+Invio: finestra / schermo intero (solo per la sessione). Per uscire: la X della finestra (Alt+F4 a schermo intero);
 un salvataggio in corso viene prima completato.
 
+Tastiera (anche con un controller collegato): WASD levetta sinistra, frecce levetta destra, **Spazio** Croce,
+**V** Cerchio, **E** Quadrato, **Q** Triangolo, **1**/**3** L1/R1, **R**/**F** L2/R2, **Z**/**C** L3/R3,
+**Invio** Options, **Tab**/**Backspace** touchpad sinistra/destra, **IJKL** croce direzionale. I tasti si
+cambiano in `pgg.ini` (`key.circle=...`). Mentre un tasto Windows è premuto la tastiera non manda niente al
+gioco, così scorciatoie come Win+Shift+S non premono tasti nel gioco. Fino alla 0.1.2 Cerchio era Shift
+sinistro.
+
 Tutto ciò che il port scrive va in `PortGaGotoku-data`, accanto alla cartella del progetto o del
 pacchetto: impostazioni, immagine di avvio, salvataggi (`user/savedata/1/CUSA12776`), backup dei
 salvataggi, log, cache degli shader.
