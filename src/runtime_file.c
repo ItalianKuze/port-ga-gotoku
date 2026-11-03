@@ -1,5 +1,6 @@
 /* Guest file system: PS4 mount points mapped onto host directories.
- *   /app0, /hostapp  -> game package root (read-only by convention)
+ *   /app0, /hostapp  -> game package root (read-only by convention), with the patch folder
+ *                       next to it (<dump>-UPDATE or <dump>-patch) overlaid file by file
  *   /temp0, /download0, /data, and mounts added by SaveData -> user directory
  * Guest descriptors are small integers in our own table; stdio 0-2 pass through.
  * Paths containing ".." components are rejected rather than normalized. */
@@ -8,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -66,6 +68,110 @@ static void remove_stale_temps(const char *dir,int depth) {
     closedir(d);
 }
 
+/* Patch overlay, as shadPS4 does it: when <app0>-UPDATE or <app0>-patch exists next to the game
+ * folder, a file under /app0 (or /hostapp) that the patch also has is read from the patch, the rest
+ * from the base. shadPS4 takes <game>-UPDATE first and falls back to <game>-patch; only one is used.
+ * Data only: the port is tied to the 01.00 eboot, so the patch's eboot.bin, its .prx modules and
+ * its sce_sys are left out. A directory both have is the base one, and its listing has the patch's
+ * entries too. The patch's files are listed once, at configure time (sorted relative paths). */
+#ifdef _WIN32
+#define path_compare strcasecmp
+#else
+#define path_compare strcmp
+#endif
+typedef struct { char *rel; int dir, logged; } PatchEntry;
+static char patch_root[512];
+static PatchEntry *patch_entries;
+static size_t patch_count, patch_capacity;
+static int patch_entry_compare(const void *a,const void *b) {
+    return path_compare(((const PatchEntry *)a)->rel,((const PatchEntry *)b)->rel);
+}
+/* Relative paths start with '/': "/data/patch/101.dat". */
+static int patch_excluded(const char *rel) {
+    size_t n=strlen(rel);
+    return !path_compare(rel,"/eboot.bin") ||
+           (!strncasecmp(rel,"/sce_sys",8) && (!rel[8] || rel[8]=='/')) ||
+           (n>4 && !strcasecmp(rel+n-4,".prx"));
+}
+static void patch_scan(const char *dir,const char *rel,int depth,size_t *skipped_eboot,size_t *skipped_prx,int *skipped_sys) {
+    DIR *d=opendir(dir);
+    if (!d) return;
+    for (struct dirent *e; (e=readdir(d));) {
+        if (!strcmp(e->d_name,".") || !strcmp(e->d_name,"..")) continue;
+        char path[1024], sub[1024]; struct stat st;
+        if ((size_t)snprintf(path,sizeof(path),"%s/%s",dir,e->d_name)>=sizeof(path) ||
+            (size_t)snprintf(sub,sizeof(sub),"%s/%s",rel,e->d_name)>=sizeof(sub) || stat(path,&st)) continue;
+        int is_dir=S_ISDIR(st.st_mode);
+        if (!is_dir && !S_ISREG(st.st_mode)) continue;
+        if (patch_excluded(sub)) {
+            if (!path_compare(sub,"/eboot.bin")) ++*skipped_eboot;
+            else if (!strncasecmp(sub,"/sce_sys",8)) *skipped_sys=1;
+            else ++*skipped_prx;
+            continue;
+        }
+        if (patch_count==patch_capacity) {
+            patch_capacity=patch_capacity ? patch_capacity*2 : 64;
+            patch_entries=realloc(patch_entries,patch_capacity*sizeof(*patch_entries));
+            if (!patch_entries) { fputs("Out of memory listing the patch folder\n",stderr); exit(1); }
+        }
+        patch_entries[patch_count++]=(PatchEntry){strdup(sub),is_dir,0};
+        if (is_dir && depth<32) patch_scan(path,sub,depth+1,skipped_eboot,skipped_prx,skipped_sys);
+    }
+    closedir(d);
+}
+static void patch_configure(const char *app0) {
+    char base[512];
+    snprintf(base,sizeof(base),"%s",app0);
+    for (size_t n=strlen(base); n>1 && (base[n-1]=='/' || base[n-1]=='\\'); --n) base[n-1]=0;
+    static const char *const suffixes[]={"-UPDATE","-patch"};
+    for (int i=0;i<2 && !patch_root[0];++i) {
+        char candidate[600]; struct stat st;
+        snprintf(candidate,sizeof(candidate),"%s%s",base,suffixes[i]);
+        if (strlen(candidate)<sizeof(patch_root) && !stat(candidate,&st) && S_ISDIR(st.st_mode))
+            snprintf(patch_root,sizeof(patch_root),"%s",candidate);
+    }
+    if (!patch_root[0]) { printf("Runtime: no patch folder (%s-UPDATE or %s-patch): /app0 is the base game only\n",base,base); return; }
+    size_t eboot=0, prx=0; int sys=0;
+    patch_scan(patch_root,"",0,&eboot,&prx,&sys);
+    if (patch_count) qsort(patch_entries,patch_count,sizeof(*patch_entries),patch_entry_compare);
+    size_t files_count=0;
+    for (size_t i=0;i<patch_count;++i) files_count+=!patch_entries[i].dir;
+    printf("Runtime: patch folder %s overlays %zu files on /app0 (the patch's file wins, the rest from the base)\n",patch_root,files_count);
+    if (eboot || prx || sys) {
+        char what[128]="";
+        if (eboot) strcat(what," eboot.bin,");
+        if (prx) snprintf(what+strlen(what),sizeof(what)-strlen(what)," %zu .prx,",prx);
+        if (sys) strcat(what," sce_sys,");
+        what[strlen(what)-1]=0;
+        printf("Runtime: patch folder: ignored%s (data only: the port runs the 01.00 eboot)\n",what);
+    }
+}
+/* A relative /app0 path in normal form ("/data//patch/" is "/data/patch", the root is "/"). */
+static void patch_key(const char *rest,char *key,size_t size) {
+    size_t k=0;
+    key[k++]='/';
+    for (const char *p=rest; *p && k+1<size; ++p)
+        if (*p!='/' || key[k-1]!='/') key[k++]=*p;
+    while (k>1 && key[k-1]=='/') --k;
+    key[k]=0;
+}
+/* The patch entry for a relative /app0 path, or NULL. */
+static PatchEntry *patch_find(const char *rest) {
+    if (!patch_count) return NULL;
+    char key[1024];
+    patch_key(rest,key,sizeof(key));
+    PatchEntry probe={key,0,0};
+    return bsearch(&probe,patch_entries,patch_count,sizeof(*patch_entries),patch_entry_compare);
+}
+/* The relative /app0 path of a guest path in normal form, or 0 if it is not under /app0 or /hostapp. */
+static int app_relative(const char *guest,char *key,size_t size) {
+    size_t n= !strncmp(guest,"/app0",5) && (!guest[5] || guest[5]=='/') ? 5
+            : !strncmp(guest,"/hostapp",8) && (!guest[8] || guest[8]=='/') ? 8
+            : guest[0]!='/' ? 0 : (size_t)-1;
+    if (n==(size_t)-1) return 0;
+    patch_key(guest+n,key,size);
+    return 1;
+}
 int runtime_file_mount(const char *guest,const char *host) {
     pthread_mutex_lock(&lock);
     for (size_t i=0;i<mount_count;++i) if (!strcmp(mounts[i].guest,guest)) {
@@ -94,6 +200,7 @@ void runtime_file_configure(const char *app0,const char *user) {
     snprintf(user_root,sizeof(user_root),"%s",user);
     runtime_file_mount("/app0",app0);
     runtime_file_mount("/hostapp",app0);
+    patch_configure(app0);
     const char *writable[]={"temp0","download0","data"};
     mkdir(user,0755);
     for (int i=0;i<3;++i) {
@@ -117,10 +224,21 @@ static int translate(const char *guest,char *out,size_t size) {
         size_t n=strlen(mounts[i].guest);
         if (!strncmp(buffer,mounts[i].guest,n) && (buffer[n]=='/' || !buffer[n]) && n>best) { best=n; m=&mounts[i]; }
     }
-    int result=0;
+    int result=0, app=m && (!strcmp(m->guest,"/app0") || !strcmp(m->guest,"/hostapp"));
     if (!m) result=ENOENT;
     else if ((size_t)snprintf(out,size,"%s%s",m->host,buffer+best)>=size) result=ENAMETOOLONG;
     pthread_mutex_unlock(&lock);
+    PatchEntry *patch=!result && app ? patch_find(buffer+best) : NULL;
+    if (patch) {
+        struct stat st;
+        char host[1024];
+        /* A directory the base has stays the base's (its listing merges the patch's entries). */
+        if ((!patch->dir || stat(out,&st)) &&
+            (size_t)snprintf(host,sizeof(host),"%s%s",patch_root,patch->rel)<size) {
+            snprintf(out,size,"%s",host);
+            if (!__atomic_exchange_n(&patch->logged,1,__ATOMIC_RELAXED)) printf("Patch: /app0%s -> %s\n",patch->rel,out);
+        }
+    }
     if (result==ENOENT) fprintf(stderr,"Runtime: no mount for guest path %s\n",guest);
     return result;
 }
@@ -142,24 +260,30 @@ static int host_flags(int flags) {
     return r|O_CLOEXEC;
 }
 static void free_listing(Listing *l) { if (l) { free(l->names); free(l->offsets); free(l->types); free(l); } }
-static Listing *list_directory(const char *path) {
+static void listing_add(Listing *l,size_t *capacity,size_t *bytes,size_t *cap_names,const char *name,unsigned char type) {
+    size_t n=strlen(name)+1;
+    if (l->count==*capacity) {
+        *capacity=*capacity ? *capacity*2 : 64;
+        l->offsets=realloc(l->offsets,*capacity*sizeof(size_t));
+        l->types=realloc(l->types,*capacity);
+    }
+    if (*bytes+n>*cap_names) { *cap_names=(*bytes+n)*2; l->names=realloc(l->names,*cap_names); }
+    if (!l->offsets || !l->types || !l->names) { fputs("Out of memory listing directory\n",stderr); exit(1); }
+    memcpy(l->names+*bytes,name,n);
+    l->offsets[l->count]=*bytes;
+    l->types[l->count]=type;
+    ++l->count; *bytes+=n;
+}
+/* rel: the directory's path relative to /app0 ("/data"), to add the patch's entries; or NULL. */
+static Listing *list_directory(const char *path,const char *rel) {
     DIR *d=opendir(path);
     if (!d) return NULL;
     Listing *l=calloc(1,sizeof(*l));
+    if (!l) { fputs("Out of memory listing directory\n",stderr); exit(1); }
     size_t capacity=0,bytes=0,cap_names=0;
     struct dirent *e;
-    while (l && (e=readdir(d))) {
+    while ((e=readdir(d))) {
         if (temp_name(e->d_name)) continue; /* a save being written: see File */
-        size_t n=strlen(e->d_name)+1;
-        if (l->count==capacity) {
-            capacity=capacity ? capacity*2 : 64;
-            l->offsets=realloc(l->offsets,capacity*sizeof(size_t));
-            l->types=realloc(l->types,capacity);
-        }
-        if (bytes+n>cap_names) { cap_names=(bytes+n)*2; l->names=realloc(l->names,cap_names); }
-        if (!l->offsets || !l->types || !l->names) { fputs("Out of memory listing directory\n",stderr); exit(1); }
-        memcpy(l->names+bytes,e->d_name,n);
-        l->offsets[l->count]=bytes;
         /* MinGW's dirent has no d_type, so ask the filesystem what the entry is. */
         unsigned char type=DT_UNKNOWN;
         {
@@ -169,10 +293,20 @@ static Listing *list_directory(const char *path) {
             if (!stat(full,&entry))
                 type = S_ISDIR(entry.st_mode) ? DT_DIR : S_ISREG(entry.st_mode) ? DT_REG : DT_UNKNOWN;
         }
-        l->types[l->count]=type==DT_DIR ? 4 : type==DT_REG ? 8 : type==DT_LNK ? 10 : 0;
-        ++l->count; bytes+=n;
+        listing_add(l,&capacity,&bytes,&cap_names,e->d_name,type==DT_DIR ? 4 : type==DT_REG ? 8 : type==DT_LNK ? 10 : 0);
     }
     closedir(d);
+    /* The patch's entries directly under rel that the listing does not have yet. */
+    size_t r=rel ? strlen(rel) : 0;
+    for (size_t i=0; rel && i<patch_count; ++i) {
+        const char *entry=patch_entries[i].rel;
+        if (strlen(entry)<=r+1 || (r>1 && strncasecmp(entry,rel,r)) || entry[r>1 ? r : 0]!='/') continue;
+        const char *name=entry+(r>1 ? r : 0)+1;
+        if (strchr(name,'/')) continue;
+        int present=0;
+        for (size_t j=0;j<l->count && !present;++j) present=!path_compare(l->names+l->offsets[j],name);
+        if (!present) listing_add(l,&capacity,&bytes,&cap_names,name,patch_entries[i].dir ? 4 : 8);
+    }
     return l;
 }
 static void convert_stat(const struct stat *s,GuestStat *g) {
@@ -332,7 +466,9 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     traced("open",guest,temp ? temp : current,host);
     struct stat s;
     Listing *dir=NULL;
-    if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path);
+    char rel[1024];
+    int app=patch_count && app_relative(guest,rel,sizeof(rel));
+    if (!fstat(host,&s) && S_ISDIR(s.st_mode)) dir=list_directory(path,app ? rel : NULL);
     pthread_mutex_lock(&lock);
     int fd=-1;
     for (int i=3;i<MAX_FILES;++i) if (!files[i].used) { fd=i; break; }
