@@ -79,13 +79,11 @@ fi
 
 # pgg.ini (bbport.ini until 0.1.2, copied the first time; the old file stays).
 [[ -f $data/pgg.ini || ! -f $data/bbport.ini ]] || cp "$data/bbport.ini" "$data/pgg.ini"
-# The game's environment, as the Windows launcher sets it; no PGG_*/BB_* from the caller but the
-# diagnostic switches (PGG_LDS_BARRIERS, PGG_NAN_SAFE, PGG_GPU_OFF, PGG_GPU_ON: Steam's
-# "PGG_X=1 %command%").
+# The game's environment, as the Windows launcher sets it. The caller's PGG_* reach the game (Steam's
+# "PGG_X=1 %command%"), but the ones set below; bbport's old BB_* names do not.
 for name in $(compgen -e); do
     case $name in
-        PGG_LDS_BARRIERS|PGG_NAN_SAFE|PGG_GPU_OFF|PGG_GPU_ON) ;;
-        PGG_*|BB_*) unset "$name" ;;
+        PGG_FULLSCREEN|BB_*) unset "$name" ;;
     esac
 done
 export PGG_DATA_DIR=$data XDG_DATA_HOME=$data PGG_GPU_USER_DIR=$data/gpu PGG_GPU_CACHE_DIR=$data/cache

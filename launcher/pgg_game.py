@@ -333,15 +333,18 @@ def devices():
 # Starting the game
 
 # Diagnostic switches a tester sets in the shell that starts the launcher; they reach the game.
-DIAGNOSTIC_VARIABLES = ('PGG_LDS_BARRIERS', 'PGG_NAN_SAFE', 'PGG_GPU_OFF', 'PGG_GPU_ON')
+# What game_environment sets from the settings: never taken from the shell.
+LAUNCHER_VARIABLES = ('PGG_DATA_DIR', 'PGG_GPU_USER_DIR', 'PGG_GPU_CACHE_DIR', 'PGG_CONFIG', 'PGG_TIMEOUT',
+                      'PGG_PRESENT_MODE', 'PGG_MENU_LANGUAGE', 'PGG_FULLSCREEN', 'PGG_GPU_DEVICE',
+                      'PGG_FRAME_STATS')
 
 
 def game_path_env():
-    """The environment without other programs' DLLs: bb-probe's folder and Windows only, and no
-    PGG_* (or bbport's BB_*) variables from the shell that started the launcher, except the
-    diagnostic switches (DIAGNOSTIC_VARIABLES)."""
+    """The environment without other programs' DLLs: bb-probe's folder and Windows only. The PGG_*
+    variables of the shell that started the launcher reach the game, except the launcher's own
+    (LAUNCHER_VARIABLES); bbport's old BB_* names do not."""
     env = {k: v for k, v in os.environ.items()
-           if not k.upper().startswith(('PGG_', 'BB_')) or k.upper() in DIAGNOSTIC_VARIABLES}
+           if not k.upper().startswith('BB_') and k.upper() not in LAUNCHER_VARIABLES}
     root = os.environ.get('SystemRoot', r'C:\Windows')
     env['PATH'] = os.pathsep.join((str(RUN_DIR), rf'{root}\System32', root))
     return env
