@@ -30,6 +30,7 @@ di sistema della PS4 e la grafica viene tradotta in Vulkan da un renderer deriva
 - Gli Special Pack dell'aggiornamento 01.09, letti dalla cartella patch accanto al dump.
 - Alt+Invio passa tra finestra e schermo intero.
 - Windows, e Linux come AppImage sperimentale.
+- Il minigioco del bartender: il giroscopio di DualShock 4 o DualSense, oppure lo stick destro su e giù.
 
 ![Kenshiro combatte nella prima zona](docs/screenshots/combat-rush-combos.jpg)
 *Combattimento nella prima zona (in finestra, HUD delle statistiche in alto a destra).*

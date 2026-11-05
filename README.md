@@ -32,6 +32,7 @@ libraries, and the graphics are translated to Vulkan by a renderer derived from
 - The 01.09 Special Packs, read from the update's patch folder next to the dump.
 - Alt+Enter switches between window and fullscreen.
 - Windows, and Linux as an experimental AppImage.
+- The bartender minigame: the gyroscope of a DualShock 4 or DualSense, or the right stick up and down.
 
 ![Kenshiro fighting in the first area](docs/screenshots/combat-rush-combos.jpg)
 *Combat in the first area (window mode, statistics HUD at the top right).*
