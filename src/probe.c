@@ -38,6 +38,7 @@ typedef struct { uint64_t target, kind, value, addend; } Reloc;
 static char (*names)[128];
 static uint64_t import_count;
 static unsigned char *image;
+static uint64_t image_size;
 static uint64_t image_span; /* mapped bytes of the guest image, for the watchdog */
 static size_t page_size;
 typedef struct { uint64_t base, size, init, tls_address, tls_memsz, tls_filesz, tls_module; } LinkedModule;
@@ -766,6 +767,11 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
  * applied at start). Descriptors are closed first so the old GPU device and its memory are
  * released before the new process opens its own. */
 volatile int runtime_restarting;
+/* The guest image, for the GPU module's write fault report: its address depends on the run. */
+void runtime_guest_image(uint64_t *start, uint64_t *end) {
+    *start=(uint64_t)(uintptr_t)image;
+    *end=*start+image_size;
+}
 /* The GPU module reads the flag through this function: a variable imported across PE DLLs
  * without dllimport would resolve to the import stub's code bytes. */
 int runtime_is_restarting(void) {
@@ -989,6 +995,7 @@ int main(int argc, char **argv) {
         }
     }
     image = allocate(round_page(size));
+    image_size = size;
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
     fclose(f);
     if (!cpu_only) {

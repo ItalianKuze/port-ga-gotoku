@@ -34,6 +34,7 @@ EXPORTS
     runtime_process_time_us
     runtime_restart
     runtime_is_restarting
+    runtime_guest_image
     runtime_sleep_stats
     runtime_thread_attach_host
     runtime_tsc_frequency

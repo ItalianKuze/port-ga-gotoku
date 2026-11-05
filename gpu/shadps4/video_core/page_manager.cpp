@@ -63,6 +63,7 @@
 #endif
 
 extern "C" void runtime_memory_set_write_watch(uintptr_t address, uint64_t size, int watch);
+extern "C" void runtime_guest_image(uint64_t* start, uint64_t* end);
 
 namespace VideoCore {
 
@@ -79,7 +80,21 @@ struct FaultSite {
 };
 std::array<FaultSite, 512> fault_sites;
 std::atomic<u64> fault_sites_dropped{0};
-constexpr u64 GuestImage = 0x800000000ull, GuestImageEnd = 0x810000000ull;
+/// The guest image: the runtime loads it at an address that depends on the run.
+struct GuestImageRange {
+    u64 start = 0, end = 0;
+    bool Contains(u64 address) const {
+        return address >= start && address < end;
+    }
+};
+const GuestImageRange& GuestImage() {
+    static const GuestImageRange range = [] {
+        GuestImageRange r;
+        runtime_guest_image(&r.start, &r.end);
+        return r;
+    }();
+    return range;
+}
 constexpr u64 HostSite = 1ull << 63;
 constexpr u64 ReadSite = 1ull << 62; ///< a read fault (PGG_READBACKS=2 protects GPU data from reads)
 
@@ -116,14 +131,15 @@ void NoteFaultSite(void* context, VAddr address) {
     const auto* g = static_cast<const ucontext_t*>(context)->uc_mcontext.gregs;
     current_fault_rip = 0;
     const u64 rip = u64(g[REG_RIP]);
-    const bool guest_code = rip >= GuestImage && rip < GuestImageEnd;
+    const auto& guest_image = GuestImage();
+    const bool guest_code = guest_image.Contains(rip);
     u64 caller = 0;
     if (guest_code) {
         // The caller: [rbp + 8] when the guest code keeps frames (its memcpy-like leaves do not).
         u64 saved[2] = {};
         iovec local{saved, sizeof(saved)}, remote{reinterpret_cast<void*>(g[REG_RBP]), sizeof(saved)};
         if (process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(sizeof(saved)) &&
-            saved[1] >= GuestImage && saved[1] < GuestImageEnd) {
+            guest_image.Contains(saved[1])) {
             caller = saved[1];
         }
     } else {
@@ -134,23 +150,23 @@ void NoteFaultSite(void* context, VAddr address) {
             remote{reinterpret_cast<void*>(g[REG_RSP]), sizeof(stack)};
         const ssize_t got = process_vm_readv(getpid(), &local, 1, &remote, 1, 0);
         for (ssize_t i = 0; i < got / 8; ++i) {
-            if (stack[i] >= GuestImage && stack[i] < GuestImageEnd) {
+            if (guest_image.Contains(stack[i])) {
                 caller = stack[i];
                 break;
             }
         }
     }
     // Guest code: its offset in the image; host code: its address with HostSite set.
-    const u64 key = (guest_code ? rip - GuestImage : rip | HostSite) |
+    const u64 key = (guest_code ? rip - guest_image.start : rip | HostSite) |
                     (Common::IsWriteError(context) ? 0 : ReadSite);
     current_fault_rip = key;
-    current_fault_caller = caller ? caller - GuestImage : 0;
+    current_fault_caller = caller ? caller - guest_image.start : 0;
     for (u64 i = 0, slot = (key * 0x9E3779B97F4A7C15ull) >> 55; i < fault_sites.size(); ++i) {
         auto& site = fault_sites[(slot + i) % fault_sites.size()];
         u64 expected = 0;
         if (site.rip.load(std::memory_order_relaxed) == key ||
             site.rip.compare_exchange_strong(expected, key)) {
-            site.caller.store(caller ? caller - GuestImage : 0, std::memory_order_relaxed);
+            site.caller.store(caller ? caller - guest_image.start : 0, std::memory_order_relaxed);
             site.last_address.store(address, std::memory_order_relaxed);
             site.count.fetch_add(1, std::memory_order_relaxed);
             return;
