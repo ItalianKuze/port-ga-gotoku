@@ -1883,6 +1883,7 @@ bool Rasterizer::BindResources(const Pipeline* pipeline) {
         IsComputeImageClear(pipeline)) {
         return false;
     }
+    ApplyComputeStencilFill(pipeline);
 
     set_write_index = 0;
     set_writes.clear();
@@ -2378,6 +2379,64 @@ bool Rasterizer::IsComputeImageClear(const Pipeline* pipeline) {
     };
     runtime.ClearImage(&image1, range, clear);
     return true;
+}
+
+// A compute fill of a whole stencil plane is how a game clears stencil: on the console the plane is
+// the stencil. Here the stencil lives in the depth image and the fill only reaches guest memory, so
+// old bits stayed for good (a mask left by the title screen cut the depth of field in half). The
+// dispatch still runs, for whoever reads the plane. PGG_STENCIL_FILL_CLEAR=0 turns this off.
+void Rasterizer::ApplyComputeStencilFill(const Pipeline* pipeline) {
+    static const bool enabled = [] {
+        const char* env = pgg_getenv("STENCIL_FILL_CLEAR");
+        return !env || env[0] != '0';
+    }();
+    if (!enabled || !pipeline->IsCompute()) {
+        return;
+    }
+    const auto& info = pipeline->GetStage(Shader::SwStage::Compute);
+    if (info.buffers.size() != 2 || !info.images.empty()) {
+        return;
+    }
+    const auto& value_desc = info.buffers[0];
+    const auto& plane_desc = info.buffers[1];
+    if (value_desc.IsSpecial() || plane_desc.IsSpecial() || value_desc.is_formatted ||
+        value_desc.is_written || !plane_desc.is_written) {
+        return;
+    }
+    // A vec4 value and one element per thread over the whole plane, in groups of 64 elements.
+    const AmdGpu::Buffer value_buf = value_desc.GetSharp(info);
+    const AmdGpu::Buffer plane_buf = plane_desc.GetSharp(info);
+    const u32 element_size = plane_buf.GetStride();
+    if (value_buf.GetSize() != 16 || element_size == 0 || element_size > 16 ||
+        CsRegs().dim_x * 64ULL * element_size != plane_buf.GetSize()) {
+        return;
+    }
+    const auto plane_id =
+        texture_cache.FindImageFromRange(plane_buf.base_address, plane_buf.GetSize(), false);
+    if (!plane_id) {
+        return;
+    }
+    auto& plane = texture_cache.GetImage(plane_id);
+    const auto depth_id = texture_cache.GetAssociatedDepth(plane);
+    if (!depth_id || plane.info.guest_size != plane_buf.GetSize()) {
+        return;
+    }
+    auto& depth = texture_cache.GetImage(depth_id);
+    if (!depth.info.props.has_stencil || depth.info.num_samples != 1) {
+        return;
+    }
+    // Every byte of the plane must get the same value.
+    const auto* bytes = reinterpret_cast<const u8*>(value_buf.base_address);
+    for (u32 i = 1; i < element_size; ++i) {
+        if (bytes[i] != bytes[0]) {
+            return;
+        }
+    }
+    const VideoCore::SubresourceRange range = {
+        .base = {.level = 0, .layer = 0},
+        .extent = depth.info.resources,
+    };
+    runtime.ClearStencil(&depth, range, bytes[0]);
 }
 
 namespace {

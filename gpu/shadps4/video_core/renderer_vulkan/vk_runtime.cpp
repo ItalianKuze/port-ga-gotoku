@@ -720,6 +720,32 @@ void Runtime::ClearImage(VideoCore::Image* dst, const VideoCore::SubresourceRang
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
 }
 
+void Runtime::ClearStencil(VideoCore::Image* dst, const VideoCore::SubresourceRange& range,
+                           u32 value) {
+    scheduler.EndRendering();
+
+    const bool needs_flush =
+        Transit(dst, vk::ImageLayout::eTransferDstOptimal, vk::PipelineStageFlagBits2::eClear,
+                vk::AccessFlagBits2::eTransferWrite, range);
+    if (needs_flush) {
+        FlushBarriers();
+    }
+
+    const vk::ImageSubresourceRange vk_range = {
+        .aspectMask = vk::ImageAspectFlagBits::eStencil,
+        .baseMipLevel = range.base.level,
+        .levelCount = range.extent.levels,
+        .baseArrayLayer = range.base.layer,
+        .layerCount = range.extent.layers,
+    };
+    scheduler.Record([image = dst->GetImage(), value, vk_range](vk::CommandBuffer cmdbuf) {
+        const vk::ClearDepthStencilValue clear = {.depth = 0.0f, .stencil = value};
+        cmdbuf.clearDepthStencilImage(image, vk::ImageLayout::eTransferDstOptimal, clear, vk_range);
+    });
+
+    dst->flags |= VideoCore::ImageFlagBits::GpuModified;
+}
+
 void Runtime::SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool copy_backing) {
     BeforeImageAccess();
     auto& backing = image->backing;

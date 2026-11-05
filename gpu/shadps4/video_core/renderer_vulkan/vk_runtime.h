@@ -91,6 +91,9 @@ public:
     void ClearImage(VideoCore::Image* dst, const VideoCore::SubresourceRange& range,
                     const vk::ClearValue& clear_value);
 
+    /// Clears the stencil aspect of a depth image; its depth is left as it is.
+    void ClearStencil(VideoCore::Image* dst, const VideoCore::SubresourceRange& range, u32 value);
+
     void SetBackingSamples(VideoCore::Image* image, u32 num_samples, bool copy_backing = true);
 
     void AccessBuffer(const VideoCore::Buffer* handle, u64 offset, u64 size,

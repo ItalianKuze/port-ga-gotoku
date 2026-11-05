@@ -393,6 +393,8 @@ private:
     bool IsComputeImageCopy(const Pipeline* pipeline);
     bool IsComputeImageClear(const Pipeline* pipeline);
 
+    void ApplyComputeStencilFill(const Pipeline* pipeline);
+
 private:
     friend class VideoCore::BufferCache;
 
