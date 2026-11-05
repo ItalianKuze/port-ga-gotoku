@@ -71,6 +71,8 @@ void runtime_memory_note_cpu_write(uintptr_t address, uint64_t size);
 void runtime_wait_note(int kind, uint64_t ns);
 void runtime_wait_report(double frames);
 void runtime_guest_call_sites(uint64_t out[3]);
+/* The guest image: its address depends on the run. */
+void runtime_guest_image(uint64_t *start, uint64_t *end);
 /* bbport: times the game's heap asked for more memory (posix_mmap): a sign it leaks. */
 uint64_t runtime_heap_growths(void);
 #ifndef _WIN32

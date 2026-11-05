@@ -368,7 +368,8 @@ static _Thread_local int wait_tid;
 void runtime_guest_call_sites(uint64_t out[3]);
 /* The first three return addresses into the game's code on this thread's stack (guest offsets). */
 static void guest_call_sites(uint64_t out[3]) {
-    const uintptr_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
+    uint64_t text_lo, text_hi;
+    runtime_guest_image(&text_lo,&text_hi);
     static _Thread_local uintptr_t stack_hi;
     if (!stack_hi) {
 #ifdef _WIN32
@@ -443,7 +444,8 @@ static void sample_handler(int sig, siginfo_t *info, void *context) {
     (void)sig; (void)info;
     const ucontext_t *uc=(const ucontext_t *)context;
     uint64_t rip=(uint64_t)uc->uc_mcontext.gregs[REG_RIP];
-    const uint64_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
+    uint64_t text_lo, text_hi;
+    runtime_guest_image(&text_lo,&text_hi);
     /* Host code: keyed with its guest caller, the first return address into the game on the stack. */
     uint64_t caller=0;
     if (rip<text_lo || rip>=text_hi) {
@@ -509,7 +511,9 @@ static void sample_report(void) {
         got_dumped=1;
         const char *got=pgg_getenv("DUMP_GOT"); /* a guest GOT slot (offset): which host function it calls */
         if (got && *got) {
-            const uint64_t target=*(const uint64_t *)(0x800000000ull+strtoull(got,NULL,0));
+            uint64_t image_lo, image_hi;
+            runtime_guest_image(&image_lo,&image_hi);
+            const uint64_t target=*(const uint64_t *)(image_lo+strtoull(got,NULL,0));
             Dl_info dl={0};
             dladdr((void *)target,&dl);
             printf("Runtime: GOT %s -> %#lx %s:%s+%#lx\n",got,(unsigned long)target,dl.dli_fname ? dl.dli_fname : "?",
@@ -523,7 +527,8 @@ static void sample_report(void) {
     for (int i=1;i<n;++i) for (int j=i;j>0 && rows[j].count>rows[j-1].count;--j) { __typeof__(rows[0]) t=rows[j]; rows[j]=rows[j-1]; rows[j-1]=t; }
     printf("Thread samples (%llu):",(unsigned long long)total);
     for (int i=0;i<n && i<16;++i) {
-        const uint64_t text_lo=0x800000000ull, text_hi=0x800000000ull+0x50d96dcull;
+        uint64_t text_lo, text_hi;
+        runtime_guest_image(&text_lo,&text_hi);
         if (rows[i].rip>=text_lo && rows[i].rip<text_hi) {
             printf("%s +%#lx %.1f%%",i?";":"",(unsigned long)(rows[i].rip-text_lo),100.0*rows[i].count/total);
             continue;
