@@ -23,7 +23,6 @@
 #include "video_core/amdgpu/liverpool.h"
 #include "bbport_toggles.h"
 #include "bbport_timeline.h"
-#include "bbport_heap_sites.h"
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
@@ -148,29 +147,18 @@ static u32 SubmitsAhead() {
     }();
     return overlap_off ? 0u : ahead;
 }
-// Once a frame: the game's live heap allocations (malloc minus free, counted by wrappers on its
-// malloc) are watched; the leak added ~1800 a second, so 100000 over the lowest count seen is
-// taken as one (or the heap asking for more memory). Then the frames stop overlapping.
+// Once a frame: the heap asking for more memory is taken as a leak. Then the frames stop overlapping.
 static void WatchOverlapLeak() {
     if (SubmitsAhead() == 0) {
         return;
     }
-    if (!BbHeapSites::Counting()) {
-        BbHeapSites::InstallCounters();
-        return;
-    }
     static u64 frames = 0;
-    static long long lowest = 0;
-    const long long live = BbHeapSites::LiveAllocations();
-    if (++frames < 600 || live < lowest) {
-        lowest = live; // warming up: area loads
-        return;
+    if (++frames < 600) {
+        return; // warming up: area loads
     }
-    if (live - lowest > 100000 || runtime_heap_growths() != 0) {
+    if (runtime_heap_growths() != 0) {
         overlap_off = true;
-        std::printf("Gnm: the game's heap grows (%lld allocations over %lld): frames no longer "
-                    "overlap (PGG_SUBMIT_AHEAD 0)\n",
-                    live - lowest, lowest);
+        std::printf("Gnm: the game's heap grows: frames no longer overlap (PGG_SUBMIT_AHEAD 0)\n");
     }
 }
 static void WaitPreviousFrameAtSubmit() {
