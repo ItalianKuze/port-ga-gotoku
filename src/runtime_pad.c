@@ -6,10 +6,16 @@
  *   E Square, Q Triangle, 1 L1, 3 R1, R L2, F R2, Z L3, C R3,
  *   Enter Options, Tab left touchpad, Backspace right touchpad,
  *   IJKL d-pad (I up, K down, J left, L right).
- * While a Windows key is held the keyboard sends nothing to the game (Win+Shift+S, Win+G, ...). */
+ * While a Windows key is held the keyboard sends nothing to the game (Win+Shift+S, Win+G, ...).
+ *
+ * Motion: the controller's accelerometer and gyroscope where it has them (DualShock 4, DualSense,
+ * Switch Pro; PGG_MOTION=off ignores them). Otherwise the right stick Y, so also the up and down
+ * arrow keys, is the acceleration on X, the only sensor value the game reads in the bartender minigame
+ * (SHAKE): the game shows the controller held upright like a shaker, moved up and down. */
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "gpu/bbgpu.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +30,9 @@
 #define ERR_ALREADY_OPENED ((int32_t)0x80920004)
 #define ERR_NOT_INITIALIZED ((int32_t)0x80920005)
 #define PAD_HANDLE 1
+/* The right stick all the way, in g: SHAKE counts up to 4 strokes a second with it at 30 updates a
+ * second, and 2 g falls short of that. */
+#define STICK_ACCEL_G 3.0f
 
 enum {
     BTN_L3=0x2, BTN_R3=0x4, BTN_OPTIONS=0x8, BTN_UP=0x10, BTN_RIGHT=0x20, BTN_DOWN=0x40, BTN_LEFT=0x80,
@@ -62,6 +71,7 @@ static int initialized, opened, sdl_ready;
 static SDL_Gamepad *gamepad;
 static size_t reads;
 static uint8_t connected_count;
+static int gamepad_has_motion;
 
 static uint64_t now_us(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000u+(uint64_t)t.tv_nsec/1000u; }
 static uint8_t axis(int16_t v) { int x=(v+32768)>>8; return (uint8_t)(x<0 ? 0 : x>255 ? 255 : x); }
@@ -75,6 +85,18 @@ static void touch_click(PadData *d, int right) {
     d->touches[0]=(PadTouch){.x=right ? 1440 : 480,.y=471,.id=0};
 }
 
+/* Turns on the sensors of a controller that was just opened; called under lock. */
+static void enable_motion(SDL_Gamepad *g) {
+    const char *setting=pgg_getenv("MOTION");
+    const int off=setting && !strcasecmp(setting,"off");
+    const int accel=SDL_GamepadHasSensor(g,SDL_SENSOR_ACCEL), gyro=SDL_GamepadHasSensor(g,SDL_SENSOR_GYRO);
+    gamepad_has_motion=0;
+    if (accel && !off) gamepad_has_motion=SDL_SetGamepadSensorEnabled(g,SDL_SENSOR_ACCEL,true);
+    if (gyro && !off) SDL_SetGamepadSensorEnabled(g,SDL_SENSOR_GYRO,true);
+    printf("Runtime: motion sensor: %s (%s)%s\n",gamepad_has_motion ? "yes" : "no",SDL_GetGamepadName(g),
+           gamepad_has_motion ? "" : accel ? ", ignored or not started: the right stick simulates it"
+                                           : ", the right stick simulates it");
+}
 /* PGG_GAMEPAD (the launcher's controller choice): its SDL GUID, or part of its name. Issue #15:
  * wheels and other controllers connected for good came first. */
 static const char *preferred_gamepad(void) {
@@ -94,7 +116,7 @@ static SDL_Gamepad *current_gamepad(void) {
     static int on_preferred; static uint64_t last_scan;
     if (!sdl_ready) sdl_ready = SDL_WasInit(SDL_INIT_GAMEPAD) ? 1 : SDL_InitSubSystem(SDL_INIT_GAMEPAD) ? 1 : -1;
     if (sdl_ready<0) return NULL;
-    if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; }
+    if (gamepad && !SDL_GamepadConnected(gamepad)) { SDL_CloseGamepad(gamepad); gamepad=NULL; gamepad_has_motion=0; }
     const char *want=preferred_gamepad();
     const uint64_t now=now_us();
     if (!gamepad || (want && !on_preferred && now-last_scan>1000000)) {
@@ -111,6 +133,7 @@ static SDL_Gamepad *current_gamepad(void) {
                 ++connected_count;
                 printf("Runtime: gamepad connected: %s%s\n",SDL_GetGamepadName(gamepad),
                        !want ? "" : on_preferred ? " (the chosen one)" : " (the chosen one is not connected)");
+                enable_motion(gamepad);
             }
         }
         SDL_free(ids);
@@ -328,9 +351,10 @@ static void sample_host(PadData *d) {
  * tokens, re-read when it changes: button names (cross circle square triangle l1 r1 l2 r2 l3 r3
  * options touchpad touchpad_left touchpad_right up down left right) are held while listed;
  * touchpad defaults to a left-side click; lx= ly= rx= ry= (0..255) override
- * the sticks; measure=N starts an N-second performance measurement (bbgpu_perf_start: benchmarks,
- * scripts/bench_hokuto.py). An empty file releases everything. */
-static struct { uint32_t buttons; int stick[4]; int touch_side; } injected={0,{-1,-1,-1,-1},-1};
+ * the sticks; shake=<Hz>,<g> shakes along X inside the runtime (the file itself is too slow for
+ * that: whole seconds on Windows); measure=N starts an N-second performance measurement
+ * (bbgpu_perf_start: benchmarks, scripts/bench_hokuto.py). An empty file releases everything. */
+static struct { uint32_t buttons; int stick[4]; int touch_side; float shake_hz, shake_g; } injected={0,{-1,-1,-1,-1},-1,0,0};
 static int replay_armed;      /* 1 while a PGG_PAD_REPLAY recording plays, 2 once it ended */
 static uint64_t replay_start; /* 0: (re)start at the next sample */
 static void read_inject(void) {
@@ -363,10 +387,13 @@ static void read_inject(void) {
     injected.buttons=0;
     injected.touch_side=-1;
     for (int i=0;i<4;++i) injected.stick[i]=-1;
+    injected.shake_hz=injected.shake_g=0;
     char token[64];
     while (fscanf(f,"%63s",token)==1) {
         if (!strcmp(token,"replay") && replay_armed!=1) { replay_armed=1; replay_start=0; } /* PGG_PAD_REPLAY */
         if (!strncmp(token,"measure=",8) && atoi(token+8)>0) bbgpu_perf_start(atoi(token+8));
+        if (!strncmp(token,"shake=",6) && sscanf(token+6,"%f,%f",&injected.shake_hz,&injected.shake_g)!=2)
+            injected.shake_hz=injected.shake_g=0;
         if (!strcmp(token,"touchpad_left") || !strcmp(token,"touchpad_right")) {
             injected.buttons|=BTN_TOUCHPAD;
             injected.touch_side=!strcmp(token,"touchpad_right");
@@ -375,8 +402,8 @@ static void read_inject(void) {
         for (int i=0;i<4;++i) if (!strncmp(token,sticks[i],3)) { int v=atoi(token+3); injected.stick[i]=v<0 ? 0 : v>255 ? 255 : v; }
     }
     fclose(f);
-    printf("Runtime: pad file: buttons 0x%x sticks %d %d %d %d\n",injected.buttons,
-           injected.stick[0],injected.stick[1],injected.stick[2],injected.stick[3]);
+    printf("Runtime: pad file: buttons 0x%x sticks %d %d %d %d shake %.2f Hz %.2f g\n",injected.buttons,
+           injected.stick[0],injected.stick[1],injected.stick[2],injected.stick[3],injected.shake_hz,injected.shake_g);
 }
 /* PGG_PAD_RECORD=<file>: F9 starts and stops recording the pad state (gamepad or keyboard) with
  * the time since F9; PGG_PAD_REPLAY=<file> plays such a recording back, started by the token
@@ -461,6 +488,25 @@ static void touch_ids(PadData *d) {
     else if (!since) since=d->timestamp;
     d->touch_held_time=d->touch_count ? (uint32_t)(d->timestamp-since) : 0;
 }
+/* Stick up (axis value 0) is the shaker going up: acceleration positive. */
+static float stick_accel(uint8_t right_y) {
+    const float v=-((int)right_y-128)/127.0f;
+    return (v<-1.0f ? -1.0f : v>1.0f ? 1.0f : v)*STICK_ACCEL_G;
+}
+static float shake_accel(double seconds, float hz, float g) {
+    return g*(float)sin(2.0*3.14159265358979323846*hz*seconds);
+}
+/* Orientation stays the identity: the game does not read it in SHAKE. Acceleration in g (SDL gives
+ * m/s^2, shadPS4 scales by 0.098), angular velocity in rad/s as SDL gives it. */
+static void apply_motion(PadData *d) {
+    if (injected.shake_g!=0) { d->acceleration[0]=shake_accel(now_us()/1e6,injected.shake_hz,injected.shake_g); return; }
+    if (!gamepad || !gamepad_has_motion) { d->acceleration[0]=stick_accel(d->right_y); return; }
+    float accel[3], gyro[3];
+    if (SDL_GetGamepadSensorData(gamepad,SDL_SENSOR_ACCEL,accel,3))
+        for (int i=0;i<3;++i) d->acceleration[i]=accel[i]/SDL_STANDARD_GRAVITY;
+    if (SDL_GetGamepadSensorData(gamepad,SDL_SENSOR_GYRO,gyro,3))
+        for (int i=0;i<3;++i) d->angular_velocity[i]=gyro[i];
+}
 static int save_dialog_open; /* for PGG_PAD_TRACE */
 static void sample(PadData *d) {
     sample_host(d);
@@ -485,6 +531,7 @@ static void sample(PadData *d) {
         d->buttons&=~hidden;
         if (hidden & BTN_L2) d->l2=0;
         if (hidden & BTN_R2) d->r2=0;
+        apply_motion(d);
     }
     save_dialog_open=dialog_open;
     touch_ids(d);
@@ -509,6 +556,9 @@ static ABI int32_t pad_open(int32_t user, int32_t type, int32_t index, const voi
     pthread_mutex_unlock(&lock);
     if (already) return ERR_ALREADY_OPENED;
     puts("Runtime: pad opened for user 1 (SDL gamepad or keyboard)");
+    pthread_mutex_lock(&lock);
+    if (!current_gamepad()) puts("Runtime: motion sensor: no (no controller): the right stick or the arrow keys simulate it");
+    pthread_mutex_unlock(&lock);
     return PAD_HANDLE;
 }
 static ABI int32_t pad_close(int32_t handle) {
