@@ -111,7 +111,7 @@ public:
     void InvalidateMemory(VAddr device_addr, u64 size, bool assume_locks = false);
 
     /// bbport: a guest write fault at `device_addr` was handled; unprotect its neighbourhood.
-    void ExtendWriteFault(VAddr device_addr, u64 guest_rip = 0);
+    void ExtendWriteFault(VAddr device_addr);
 
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
     void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, bool assume_locks = false);
@@ -246,7 +246,7 @@ private:
     /// bbport PGG_GUEST_IN_PLACE: a write fault (guest thread). Blocks the CPU keeps writing (faults in
     /// 3 frames of 60) move from VRAM to the game's memory in place: dynamic data, like an upload
     /// heap; static data stays in VRAM, like a default heap.
-    void NoteCpuWrite(VAddr address, u64 guest_rip);
+    void NoteCpuWrite(VAddr address);
     /// GPU side: moves the requested blocks once the submission that may still upload into their
     /// VRAM copy was submitted; the rebind waits for it on the GPU (bind_wait_tick).
     void ProcessDemotions();

@@ -322,9 +322,7 @@ struct PageManager::Impl {
         }
         if (Common::IsWriteError(context)) {
             BbStats::Timer timer{BbStats::t_write_faults};
-            const bool handled = rasterizer->OnWriteFault(
-                addr, is_gpu_thread,
-                u64(static_cast<const ucontext_t*>(context)->uc_mcontext.gregs[REG_RIP]));
+            const bool handled = rasterizer->OnWriteFault(addr, is_gpu_thread);
             current_fault_rip = 0;
             return handled;
         } else {

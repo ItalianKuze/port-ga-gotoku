@@ -3422,12 +3422,12 @@ void Rasterizer::OnCpuWrite(VAddr addr, u64 size) {
     }
 }
 
-bool Rasterizer::OnWriteFault(VAddr addr, bool assume_locks, u64 guest_rip) {
+bool Rasterizer::OnWriteFault(VAddr addr, bool assume_locks) {
     DrainDrawPipe();
     if (!InvalidateMemory(addr, 8, assume_locks)) {
         return false;
     }
-    buffer_cache.ExtendWriteFault(addr, guest_rip);
+    buffer_cache.ExtendWriteFault(addr);
     return true;
 }
 

@@ -222,8 +222,7 @@ public:
     bool IsGpuSideThread() const;
     bool IsGpuSideThreadId(u32 tid) const;
     /// A guest write hit a protected page.
-    /// `guest_rip`: the guest instruction that wrote (0: unknown), see BufferCache::NoteCpuWrite.
-    bool OnWriteFault(VAddr addr, bool assume_locks, u64 guest_rip = 0);
+    bool OnWriteFault(VAddr addr, bool assume_locks);
     bool ReadMemory(VAddr addr, u64 size, bool assume_locks = false);
     void ProcessDownloadImages();
     bool IsMapped(VAddr addr, u64 size);

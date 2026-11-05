@@ -569,9 +569,9 @@ void BufferCache::SmallGuestCopy(const BbCopy::Item& item) {
     scheduler.NoteHostCopySource(item.source, item.size);
 }
 
-void BufferCache::ExtendWriteFault(VAddr device_addr, u64 guest_rip) {
+void BufferCache::ExtendWriteFault(VAddr device_addr) {
     if (GuestInPlace()) {
-        NoteCpuWrite(device_addr, guest_rip);
+        NoteCpuWrite(device_addr);
     }
     static const u64 window = [] {
         const char* env = pgg_getenv("FAULT_WINDOW");
@@ -1567,30 +1567,12 @@ void BufferCache::BindInPlace(u64 start, u64 end, std::vector<ResidentBind>& out
     }
 }
 
-void BufferCache::NoteCpuWrite(VAddr address, u64 guest_rip) {
+void BufferCache::NoteCpuWrite(VAddr address) {
     constexpr u32 Frames = 3, Window = 60;
-    // Guest code known to write per-frame data (reverse engineering): what it writes is an
-    // upload heap at its first write. 0x2ab7350: vertices computed on the CPU (cloth) into a
-    // ~128 MiB ring, each block written now and then; 0x20858a0: the game's allocator, its
-    // bookkeeping in GPU-mapped pages.
-    constexpr u64 Image = 0x800000000ull;
-    constexpr std::array<std::pair<u64, u64>, 2> DynamicWriters = {{
-        {Image + 0x2ab7350, Image + 0x2aba310},
-        {Image + 0x20858a0, Image + 0x2085e20},
-    }};
-    const bool dynamic_writer = std::ranges::any_of(
-        DynamicWriters, [&](const auto& r) { return guest_rip >= r.first && guest_rip < r.second; });
     const u64 block = address >> block_shift;
     const u32 frame = static_cast<u32>(BbStats::frame_number.load(std::memory_order_relaxed));
     std::scoped_lock lk{dynamic_mutex};
     auto& [last, frames] = cpu_write_frames[block];
-    if (dynamic_writer && frames < Frames) {
-        frames = Frames;
-        last = frame;
-        demote_requests.push_back(block);
-        demotes_requested.store(true, std::memory_order_release);
-        return;
-    }
     if (last == frame && frames != 0) {
         return;
     }
@@ -1753,7 +1735,7 @@ void BufferCache::NoteCpuWriteRange(VAddr addr, u64 size) {
         return;
     }
     for (VAddr block = addr >> block_shift; block <= (addr + size - 1) >> block_shift; ++block) {
-        NoteCpuWrite(block << block_shift, 0);
+        NoteCpuWrite(block << block_shift);
     }
 }
 
