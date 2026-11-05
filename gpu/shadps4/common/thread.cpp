@@ -3,6 +3,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <ctime>
 #include <string>
 #include <thread>
@@ -107,17 +108,62 @@ void SetCurrentThreadPriority(ThreadPriority new_priority) {
     SetThreadPriority(handle, windows_priority);
 }
 
+namespace {
+/// One waitable timer per thread, created on first use, closed on exit (shadPS4 PR 5435).
+/// A high resolution timer, so sleeps aren't rounded up.
+struct ThreadTimer {
+    HANDLE handle{};
+
+    HANDLE Get() {
+        if (!handle) {
+            handle = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                            TIMER_ALL_ACCESS);
+            if (!handle) {
+                handle = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+            }
+        }
+        return handle;
+    }
+
+    void Reset() {
+        if (handle) {
+            CloseHandle(handle);
+            handle = nullptr;
+        }
+    }
+
+    ~ThreadTimer() {
+        Reset();
+    }
+};
+thread_local ThreadTimer thread_timer;
+} // namespace
+
 bool AccurateSleep(const std::chrono::nanoseconds duration, std::chrono::nanoseconds* remaining,
                    const bool interruptible) {
+    // Zero or negative sleeps are a yield, no timer.
+    if (duration.count() <= 0) {
+        const auto ret = SleepEx(0, interruptible);
+        if (remaining) {
+            *remaining = std::chrono::nanoseconds(0);
+        }
+        return ret != WAIT_IO_COMPLETION;
+    }
+
     const auto begin_sleep = std::chrono::high_resolution_clock::now();
 
+    // The interval is in 100 ns units: a shorter sleep becomes one unit instead of 0.
     LARGE_INTEGER interval{
-        .QuadPart = -1 * (duration.count() / 100u),
+        .QuadPart = -1 * std::max<s64>(duration.count() / 100, 1),
     };
-    HANDLE timer = ::CreateWaitableTimer(NULL, TRUE, NULL);
+    HANDLE timer = thread_timer.Get();
     SetWaitableTimer(timer, &interval, 0, NULL, NULL, 0);
     const auto ret = WaitForSingleObjectEx(timer, INFINITE, interruptible);
-    ::CloseHandle(timer);
+
+    // After an interrupted wait the timer is still armed and would end the next sleep early.
+    if (ret != WAIT_OBJECT_0) {
+        thread_timer.Reset();
+    }
 
     if (remaining) {
         const auto end_sleep = std::chrono::high_resolution_clock::now();
