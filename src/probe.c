@@ -815,6 +815,7 @@ int main(int argc, char **argv) {
      * anywhere else. Reserving first turns the range into a placeholder the memory backend carves
      * up (see runtime_memory.c), instead of colliding with what is already there. */
     runtime_memory_reserve();
+    runtime_host_scheduling_init();
 #endif
     runtime_gpu_off_init();
     check_cpu();

@@ -58,9 +58,11 @@ void runtime_gpu_off_init(void);
 void runtime_gpu_vendor_defaults(uint32_t vendor_id);
 #ifndef _WIN32
 static inline void runtime_memory_reserve(void) {}
+static inline void runtime_host_scheduling_init(void) {}
 #else
 /* Reserves the fixed PS4 user range before anything maps inside it (probe.c). */
 void runtime_memory_reserve(void);
+void runtime_host_scheduling_init(void);
 #endif
 /* The CPU is about to write the range outside guest code (a file read): tells the GPU side. */
 void runtime_memory_note_write(uintptr_t address, uint64_t size);

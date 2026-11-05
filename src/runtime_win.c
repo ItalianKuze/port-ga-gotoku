@@ -65,6 +65,20 @@ static void exit_trace_address(const char *what, void *address) {
         fprintf(stderr, "  %s %p (no module: guest code or JIT)\n", what, address);
     }
 }
+/* Windows may slow down a process it considers in the background (EcoQoS on hybrid CPUs and laptops)
+ * and, on Windows 11, ignore its timer resolution while the window is hidden. A game opts out.
+ * PGG_POWER_THROTTLE=1 keeps Windows' behaviour. */
+void runtime_host_scheduling_init(void) {
+    const char *keep = pgg_getenv("POWER_THROTTLE");
+    if (keep && keep[0] == '1') return;
+    PROCESS_POWER_THROTTLING_STATE state = {0};
+    state.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED |
+                        PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+    state.StateMask = 0; /* both controlled, both off: full speed, timer request honoured */
+    const BOOL ok = SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &state, sizeof state);
+    printf("Runtime: power throttling off%s (PGG_POWER_THROTTLE=1 keeps it)\n", ok ? "" : " - REFUSED");
+}
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     (void)instance;
     if (reason != DLL_PROCESS_DETACH || !reserved) return TRUE; /* reserved != NULL: process exit */
