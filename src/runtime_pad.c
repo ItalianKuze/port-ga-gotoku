@@ -134,6 +134,7 @@ static SDL_Gamepad *current_gamepad(void) {
                 printf("Runtime: gamepad connected: %s%s\n",SDL_GetGamepadName(gamepad),
                        !want ? "" : on_preferred ? " (the chosen one)" : " (the chosen one is not connected)");
                 enable_motion(gamepad);
+                SDL_SetGamepadLED(gamepad,0,0,255); /* user 1's colour, as on the PS4, until the game sets one */
             }
         }
         SDL_free(ids);
