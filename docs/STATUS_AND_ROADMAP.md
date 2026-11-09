@@ -14,6 +14,18 @@ checked in game yet.
 
 Frame rate: about 60 FPS while walking on the development machine, with occasional drops.
 
+## Done in 0.1.4
+
+- The depth of field in Kenshiro's first close-up is no longer blocky: a compute fill of a stencil
+  plane now also clears the image's stencil.
+- The bartender minigame can be completed: the motion sensor of a DualShock 4 or DualSense, or the
+  right stick (and the arrow keys) up and down for the SHAKE.
+- The controller's light bar is blue as soon as it connects.
+- Frame pacing on Windows: a high resolution timer for the frame waits, and no power throttling.
+- The `PGG_*` variables set by the user reach the game when it is started from the launcher or the
+  AppImage.
+- Code cleanup: diagnostics and addresses left from bbport's Bloodborne removed.
+
 ## Done in 0.1.3
 
 - The grain around characters on AMD Radeon RX 9000 cards: forced 16x anisotropic filtering is now an
@@ -27,23 +39,18 @@ Frame rate: about 60 FPS while walking on the development machine, with occasion
 - Smaller package (about 20 MB), GPL-2.0-or-later as a whole.
 - Experimental Linux AppImage.
 
-## Next, in this order
+## Development paused
 
-1. **Motion sensor**: the bartender minigame cannot be completed without it. The controller's gyroscope
-   where there is one, a simulated input for controllers without.
-2. **Key remapping** from the launcher or the in-game menu (today it is done by hand in `pgg.ini`).
-3. **A full playthrough**, from the start to the end, noting the bugs found on the way.
-4. **Steam Deck**: tests of the Linux build on the Deck and on a desktop Linux GPU.
-5. **Beta**, when the points above hold.
-
-Alongside, when they come: performance (drops in busy areas, first-run shader compilation, GPUs with
-4 GB), the blocky depth of field in Kenshiro's first close-up (also on shadPS4: a video core issue).
+v0.1.4-alpha is the last release. What was planned next, for whoever picks it up: key remapping from
+the launcher or the in-game menu (today it is done by hand in `pgg.ini`), a full playthrough noting
+the bugs found on the way, tests on the Steam Deck, performance (drops in busy areas, first-run shader
+compilation, GPUs with 4 GB) and the flickering of some characters.
 
 ## Known issues
 
 - Occasional frame rate drops in busy areas; on weaker PCs, drops and pauses of a few seconds.
 - First-run stutter while shaders compile (a cache keeps them for the next runs).
-- Blocky depth of field in the prologue's first close-up of Kenshiro.
+- Some characters flicker (seen on a dog and a woman).
 - Movies play at 30 FPS (probably as encoded); occasional audio crackle; about 1 s of delay on some
   tutorial prompts.
 - Fullscreen with Alt+Tab has not been tested much.
@@ -53,4 +60,4 @@ Alongside, when they come: performance (drops in busy areas, first-run shader co
 
 `build.sh` builds the runtime and the GPU library; the release AppImage is built in the Steam Runtime
 SDK (`packaging/linux`). Tested so far on a virtual machine and by a tester on a desktop Linux PC; the
-Steam Deck has not been tried yet.
+Steam Deck was tried by a tester with 0.1.3.

@@ -4,6 +4,10 @@
 
 **[Download: latest release](https://github.com/ItalianKuze/port-ga-gotoku/releases)**
 
+> **Development is paused. v0.1.4-alpha is the last release.**
+> Thanks to the testers, Joshuffle, Virtual-Pie and Lockefinder, and to bbport and shadPS4, whose work
+> this port is built on.
+
 > **Note:** "native" refers only to the CPU side: the game's x86 code runs directly on the host CPU,
 > while PS4 system libraries are reimplemented (HLE). Graphics are translated to Vulkan through the
 > shadPS4 video core included in this repo (`gpu/shadps4`). This is not a full recompilation or a
@@ -42,7 +46,7 @@ libraries, and the graphics are translated to Vulkan by a renderer derived from
 
 ## Status
 
-**Early alpha, developed slowly in my spare time.** Expect bugs; no release schedule.
+**Early alpha, development paused.** Expect bugs; v0.1.4-alpha is the last release.
 
 Experimental. Developed on Windows 11 with an NVIDIA GeForce RTX 5070 and an 8BitDo controller in
 XInput mode; testers have played it on AMD Radeon cards (Windows and Linux) and on a 4 GB GPU.
